@@ -250,7 +250,9 @@ static int RunPageLines(string path, string outDir, int height, ParallelOptions 
         pages[pg] = (im, im.ToArray<Gray8>(), im.Width, im.Height);
     }
 
-    // Ink box of each line inside its truth box: pixels darker than the mid level between the darkest and lightest pixel.
+    // Ink box of each line inside its truth box: pixels darker than the mid level between the darkest and lightest pixel. Truth
+    // boxes are layout boxes and can reach into the neighbouring lines, so rows are chosen by horizontal projection (as the
+    // library's line finder does): the run of rows with ink, gaps of up to 2 rows bridged, that holds the densest row.
     var ink = new (int X0, int Y0, int X1, int Y1)[lines.Length];
     Parallel.For(0, lines.Length, po, i =>
     {
@@ -262,11 +264,22 @@ static int RunPageLines(string path, string outDir, int height, ParallelOptions 
         for (int y = by0; y < by1; y++)
             for (int x = bx0; x < bx1; x++) { int v = px[y * w + x].V; lo = Math.Min(lo, v); hi = Math.Max(hi, v); }
         int thr = (lo + hi) / 2;
-        int x0 = int.MaxValue, y0 = int.MaxValue, x1 = -1, y1 = -1;
+        var rows = new int[by1 - by0];
         for (int y = by0; y < by1; y++)
             for (int x = bx0; x < bx1; x++)
-                if (px[y * w + x].V < thr) { x0 = Math.Min(x0, x); x1 = Math.Max(x1, x); y0 = Math.Min(y0, y); y1 = Math.Max(y1, y); }
-        ink[i] = x1 < 0 ? (bx0, by0, bx1, by1) : (x0, y0, x1 + 1, y1 + 1);
+                if (px[y * w + x].V < thr) rows[y - by0]++;
+        int peak = 0;
+        for (int y = 1; y < rows.Length; y++) if (rows[y] > rows[peak]) peak = y;
+        if (rows.Length == 0 || rows[peak] == 0) { ink[i] = (bx0, by0, bx1, by1); return; }
+        int minRow = Math.Max(1, (int)(0.04 * rows[peak]));
+        int top = peak, bot = peak;
+        for (int y = peak - 1, gap = 0; y >= 0 && gap <= 2; y--) { if (rows[y] >= minRow) { top = y; gap = 0; } else gap++; }
+        for (int y = peak + 1, gap = 0; y < rows.Length && gap <= 2; y++) { if (rows[y] >= minRow) { bot = y; gap = 0; } else gap++; }
+        int x0 = int.MaxValue, x1 = -1;
+        for (int y = by0 + top; y <= by0 + bot; y++)
+            for (int x = bx0; x < bx1; x++)
+                if (px[y * w + x].V < thr) { x0 = Math.Min(x0, x); x1 = Math.Max(x1, x); }
+        ink[i] = x1 < 0 ? (bx0, by0, bx1, by1) : (x0, by0 + top, x1 + 1, by0 + bot + 1);
     });
 
     var medianH = lines.Select((l, i) => (l.Page, H: ink[i].Y1 - ink[i].Y0)).GroupBy(t => t.Page)

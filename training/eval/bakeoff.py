@@ -82,7 +82,7 @@ def main() -> None:
         raw = raw.to(dev)
         todo = {s: Path(a.sets_dir) / s for s in SYNTH}
         for s in PAGE_SETS:
-            for variant in ("margin", "finder"):
+            for variant in ("finder",):
                 if (Path(a.bench_dir) / s / variant).exists():
                     todo[f"{s}/{variant}"] = Path(a.bench_dir) / s / variant
         for label, d in todo.items():
