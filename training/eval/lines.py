@@ -28,3 +28,26 @@ def evaluate(model: CRNN, data: LineSet, charset: list[str], device: str = "cuda
             word_tot += len(ref.split())
             exact += hyp == ref
     return {"cer": char_err / char_tot, "wer": word_err / word_tot, "line_acc": exact / n, "lines": n}
+
+
+def main() -> None:
+    """uv run python -m eval.lines --checkpoint final.pt --data DIR --sets val,eval  (prints one JSON object per set)"""
+    import argparse
+    import json
+    from pathlib import Path
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--checkpoint", required=True)
+    ap.add_argument("--data", required=True)
+    ap.add_argument("--sets", required=True)
+    a = ap.parse_args()
+    ck = torch.load(a.checkpoint, map_location="cuda", weights_only=False)
+    model = CRNN(ck["config"]).cuda()
+    model.load_state_dict(ck["model"])
+    for s in a.sets.split(","):
+        r = evaluate(model, LineSet(Path(a.data) / s, ck["charset"]), ck["charset"])
+        print(json.dumps({s: r}))
+
+
+if __name__ == "__main__":
+    main()
