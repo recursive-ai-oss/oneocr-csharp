@@ -1,0 +1,21 @@
+{
+ "name": "doclaynet",
+ "version": "1.0.0",
+ "licence": "CDLA-Permissive-1.0",
+ "licence_source": "https://github.com/DS4SD/DocLayNet/blob/main/LICENSE",
+ "distribution": "official download table of the DocLayNet README (core dataset: PNG pages + COCO json)",
+ "splits": {
+  "train": 69375,
+  "val": 6489,
+  "test": 4999
+ },
+ "files": [
+  {
+   "id": "core",
+   "url": "https://codait-cos-dax.s3.us.cloud-object-storage.appdomain.cloud/dax-doclaynet/1.0.0/DocLayNet_core.zip",
+   "size": 30012083650,
+   "etag": "52242220284e12538949c5b06eb2777c-448",
+   "sha256": "af4cd16150209ee1df353c1b619489668408257e72f5e6bfbb906f1059506d2a"
+  }
+ ]
+}
