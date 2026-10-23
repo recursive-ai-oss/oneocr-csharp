@@ -1,6 +1,11 @@
 """Trains crnn-v0 on rendered line crops with CTC. Resumable; appends metrics to a log; writes a run manifest.
 
-Usage: uv run python -m train.run configs/crnn-v2.yaml
+Usage: uv run python -m train.run CONFIG.yaml [--until STEP]
+
+--until stops the process at that step after writing the resumable checkpoint, so a long schedule runs as chunks of a
+few hours: start the same command again and it continues from `ckpt-latest.pt` (weights, optimizer, step, best validation
+CER). Nothing else is state: the learning rate is a function of the step, the batch order of the seed and epoch, and the
+degradation draws of the seed and step, so a resumed run sees the same batches as an uninterrupted one.
 
 Training lines are the clean packs of the line set (DATA_DIR/clean/train); every step degrades a fresh batch on the GPU
 (degrade/gpu.py, training ranges), seeded from the run seed and the step so a resumed run draws the same batches.
@@ -65,6 +70,7 @@ def lr_at(step: int, tc: dict) -> float:
 
 
 def main() -> None:
+    until = int(sys.argv[sys.argv.index("--until") + 1]) if "--until" in sys.argv else None
     cfg = yaml.safe_load(Path(sys.argv[1]).read_text(encoding="utf-8"))
     cfg = json.loads(os.path.expandvars(json.dumps(cfg)))
     tc = cfg["train"]
@@ -78,6 +84,10 @@ def main() -> None:
 
     random.seed(seed)
     torch.manual_seed(seed)
+    if tc.get("deterministic"):  # bit-reproducible kernels, slower; used to check that resuming is exact
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     model_cfg = cfg.get("model") or default_config(cfg["arch"], len(charset))
     assert model_cfg["classes"] == len(charset)
     model = build(model_cfg).to(dev)
@@ -91,16 +101,19 @@ def main() -> None:
     manifest = run_manifest(cfg, dirs, charset_path)
     manifest["parameters"] = params
     manifest["macs_per_column"] = macs_per_column(model.config)
-    (run_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=1, ensure_ascii=False), encoding="utf-8")
+    if not (run_dir / "run_manifest.json").exists():
+        (run_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=1, ensure_ascii=False), encoding="utf-8")
 
     opt = torch.optim.AdamW(model.parameters(), lr=tc["lr"], weight_decay=tc["weight_decay"])
     step = 0
+    best = float("inf")
     ckpt_path = run_dir / "ckpt-latest.pt"
     if ckpt_path.exists():
         ck = torch.load(ckpt_path, map_location=dev, weights_only=False)
         model.load_state_dict(ck["model"])
         opt.load_state_dict(ck["opt"])
         step = ck["step"]
+        best = ck.get("best", float("inf"))
         print(f"resumed from step {step}", flush=True)
 
     train = sets["train"]
@@ -113,13 +126,13 @@ def main() -> None:
         print(json.dumps(rec), flush=True)
 
     def save(path: Path) -> None:
-        torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step, "config": model_cfg,
-                    "charset": charset, "manifest": manifest}, path)  # fmt: skip
+        torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step, "best": best,
+                    "config": model_cfg, "charset": charset, "manifest": manifest}, path)  # fmt: skip
 
     def producer(first: int, q: queue.Queue) -> None:
         """Builds batches on a background thread so the GPU is not waiting for numpy."""
         cached_epoch, batches = -1, []
-        for st in range(first, tc["steps"]):
+        for st in range(first, tc["steps"] if until is None else min(until, tc["steps"])):
             epoch, i = divmod(st, steps_per_epoch)
             if epoch != cached_epoch:
                 cached_epoch, batches = epoch, train.epoch_batches(tc["batch"], random.Random(seed * 100003 + epoch))
@@ -133,9 +146,10 @@ def main() -> None:
     threading.Thread(target=producer, args=(step, q), daemon=True).start()
 
     t0 = time.time()
-    best = float("inf")
+    stop = tc["steps"] if until is None else min(until, tc["steps"])
+    emit({"chunk_start": step, "until": stop, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "git_commit": manifest["git_commit"]})
     run_loss, run_n = 0.0, 0
-    while step < tc["steps"]:
+    while step < stop:
         x, widths, tgt, tlen = q.get()
         gen.manual_seed(seed * 1_000_003 + step)
         x, widths, _ = degrade(x.to(dev, non_blocking=True), widths.to(dev), side, gen)
@@ -147,7 +161,10 @@ def main() -> None:
         with torch.autocast("cuda", dtype=torch.bfloat16):
             logits = model(x, widths)
         lp = logits.float().log_softmax(-1).transpose(0, 1)
-        loss = F.ctc_loss(lp, tgt, ilen, tlen, blank=0, reduction="mean", zero_infinity=True)
+        if tc.get("deterministic"):  # the CUDA CTC backward uses atomic adds, whose order varies from run to run; the CPU one is exact
+            loss = F.ctc_loss(lp.cpu(), tgt, ilen, tlen, blank=0, reduction="mean", zero_infinity=True).to(dev)
+        else:
+            loss = F.ctc_loss(lp, tgt, ilen, tlen, blank=0, reduction="mean", zero_infinity=True)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
@@ -164,8 +181,11 @@ def main() -> None:
             if v["cer"] < best:  # the best checkpoint is picked on validation (training fonts), never on the held-out set
                 best = v["cer"]
                 save(run_dir / "best.pt")
-        if step % tc["ckpt_every"] == 0 or step == tc["steps"]:
+        if step % tc["ckpt_every"] == 0 or step == stop:
             save(ckpt_path)
+    if step < tc["steps"]:
+        emit({"chunk_end": step, "elapsed_s": round(time.time() - t0, 1)})
+        return
     save(run_dir / "final.pt")
     final = {"step": step, "val": evaluate(model, sets["val"], charset, dev),
              "eval_heldout": evaluate(model, sets["eval"], charset, dev), "train_seconds": round(time.time() - t0, 1)}  # fmt: skip
