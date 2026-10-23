@@ -54,4 +54,23 @@ public static class OcrImageExtensions
         ArgumentNullException.ThrowIfNull(engine);
         return engine.ToText(image);
     }
+
+    /// <summary>Reads a page image into the page model with the default engine (see <see cref="OneOcr.Default"/>).</summary>
+    /// <param name="image">The page image.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <returns>The page.</returns>
+    /// <exception cref="OcrModelException">No default engine is configured.</exception>
+    public static OcrPage Ocr(this Image image, OcrOptions? options = null) => OneOcr.Default.Ocr(image, options);
+
+    /// <summary>Reads a page image into the page model with the given engine.</summary>
+    /// <param name="image">The page image.</param>
+    /// <param name="engine">The engine to read with.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <returns>The page.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="engine"/> is null.</exception>
+    public static OcrPage Ocr(this Image image, OcrEngine engine, OcrOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        return engine.Ocr(image, options);
+    }
 }

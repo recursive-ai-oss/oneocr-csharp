@@ -103,4 +103,25 @@ public sealed class OcrLimits
 
     /// <summary>Most knots in one script's calibration curve in a model container. Default 64.</summary>
     public int MaxCalibrationKnots { get; init; } = 64;
+
+    /// <summary>Most bytes of a page-model JSON document the reader will parse. Default 128 MiB.</summary>
+    public long MaxPageJsonBytes { get; init; } = 128L * 1024 * 1024;
+
+    /// <summary>Most pages in one call or one page-model JSON document. Default 1000.</summary>
+    public int MaxPagesPerCall { get; init; } = 1000;
+
+    /// <summary>Most blocks on one page. Default 4096.</summary>
+    public int MaxBlocksPerPage { get; init; } = 4096;
+
+    /// <summary>Most words on one page. Default 2^18.</summary>
+    public int MaxWordsPerPage { get; init; } = 1 << 18;
+
+    /// <summary>Most characters (the elements below words) on one page. Default 2^20.</summary>
+    public int MaxCharsPerPage { get; init; } = 1 << 20;
+
+    /// <summary>Most regions, tables, key–value pairs and table cells (each counted on its own) on one page. Default 2^16.</summary>
+    public int MaxPageElements { get; init; } = 1 << 16;
+
+    /// <summary>Longest text of one word, line or diagnostic in a page-model document, in UTF-16 code units. Default 2^16.</summary>
+    public int MaxPageStringLength { get; init; } = 1 << 16;
 }

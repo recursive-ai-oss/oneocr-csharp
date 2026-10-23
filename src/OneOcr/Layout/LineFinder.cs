@@ -44,8 +44,14 @@ internal static class LineFinder
             throw new ArgumentException("The pixel count must equal width times height, both positive.", nameof(gray));
         }
 
-        var lines = new List<LineBox>();
         (int threshold, bool inkIsBright) = Binarize(gray);
+        return Find(gray, width, height, maxLines, threshold, inkIsBright);
+    }
+
+    /// <summary>Like <see cref="Find(ReadOnlySpan{byte}, int, int, int)"/> with the binarization already done (a negative threshold means no contrast).</summary>
+    internal static List<LineBox> Find(ReadOnlySpan<byte> gray, int width, int height, int maxLines, int threshold, bool inkIsBright)
+    {
+        var lines = new List<LineBox>();
         if (threshold < 0)
         {
             return lines;
@@ -79,6 +85,54 @@ internal static class LineFinder
             rowLast[y] = last;
         }
 
+        return FromProfiles(rowInk, rowFirst, rowLast, width, height, maxLines);
+    }
+
+    /// <summary>
+    /// Finds the lines of a region of an ink mask (one byte per pixel, 1 for ink, <paramref name="stride"/> bytes per row).
+    /// The boxes are in the mask's coordinates.
+    /// </summary>
+    internal static List<LineBox> FindInMask(ReadOnlySpan<byte> mask, int stride, LineBox region, int maxLines)
+    {
+        var rowInk = new int[region.Height];
+        var rowFirst = new int[region.Height];
+        var rowLast = new int[region.Height];
+        for (int y = 0; y < region.Height; y++)
+        {
+            ReadOnlySpan<byte> row = mask.Slice(((region.Y + y) * stride) + region.X, region.Width);
+            int count = 0, first = -1, last = -1;
+            for (int x = 0; x < row.Length; x++)
+            {
+                if (row[x] == 1)
+                {
+                    count++;
+                    if (first < 0)
+                    {
+                        first = x;
+                    }
+
+                    last = x;
+                }
+            }
+
+            rowInk[y] = count;
+            rowFirst[y] = first;
+            rowLast[y] = last;
+        }
+
+        List<LineBox> found = FromProfiles(rowInk, rowFirst, rowLast, region.Width, region.Height, maxLines);
+        for (int i = 0; i < found.Count; i++)
+        {
+            LineBox b = found[i];
+            found[i] = new LineBox(b.X + region.X, b.Y + region.Y, b.Width, b.Height);
+        }
+
+        return found;
+    }
+
+    private static List<LineBox> FromProfiles(int[] rowInk, int[] rowFirst, int[] rowLast, int width, int height, int maxLines)
+    {
+        var lines = new List<LineBox>();
         // Rows with only a few ink pixels are specks, not text.
         int noise = Math.Max(1, width / 1000);
         List<(int Y0, int Y1)> bands = Runs(rowInk, noise, height);
@@ -163,7 +217,7 @@ internal static class LineFinder
     /// Otsu's method (Otsu 1979, "A threshold selection method from gray-level histograms"): the threshold that maximizes the
     /// between-class variance. Ink is the smaller class. Returns a negative threshold when the page has no contrast.
     /// </summary>
-    private static (int Threshold, bool InkIsBright) Binarize(ReadOnlySpan<byte> gray)
+    internal static (int Threshold, bool InkIsBright) Binarize(ReadOnlySpan<byte> gray)
     {
         var histogram = new long[256];
         foreach (byte v in gray)

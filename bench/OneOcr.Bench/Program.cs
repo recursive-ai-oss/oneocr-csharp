@@ -8,11 +8,11 @@ using OneOcr.Layout;
 
 // Runs the OCR engine over a directory of page images for the scorer in bench/oneocr_bench, and checks line finding.
 //
-//   OneOcr.Bench run   --model FILE --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]] [--words 1]
+//   OneOcr.Bench run   --model FILE --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]] [--words 1] [--pagejson 1]
 //       writes <page-id>.txt for every <page-id>.png and timing.json: the one-time model load, per page the image
 //       decode time and the median-of-K recognition time, and the process's peak working set. --degree 0 is the library default.
 //       --words 1 also writes <page-id>.json, the scorer's word sidecar {"words":[{"box":[x0,y0,x1,y1],"text":..,"conf":..,"conf_raw":..}]}
-//       from OcrEngine.Recognize (greedy, calibrated and raw word confidence). It runs after the timed loop, so timings are unaffected.
+//       from OcrEngine.Ocr (greedy; word boxes are ink extents; calibrated and raw word confidence). It runs after the timed loop, so timings are unaffected.
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
 //       compares found text lines with lines derived from the truth word boxes (precision and recall at IoU >= 0.5) and times
 //       grayscale conversion, line finding and line preprocessing per page.
@@ -46,6 +46,7 @@ internal static class Program
             "randommodel" => RandomModel(options),
             "kernels" => Kernels(options),
             "decode" => DecodeBench.Run(options),
+            "strips" => Strips(options),
             _ => 2,
         };
     }
@@ -102,6 +103,23 @@ internal static class Program
         return 0;
     }
 
+    // Prints the strips (leaf region, box) the page finder cuts from one page: OneOcr.Bench strips --image FILE
+    private static int Strips(Dictionary<string, string> o)
+    {
+        Image image = Image.Load(Need(o, "image"));
+        var gray = new Gray8[image.Width * image.Height];
+        image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+        var masks = new OneOcr.BufferPool<byte>(1L << 28, 1);
+        List<StripLine> strips = StripFinder.Find(gray, image.Width, image.Height, 100000, masks, out bool used, out _, out _);
+        Console.WriteLine($"{strips.Count} strips, regions used: {used}");
+        foreach (StripLine s in strips)
+        {
+            Console.WriteLine($"leaf {s.Leaf,3}  x {s.Box.X,5} y {s.Box.Y,5} w {s.Box.Width,5} h {s.Box.Height,3}");
+        }
+
+        return 0;
+    }
+
     private static int RandomModel(Dictionary<string, string> o)
     {
         File.WriteAllBytes(Need(o, "out"), OneOcr.Tests.TestModels.RandomContainer(OneOcr.Tests.TestModels.Full, 1));
@@ -128,9 +146,9 @@ internal static class Program
         }
         double loadMs = clock.Elapsed.TotalMilliseconds;
 
-        bool writeWords = Int(o, "words", 0) != 0;
+        bool writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
-        foreach (string path in Directory.GetFiles(pages, "*.png").Order(StringComparer.Ordinal))
+        foreach (string path in Directory.GetFiles(pages).Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal))
         {
             string id = Path.GetFileNameWithoutExtension(path);
             clock.Restart();
@@ -148,9 +166,14 @@ internal static class Program
             }
 
             File.WriteAllText(Path.Combine(outDir, id + ".txt"), text, new UTF8Encoding(false));
-            if (writeWords)
+            if (writeWords || writePageJson)
             {
-                WriteWordSidecar(Path.Combine(outDir, id + ".json"), engine.Recognize(image, degree));
+                OcrPage page = engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
+                WriteWordSidecar(Path.Combine(outDir, id + ".json"), page);
+                if (writePageJson)
+                {
+                    File.WriteAllText(Path.Combine(outDir, id + ".page.json"), OcrPageJson.ToJson([page]), new UTF8Encoding(false));
+                }
             }
 
             results.Add((id, decodeMs, Median(times), text.Length));
@@ -186,17 +209,17 @@ internal static class Program
         return 0;
     }
 
-    private static void WriteWordSidecar(string path, OcrRecognition result)
+    private static void WriteWordSidecar(string path, OcrPage page)
     {
         using var stream = File.Create(path);
         using var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
         w.WriteStartObject();
         w.WriteStartArray("words");
-        foreach (OcrWord word in result.Lines.SelectMany(l => l.Words))
+        foreach (OcrWord word in page.Words)
         {
             w.WriteStartObject();
             w.WriteStartArray("box");
-            foreach (float v in new[] { word.Left, word.Top, word.Right, word.Bottom })
+            foreach (double v in new[] { word.Box.Left, word.Box.Top, word.Box.Right, word.Box.Bottom })
             {
                 w.WriteNumberValue(Math.Round(v, 2));
             }
@@ -291,7 +314,7 @@ internal static class Program
         var bad = new List<string>();
         var clock = new Stopwatch();
 
-        foreach (string path in Directory.GetFiles(pages, "*.png").Order(StringComparer.Ordinal))
+        foreach (string path in Directory.GetFiles(pages).Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal))
         {
             string id = Path.GetFileNameWithoutExtension(path);
             Image image = Image.Load(path);
