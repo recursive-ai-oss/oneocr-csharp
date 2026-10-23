@@ -59,6 +59,12 @@ def main() -> None:
         dup = len(train_synth & {r["text"] for r in plans[s] if not r["src"].startswith("book")})
         print(f"{s}: {dup} generated strings also occur in train")
         if spec["degrade"] == "heldout":
+            if "gpu_degrade" in cfg:  # every sampled quantity of the GPU stage has held-out ranges that miss the training ranges
+                g = cfg["gpu_degrade"]
+                assert set(g["heldout"]["ranges"]) == set(g["train"]["ranges"])
+                for k, r in g["heldout"]["ranges"].items():
+                    assert disjoint(r, g["train"]["ranges"][k]), k
+                continue
             for k in ("em", "blur", "noise", "contrast", "jpeg_q"):
                 assert disjoint(cfg["degrade"]["heldout"][k], cfg["degrade"]["train"][k]), k
     for s, rows in plans.items():

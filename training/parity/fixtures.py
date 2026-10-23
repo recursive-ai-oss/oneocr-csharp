@@ -8,7 +8,8 @@ Layout of OUT_DIR:
   lines/<id>.png       8-bit gray crops at the input height
   data/<id>.<layer>.f32  raw little-endian float32, row-major
 
-Layers: input [1,H,W] (normalised), conv.<i> [C,H,W] (after ReLU and pool), lstm.l<k> [T,2*hidden], fc [T,classes].
+Layers: input [1,H,W] (normalised), conv.<i> [C,H,W] (after ReLU and pool), lstm.l<k> [T,2*hidden], fc [T,classes] (crnn-v0);
+stem.<i>/mix.<i>/merge [C,H,W], proj and block.<i> [T,D], fc [T,classes] (svtr-lite).
 References run in fp32 from the container's fp16-rounded, BN-folded weights. fixtures.json also records
 the fp32-vs-fp64 difference of each layer, which is the floor for any fp32 implementation's tolerance.
 """
@@ -25,7 +26,9 @@ import numpy as np
 import torch
 
 from export.container import read_container
-from models.crnn import FoldedReference, greedy_decode
+from models.crnn import FoldedReference as CrnnReference
+from models.crnn import greedy_decode
+from models.svtr import FoldedReference as SvtrReference
 from train.data import load_gray, normalize
 
 
@@ -51,8 +54,9 @@ def main() -> None:
     shutil.copyfile(a.model, out / "model.onm")
     manifest, tensors = read_container(a.model)
     t = {k: torch.from_numpy(v) for k, v in tensors.items()}
-    ref32 = FoldedReference(manifest["config"], t)
-    ref64 = FoldedReference(manifest["config"], t, torch.float64)
+    Reference = SvtrReference if manifest["config"].get("arch") == "svtr-lite" else CrnnReference
+    ref32 = Reference(manifest["config"], t)
+    ref64 = Reference(manifest["config"], t, torch.float64)
     charset = manifest["charset"]
 
     rows = [json.loads(line) for line in (data / "labels.jsonl").read_text(encoding="utf-8").splitlines() if line]

@@ -1,0 +1,17 @@
+# Bake-off run: same line set, steps, batch, schedule and seed for every architecture. ${ONEOCR_HOME} is the state directory of the machine running the job.
+name: crnn-v2
+seed: 1
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v2.yaml
+data_dir: ${ONEOCR_HOME}/data/lines-v2
+run_dir: ${ONEOCR_HOME}/runs/crnn-v2
+train:
+  steps: 40000
+  batch: 128
+  lr: 0.002
+  warmup: 1000
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 2000
+  ckpt_every: 1000

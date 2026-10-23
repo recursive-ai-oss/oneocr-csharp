@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Builds a rendered line dataset from a line-set config: font coverage, plan, crops for every set, split checks.
 #   gen/make_lines.sh configs/lines-v1.yaml OUT_DIR [PAGE_TRUTH_DIR]
+# A config with a gpu_degrade section is rendered clean (OUT_DIR/clean/<set>, 48 px) and its evaluation sets are then
+# degraded on the GPU (degrade/materialize.py); the training set is degraded at training time.
 # Needs: ONEOCR_FONT_ROOT and ONEOCR_TEXT_ROOT (see data/fonts.py, data/texts.py fetch), dotnet and uv on PATH.
 set -euo pipefail
 cfg=$1
@@ -15,7 +17,17 @@ uv run python -c "import yaml;print('\n'.join(f['file'] for f in yaml.safe_load(
 $gen --coverage "$out/fonts.txt" --charset data/charset-v1.txt --out "$out/coverage.json"
 export ONEOCR_COVERAGE=$out/coverage.json
 uv run python -m gen.plan "$cfg" "$out"
-for s in $(uv run python -c "import yaml,sys;print(' '.join(yaml.safe_load(open('$cfg'))['sets']))"); do
-  $gen --plan "$out/$s.plan.jsonl" --out "$out/$s"
-done
+sets=$(uv run python -c "import yaml,sys;print(' '.join(yaml.safe_load(open('$cfg'))['sets']))")
+if grep -q '^gpu_degrade:' "$cfg"; then
+  for s in $sets; do
+    $gen --plan "$out/$s.plan.jsonl" --out "$out/clean/$s" --clean --height 48
+  done
+  uv run python -m degrade.materialize "$cfg" "$out"
+  # the training set has no degraded copy; the check reads its plan, so give it the clean pack's labels
+  mkdir -p "$out/train" && cp "$out/clean/train/labels.jsonl" "$out/train/labels.jsonl"
+else
+  for s in $sets; do
+    $gen --plan "$out/$s.plan.jsonl" --out "$out/$s"
+  done
+fi
 uv run python -m gen.check "$out" $truth
