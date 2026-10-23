@@ -1,0 +1,45 @@
+{
+ "name": "publaynet",
+ "version": "1.0.0",
+ "source_key": "dd0291aead90ca1079dc6ab2efd791e0974fc3692a9fba22d2c064372abc8fbf",
+ "archives": {
+  "labels": "13dd4ebf4724c5aa2359cfe639f110177ce15106288c237bf8fb1ad94248f8de",
+  "val": "ba1c21d53192a2568a1397e32c5c4ff06cce5ac5dc4b887b64486f835eb8be98",
+  "train-0": "21c769e713935c0e3b7989abdf486f3d3c82d6a70dd936ed9d444e604cf4fad2"
+ },
+ "splits": {
+  "train": {
+   "images": 47958,
+   "image_bytes": 14348763358,
+   "digest": "159bf177162fc571525ad6d8a70fed3dbbec389b65e2776e30f0b667ffd13354"
+  },
+  "val": {
+   "images": 11245,
+   "image_bytes": 3426559655,
+   "digest": "81a3365308052d5f54f81de7e0e6b8ac50548e91d99dc5b692ecda9ea8c9dcc8"
+  }
+ },
+ "image_bytes_total": 17775323013,
+ "dedup": {
+  "images": 59203,
+  "unique_hashes": 59202,
+  "duplicates_within_split": 1,
+  "hashes_across_splits": 0,
+  "dropped_from": {},
+  "examples": []
+ },
+ "licence": "annotations CDLA-Permissive-1.0; images under the PMC Open Access Subset terms (commercial-use collection)",
+ "train_annotated_images": 47958,
+ "train_annotations": 465838,
+ "train_images_without_labels": 0,
+ "val_annotated_images": 11245,
+ "val_images_without_file": 0,
+ "val_annotations": 120761,
+ "train_articles": 39841,
+ "val_articles": 7797,
+ "articles_in_both_splits": 0,
+ "train_pmcid_range": [
+  "PMC1064093",
+  "PMC6105287"
+ ]
+}

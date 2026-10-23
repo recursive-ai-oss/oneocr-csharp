@@ -1,0 +1,51 @@
+{
+ "name": "cord",
+ "version": "v2",
+ "licence": "CC-BY-4.0",
+ "licence_source": "https://github.com/clovaai/cord (README: \"This work is licensed under a Creative Commons Attribution 4.0 International License\")",
+ "distribution": "Hugging Face dataset repo naver-clova-ix/cord-v2 at the pinned revision (dataset files only); the CORD README links it as the v2 download",
+ "revision": "7f0115a4b758a71d6473b8d085751692da2fef98",
+ "splits": {
+  "train": 800,
+  "dev": 100,
+  "test": 100
+ },
+ "files": [
+  {
+   "id": "test",
+   "url": "https://huggingface.co/datasets/naver-clova-ix/cord-v2/resolve/7f0115a4b758a71d6473b8d085751692da2fef98/data/test-00000-of-00001-9c204eb3f4e11791.parquet",
+   "size": 234202795,
+   "sha256": "51c65f1788faff392abe2a0b55b023eb23e9be551c509138eaa3a832514224e7"
+  },
+  {
+   "id": "train-0",
+   "url": "https://huggingface.co/datasets/naver-clova-ix/cord-v2/resolve/7f0115a4b758a71d6473b8d085751692da2fef98/data/train-00000-of-00004-b4aaeceff1d90ecb.parquet",
+   "size": 490224630,
+   "sha256": "da3994eee1bf9bd3c57f0d53a72c3a6812c8696c5ba26245987949ddf73483cc"
+  },
+  {
+   "id": "train-1",
+   "url": "https://huggingface.co/datasets/naver-clova-ix/cord-v2/resolve/7f0115a4b758a71d6473b8d085751692da2fef98/data/train-00001-of-00004-7dbbe248962764c5.parquet",
+   "size": 441418432,
+   "sha256": "cce4def16a0d6a6c75f80be712f7494c56c318a8829b712f5c62650155c9e58e"
+  },
+  {
+   "id": "train-2",
+   "url": "https://huggingface.co/datasets/naver-clova-ix/cord-v2/resolve/7f0115a4b758a71d6473b8d085751692da2fef98/data/train-00002-of-00004-688fe1305a55e5cc.parquet",
+   "size": 443802181,
+   "sha256": "591e2db8fe8b1d364b054f46e8c375b7f00e72578914ba46a573b6858162cab2"
+  },
+  {
+   "id": "train-3",
+   "url": "https://huggingface.co/datasets/naver-clova-ix/cord-v2/resolve/7f0115a4b758a71d6473b8d085751692da2fef98/data/train-00003-of-00004-2d0cd200555ed7fd.parquet",
+   "size": 455555434,
+   "sha256": "1ffd9de8d6fbcee7630fd4cdfedff05b9b7fabc0fae4fc17557c5fe7cf178748"
+  },
+  {
+   "id": "dev",
+   "url": "https://huggingface.co/datasets/naver-clova-ix/cord-v2/resolve/7f0115a4b758a71d6473b8d085751692da2fef98/data/validation-00000-of-00001-cc3c5779fe22e8ca.parquet",
+   "size": 242080800,
+   "sha256": "0d0f6dac11fdcc549de2746aa9f53136a3bc22a2a1aff2b0b847f7622ad60c15"
+  }
+ ]
+}

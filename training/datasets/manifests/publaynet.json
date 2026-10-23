@@ -1,0 +1,35 @@
+{
+ "name": "publaynet",
+ "version": "1.0.0",
+ "licence": "annotations CDLA-Permissive-1.0; images under the PMC Open Access Subset terms (commercial-use collection)",
+ "licence_source": "LICENSE.txt inside labels.tar.gz",
+ "distribution": "official IBM Data Asset eXchange objects listed by the PubLayNet repository, same bucket and paths as the dataset page",
+ "subset": {
+  "train": "shard train-0 of 7 official train shards (13.6 GB each)",
+  "val": "full official val split",
+  "test": "not fetched: the 1.0.0 package ships no test labels"
+ },
+ "files": [
+  {
+   "id": "labels",
+   "url": "https://codait-cos-dax.s3.us.cloud-object-storage.appdomain.cloud/dax-publaynet/1.0.0/labels.tar.gz",
+   "size": 329162762,
+   "etag": "4f66aef1dacc2c61b8b78a1980047669-21",
+   "sha256": "13dd4ebf4724c5aa2359cfe639f110177ce15106288c237bf8fb1ad94248f8de"
+  },
+  {
+   "id": "val",
+   "url": "https://codait-cos-dax.s3.us.cloud-object-storage.appdomain.cloud/dax-publaynet/1.0.0/val.tar.gz",
+   "size": 3257406552,
+   "etag": "fdd3da026dc6855b50f0daf9c88b66c7-208",
+   "sha256": "ba1c21d53192a2568a1397e32c5c4ff06cce5ac5dc4b887b64486f835eb8be98"
+  },
+  {
+   "id": "train-0",
+   "url": "https://codait-cos-dax.s3.us.cloud-object-storage.appdomain.cloud/dax-publaynet/1.0.0/train-0.tar.gz",
+   "size": 13623987576,
+   "etag": "0008f6f1eedd1ad8e07523f168f09356-867",
+   "sha256": "21c769e713935c0e3b7989abdf486f3d3c82d6a70dd936ed9d444e604cf4fad2"
+  }
+ ]
+}

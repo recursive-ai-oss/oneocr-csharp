@@ -1,0 +1,76 @@
+{
+ "name": "doclaynet",
+ "version": "1.0.0",
+ "source_key": "b7f5a7cd47d76f5b232aaf8c2aee232dd0ab5d7e90698867da37babaccc3cc4a",
+ "archives": {
+  "core": "af4cd16150209ee1df353c1b619489668408257e72f5e6bfbb906f1059506d2a"
+ },
+ "splits": {
+  "test": {
+   "images": 4999,
+   "image_bytes": 1915416990,
+   "digest": "a2e657de6dc41e92388beca463d79814cb05d45d2cc8d2aac2bfbbde1cc8cbff"
+  },
+  "train": {
+   "images": 69375,
+   "image_bytes": 27115996338,
+   "digest": "baca635ef37e5d23b72f7d573b30653e8756f58652170577ede4bcc9c1b09880"
+  },
+  "val": {
+   "images": 6489,
+   "image_bytes": 2391713452,
+   "digest": "ff25a5e8cd4f87e0e67db5e31e056e8b84e2238afe4277c3a59b4f90beb85659"
+  }
+ },
+ "image_bytes_total": 31423126780,
+ "dedup": {
+  "images": 80863,
+  "unique_hashes": 80413,
+  "duplicates_within_split": 207,
+  "hashes_across_splits": 4,
+  "dropped_from": {
+   "train": 236,
+   "val": 4
+  },
+  "examples": [
+   {
+    "sha256": "0af31812a027aac7ae4c23acea0220bfc477049b2d3427bd97c22d0acd001767",
+    "at": [
+     "train/0f78eb49c0d22b0b396b98b891e590d9c236859a45062bee856c7b482da0ab66.png",
+     "train/2f6deef2c9acb0ac1eb3e999e4b5abc6696c661727c7d1b5e377d20ff588174e.png",
+     "train/43f111e9062a5d28a1f1e40ae6fe78b41a2089975fb9ad6bb089dc58b241b3ba.png"
+    ],
+    "at_count": 4
+   },
+   {
+    "sha256": "77d3651230a4e78aea101e67c4856c9a8b9b023acdf06d2ca120fa31c71d86db",
+    "at": [
+     "train/157be0e8ff15a5f6ba072ad22c8e5d488ae9efc4fcbb48f49ca7524472a43034.png",
+     "train/1731a2b2ef03e0de791335684a46a17803570b4f96528e29f7f12c7a5078e10b.png",
+     "train/1831a865d269d4b50d5542e4792600e8fc6f741d06a12fe239f6fd62505b7fd5.png"
+    ],
+    "at_count": 236
+   },
+   {
+    "sha256": "b547abcde0e6843da44d470ec2078ac677285164c0e942b8ce06fe7fb70ec0ca",
+    "at": [
+     "train/23cfc354b520ec4559bf0e3db4ebc3b6f3653c6bcbf6280957e0bd357a26fe10.png",
+     "train/dc6e0c57b3476c97937d538a9abefb22e8d6d357fa27f01ea964aa2f052fc4d5.png",
+     "train/f9583c970c6eae323cbddd13c5aaaa6b0e05c0e1d5414c375d02c3e6f604a420.png"
+    ],
+    "at_count": 4
+   },
+   {
+    "sha256": "74d6c62f44209e3f219442a78db72a7a256d44d76724211f1b9da8172dd03b53",
+    "at": [
+     "train/5bd264595cf205ea1188ba5ac275783cba5b68df8c69864410ee1f2f7421b0b2.png",
+     "train/8171e3f4eac6baa1dbd9bbbcb34cd1c3f8d4ac7721194dd5e6c1e1b72f7c8f05.png",
+     "val/cf7352e6b72e0efa78e3f21a764a5674616988a801b3d2856325b7114f959c32.png"
+    ],
+    "at_count": 3
+   }
+  ]
+ },
+ "licence": "CDLA-Permissive-1.0",
+ "png_not_in_any_split": 608
+}

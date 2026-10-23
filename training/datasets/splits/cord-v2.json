@@ -1,0 +1,41 @@
+{
+ "name": "cord",
+ "version": "v2",
+ "source_key": "c6d43703631d9565daaf468d2155fce0675c85a7f8a7a5cb76e253a92ebabecb",
+ "archives": {
+  "test": "51c65f1788faff392abe2a0b55b023eb23e9be551c509138eaa3a832514224e7",
+  "train-0": "da3994eee1bf9bd3c57f0d53a72c3a6812c8696c5ba26245987949ddf73483cc",
+  "train-1": "cce4def16a0d6a6c75f80be712f7494c56c318a8829b712f5c62650155c9e58e",
+  "train-2": "591e2db8fe8b1d364b054f46e8c375b7f00e72578914ba46a573b6858162cab2",
+  "train-3": "1ffd9de8d6fbcee7630fd4cdfedff05b9b7fabc0fae4fc17557c5fe7cf178748",
+  "dev": "0d0f6dac11fdcc549de2746aa9f53136a3bc22a2a1aff2b0b847f7622ad60c15"
+ },
+ "splits": {
+  "dev": {
+   "images": 100,
+   "image_bytes": 242025223,
+   "digest": "e408714b3ba60b1cb89c92ea8a1d0a0493d5ba9e6769ccb73f30e14a135c2592"
+  },
+  "test": {
+   "images": 100,
+   "image_bytes": 234494779,
+   "digest": "09b41d0d5e873331eb907c4fbacb728aff3a83b52c0454fb26493fa0c7abe264"
+  },
+  "train": {
+   "images": 800,
+   "image_bytes": 1836523149,
+   "digest": "e97347ada35f148d2eb4f681726663b57c56b07866e6eeb08867e928b28510e1"
+  }
+ },
+ "image_bytes_total": 2313043151,
+ "dedup": {
+  "images": 1000,
+  "unique_hashes": 998,
+  "duplicates_within_split": 2,
+  "hashes_across_splits": 0,
+  "dropped_from": {},
+  "examples": []
+ },
+ "licence": "CC-BY-4.0",
+ "revision": "7f0115a4b758a71d6473b8d085751692da2fef98"
+}
