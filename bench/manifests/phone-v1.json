@@ -1,0 +1,291 @@
+{
+ "set": "clean300-v1",
+ "seed": 20261104,
+ "count": 40,
+ "dpi": 300,
+ "chromium": "140.0.7339.16",
+ "pages": [
+  {
+   "id": "p001",
+   "font": "Gelasio",
+   "words": 288,
+   "image_sha256": "b1a154f8ea3d115b617f3fe7ac90dd1a412428bcddffdc46d2e1b48289d62a3a",
+   "truth_sha256": "9903dcfb7a3997e33684741a1140f81ffc49c548b0ff41bd9cfa47fb6eb9ba50"
+  },
+  {
+   "id": "p002",
+   "font": "Carlito",
+   "words": 404,
+   "image_sha256": "03c3370e81b5fce1d341522b25978aba6f6e03e456ba10aca95c1a56c008c378",
+   "truth_sha256": "34c2fafc7bc3dc15261f51075fd7c888d4ba3cb1b30d158ae6f0b24726dcfda7"
+  },
+  {
+   "id": "p003",
+   "font": "Caladea",
+   "words": 386,
+   "image_sha256": "0c37792f220969b9b9516689e9b6cfaf3067b486a231eef3dab4b889eb712a66",
+   "truth_sha256": "90e395a306b263647ac90b2c751eeedb361470e16d182a961dcb888f26bdec1d"
+  },
+  {
+   "id": "p004",
+   "font": "Source Serif 4",
+   "words": 185,
+   "image_sha256": "3ddd47ef645ec894fcccff5860c9599883b3e5e53e6065fc070f3d0561d0d27b",
+   "truth_sha256": "c395dd56ae6fe17b837c82772bb65b2956b732baa9562f29ccc45c0d3106a9b6"
+  },
+  {
+   "id": "p005",
+   "font": "Source Sans 3",
+   "words": 414,
+   "image_sha256": "d7a24b6651412130bbf498ebf3aed55887af2536f44373e7aff8688d5b518f50",
+   "truth_sha256": "a0c1346a3b42670e18a8cf3fa130d2db15db7f4c1316720519cc777cce397b72"
+  },
+  {
+   "id": "p006",
+   "font": "IBM Plex Serif",
+   "words": 216,
+   "image_sha256": "0622b3b803b64d75b49d7e242edc1deb865211a531b08977eba0cff63ebd7666",
+   "truth_sha256": "a921ab9fc304d4a6685d5a0282be25617687140fcbb4be7177f661cc2adcb348"
+  },
+  {
+   "id": "p007",
+   "font": "IBM Plex Sans",
+   "words": 266,
+   "image_sha256": "ac872a52817d41e18ea1b14fd5e41d9e4d7c8ef8f18f77617b45701811051a03",
+   "truth_sha256": "b0967453b140ea0a78535f7cecac11948f7343beb9365eca577f4b87d25fbc99"
+  },
+  {
+   "id": "p008",
+   "font": "Gelasio",
+   "words": 479,
+   "image_sha256": "88a15084c16b7f23c53fb8f785ebf1b78838740d84cc501201e9313734de60e3",
+   "truth_sha256": "6a2200d68ea2be1b59a1eaa7d7f114eba81a15562210f46f49f4c78db52c0e2a"
+  },
+  {
+   "id": "p009",
+   "font": "Carlito",
+   "words": 515,
+   "image_sha256": "e7f5116cced01af69c8324554d42dca795cdc3493ffbbbbc8a0289d4a5ba34b4",
+   "truth_sha256": "c8421a6b3e4fd158dca65a365bf9b0407d21bdf9cd9c6a11dc89565e9411fcdb"
+  },
+  {
+   "id": "p010",
+   "font": "Caladea",
+   "words": 237,
+   "image_sha256": "e315dc1870059f948da99de44548d89cbb0daf25ad5af502ac6207b34272c4b7",
+   "truth_sha256": "e0fa3b94fa47634b431672611cf9b4d05b00bbb2314181a7bb46b01bdfdbc8ed"
+  },
+  {
+   "id": "p011",
+   "font": "Source Serif 4",
+   "words": 289,
+   "image_sha256": "af57d797e21285a6dc436ac7838dc992d76ac42dda2db83dd99fff6d287faa9c",
+   "truth_sha256": "41b14c70f434f9e2b4a80da73dea4295d7341a1d28a488cdda4e35d5cc58b991"
+  },
+  {
+   "id": "p012",
+   "font": "Source Sans 3",
+   "words": 405,
+   "image_sha256": "27c340908cc8a69edbcd41b2ee433c0e243355bef15570d26bcf2949e8928979",
+   "truth_sha256": "a628de2a366f26a3ea0a274df6e4e7b04150858b85a971538e2a441c6d379ac8"
+  },
+  {
+   "id": "p013",
+   "font": "IBM Plex Serif",
+   "words": 271,
+   "image_sha256": "2758867a6efb1cc41d7dd5bb09bc01e578e2f10f432231d0d7a6b078772e1bbe",
+   "truth_sha256": "aa2d5b5a1c0596f2aea3f3d4a3eca2b74aded893bcfb1d1401d75d87dc6f7deb"
+  },
+  {
+   "id": "p014",
+   "font": "IBM Plex Sans",
+   "words": 283,
+   "image_sha256": "ed72610005afd0c028703fd9cd232a4395fdf5249a1651fcb343a54ae41dde0b",
+   "truth_sha256": "75f62adbb60909bfa73e451f5bc0f0f3bcf7f62a92078ce2c5c3777e111205d9"
+  },
+  {
+   "id": "p015",
+   "font": "Gelasio",
+   "words": 180,
+   "image_sha256": "cdb768b1e4414ed6a171e136c705170b6a883aec1181a6a0fa8f772bb8f4679d",
+   "truth_sha256": "04de5267ea16bad9dc208a79e92f6633d61bd2ef3f4462d83dd2a1411086353c"
+  },
+  {
+   "id": "p016",
+   "font": "Carlito",
+   "words": 464,
+   "image_sha256": "2deb1119ea3b6554d3fc669f50e5a478cbd0ae022a856e13a6d50872b76c5e49",
+   "truth_sha256": "17e703ea8548923a424239a0a318e0633db3194f74cbe32062b68304a06d2735"
+  },
+  {
+   "id": "p017",
+   "font": "Caladea",
+   "words": 476,
+   "image_sha256": "2138a5a37b88c3e91f4506ba6c80bb8408e2573e79cb6e32350953b96c02f20b",
+   "truth_sha256": "58c283e3448152d6aeb58cd5960f7836b38039b376d8cb1f8bd297c65e8b2f3a"
+  },
+  {
+   "id": "p018",
+   "font": "Source Serif 4",
+   "words": 283,
+   "image_sha256": "b717b009544a873d33ef1365617f4f1b939e5a8c98a77d1307dea7d38df2c0a2",
+   "truth_sha256": "04450dfcf2ca02c35f90e96e4ce30a71577e2ad00858b0e179dbc2498e6ff6a5"
+  },
+  {
+   "id": "p019",
+   "font": "Source Sans 3",
+   "words": 496,
+   "image_sha256": "6298b548c583d5dcd7a05f5e6e4dfcd99ef4a6d28ae40f1582c9bced66480d4f",
+   "truth_sha256": "9b1a6b4ffa43898fe1afe922a0f6475bc2eb5d863f9fde76b4f34f24884390e8"
+  },
+  {
+   "id": "p020",
+   "font": "IBM Plex Serif",
+   "words": 358,
+   "image_sha256": "058cd4f57dbedde417115aa5832df0d99a6f6c8cd7eccf9081fe26d6c55dc1f4",
+   "truth_sha256": "35de97e1e4f4d462778af87c1f456414299a809c8d9d6a569810988223a3a002"
+  },
+  {
+   "id": "p021",
+   "font": "IBM Plex Sans",
+   "words": 391,
+   "image_sha256": "c2ba22a09abb2c7b9cb6019c597a7911dff872968fd1089894bcca12c60b34d9",
+   "truth_sha256": "b0f526f7d017aa9fcf89504b52b877d9e32df1d13dd66d270ecc9aa7ddf8bf87"
+  },
+  {
+   "id": "p022",
+   "font": "Gelasio",
+   "words": 315,
+   "image_sha256": "42905c1013d64e66a1c94a7291bdbacf2db821c5caf9ce3ea1e4d2aa42c4e627",
+   "truth_sha256": "31891f980afa15d001a6d6e61fc05c1539da96e343b43c93ca76d59d614f6b09"
+  },
+  {
+   "id": "p023",
+   "font": "Carlito",
+   "words": 646,
+   "image_sha256": "58219d0c0d753081b3967e71384ab7c2aa0208c3fa2904d612d55f98277ac6d2",
+   "truth_sha256": "e0a119e6524644d0190969eec045dae0e2ce1d4701040e1473d1b6088a6d044c"
+  },
+  {
+   "id": "p024",
+   "font": "Caladea",
+   "words": 418,
+   "image_sha256": "2f446ab3c98ba3acc8731dbec0a8ee86bd541c929515492a27def2c4dc4f5b49",
+   "truth_sha256": "62abb1941b897cc17f2e6b74e3df85341b34874a72075571bcb39dc7d98e7d12"
+  },
+  {
+   "id": "p025",
+   "font": "Source Serif 4",
+   "words": 322,
+   "image_sha256": "e5531dece9c986e8c8b24cca158a6e9dd9492c0b5694d66291f1b229ccc30853",
+   "truth_sha256": "fdcc95650f191c9461190c8e90838575d58074af591e8142c7c6120d5fcce9c2"
+  },
+  {
+   "id": "p026",
+   "font": "Source Sans 3",
+   "words": 365,
+   "image_sha256": "22e296dd107a40f0101158c8032f7b3299bcd4d448508e8381521df937ba1d0d",
+   "truth_sha256": "3a0abafed46539929f3200a435cf085cffe5a70563ef46890122b09e6f78d8ca"
+  },
+  {
+   "id": "p027",
+   "font": "IBM Plex Serif",
+   "words": 325,
+   "image_sha256": "860c1d6740212eb50f6679ddbc875033fb396ab914629cbf1e1a9e33d6754f02",
+   "truth_sha256": "93f871f07c1bc7f7c25cc536aec7c5f2528ebbbf91439f1e2274578ef04f05bc"
+  },
+  {
+   "id": "p028",
+   "font": "IBM Plex Sans",
+   "words": 323,
+   "image_sha256": "e732ca6974cbca706fdad57e6763414dac7bed2e52457c00f5c8993038e1efac",
+   "truth_sha256": "bc0eb8fc7d1aee7cc319bda439d1bae171d76a2ef6339fb047f3170b04638eea"
+  },
+  {
+   "id": "p029",
+   "font": "Gelasio",
+   "words": 307,
+   "image_sha256": "a10fe5efc1ea200c25ac80c154d3e009ade08c7e8084685166adb38ee5bc3e62",
+   "truth_sha256": "be6ef21111ee5446a5ddaa10562292f26a046e1d00b1c0ef33db262e83d97d5d"
+  },
+  {
+   "id": "p030",
+   "font": "Carlito",
+   "words": 344,
+   "image_sha256": "0882f96c60feb3d8dbe28451250cce09fd59764d64ba5dc123d60e77890a12cf",
+   "truth_sha256": "378b72738a90c99324244b7b0f9bc2faf76ccaf598e7cd94d2936e6b000775fe"
+  },
+  {
+   "id": "p031",
+   "font": "Caladea",
+   "words": 484,
+   "image_sha256": "e48c10f145e211d9767bd00033a87943fff563d4d383d70bd73f481597c8bdcb",
+   "truth_sha256": "c486a696651284b0eb4b655312f91daf6b13ca664036ba9f92b9652fc48a9478"
+  },
+  {
+   "id": "p032",
+   "font": "Source Serif 4",
+   "words": 386,
+   "image_sha256": "73d7a9d2395d6b3f6b2f13ea146d19c504fedce1c6d5e393442a7b7424c87abe",
+   "truth_sha256": "69a78e806c996a954ec94861bc01e974e8f920c4a7d1b370f8dddb9aabfaa3dd"
+  },
+  {
+   "id": "p033",
+   "font": "Source Sans 3",
+   "words": 373,
+   "image_sha256": "3473396a0f942bd72d13bc09feec9785dfd28244b88b60572d06ca49fb2ec369",
+   "truth_sha256": "be483224074aad36a7a74ec2d6220194d31b6bab0b8aaa02f9cb46d0555b9f85"
+  },
+  {
+   "id": "p034",
+   "font": "IBM Plex Serif",
+   "words": 175,
+   "image_sha256": "f811d89cacd3560edf672882ee0ba066180a1858f84f7a6137d87d9f62179a63",
+   "truth_sha256": "df09ffc72f2d7d1be5d18cf0e59d522218dbfb776c4888a7a2349accbbf8af65"
+  },
+  {
+   "id": "p035",
+   "font": "IBM Plex Sans",
+   "words": 364,
+   "image_sha256": "8f58a3f05a50a3aaf226fe9897e6d6c31bc643e09aa763b89c0d426f3e3dd4ba",
+   "truth_sha256": "8f7d902f6064f76bb2d765a74c6a471a5107da85a26dea3a6b02dbecfcf3c35b"
+  },
+  {
+   "id": "p036",
+   "font": "Gelasio",
+   "words": 176,
+   "image_sha256": "ab6ca3096f282d5e8b9129a1d68d493eae55a8026adf5c736e81f1658c1ddbbe",
+   "truth_sha256": "9cc4cbb68864a2b89b83e0f7bd382dae681f521d01210d635252fe42fa72b819"
+  },
+  {
+   "id": "p037",
+   "font": "Carlito",
+   "words": 239,
+   "image_sha256": "07e95a3d1f3b6d1cee5c669777f5359fe8d5cda2f7070a51ecabb43a63973b1d",
+   "truth_sha256": "070421a60cc82821ce373b1698a30636a21184b1234bca5e8bc2717f72284789"
+  },
+  {
+   "id": "p038",
+   "font": "Caladea",
+   "words": 254,
+   "image_sha256": "1a5e84794446428fdb22aa82eb0d5c7c8113a1d1a84177c48fea7022a88a40a1",
+   "truth_sha256": "4da8db29f0750daf14c4f68fd32d2cec943771a8aa04021af823a17b3b2a28fe"
+  },
+  {
+   "id": "p039",
+   "font": "Source Serif 4",
+   "words": 205,
+   "image_sha256": "548065792ff553946ffc33ef3687fe6a69c9efc9004f7d8e4558a2858904ef7f",
+   "truth_sha256": "e9b0e6b8e24aab3d56d5ac68e2c156b6c0078a65dce6671ac7ad9d81ab077f34"
+  },
+  {
+   "id": "p040",
+   "font": "Source Sans 3",
+   "words": 419,
+   "image_sha256": "52ea32d214166afc24a858ead45998d7e3b95731f52cef0d290318d02c8956b5",
+   "truth_sha256": "9c726ff29d2f97ecbab7bce2e4db135d18b0e9eccb738a7eb3db2f5a7e68e3c8"
+  }
+ ],
+ "pillow": "13.0.0",
+ "numpy": "2.5.4"
+}
