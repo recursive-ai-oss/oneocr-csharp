@@ -70,6 +70,39 @@ class LineSet:
         return batches
 
 
+class PackSet:
+    """Clean 48 px lines packed by `LineGen --clean` (clean.u8 + labels.jsonl). Images stay on disk (memory-mapped); batches are
+    padded with paper (255) and meant for degrade.gpu.degrade, which returns the 32 px crops."""
+
+    epoch_batches = LineSet.epoch_batches
+
+    def __init__(self, root: str | Path, charset: list[str], limit: int | None = None):
+        root = Path(root)
+        rows = [json.loads(line) for line in (root / "labels.jsonl").read_text(encoding="utf-8").splitlines() if line]
+        if limit:
+            rows = rows[:limit]
+        self.mm = np.memmap(root / "clean.u8", dtype=np.uint8, mode="r")
+        index = {c: i for i, c in enumerate(charset)}
+        self.texts = [r["text"] for r in rows]
+        self.ids = [r["id"] for r in rows]
+        self.fonts = [r["font"] for r in rows]
+        self.targets = [[index[c] for c in t] for t in self.texts]
+        self.widths = [r["w"] for r in rows]
+        self.heights = [r["h"] for r in rows]
+        self.offsets = [r["off"] for r in rows]
+
+    def __len__(self) -> int:
+        return len(self.texts)
+
+    def batch(self, idx: list[int]) -> tuple[torch.Tensor, torch.Tensor]:
+        wmax = max(self.widths[i] for i in idx)
+        x = np.full((len(idx), 1, self.heights[idx[0]], wmax), 255, dtype=np.uint8)
+        for k, i in enumerate(idx):
+            h, w = self.heights[i], self.widths[i]
+            x[k, 0, :, :w] = self.mm[self.offsets[i] : self.offsets[i] + h * w].reshape(h, w)
+        return torch.from_numpy(x), torch.tensor([self.widths[i] for i in idx])
+
+
 def edit_distance(a: str | list, b: str | list) -> int:
     prev = list(range(len(b) + 1))
     for i, ca in enumerate(a, 1):

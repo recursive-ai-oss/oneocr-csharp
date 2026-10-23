@@ -74,6 +74,9 @@ class CRNN(nn.Module):
         self.lstm = nn.LSTM(cin, h, num_layers=self.config["lstm"]["layers"], bidirectional=True, batch_first=True)
         self.fc = nn.Linear(2 * h, self.config["classes"])
 
+    def out_len(self, width: int) -> int:
+        return output_length(width, self.config)
+
     def features(self, x: torch.Tensor) -> torch.Tensor:
         for b in self.conv:
             x = b(x)

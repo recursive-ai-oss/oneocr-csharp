@@ -265,7 +265,9 @@ def plan_shard(job) -> list[dict]:
     name, spec, set_index, shard, count, banned = job
     cfg, charset = _S["cfg"], _S["charset"]
     rng = np.random.default_rng([cfg["seed"], set_index, shard])
-    deg = cfg["degrade"][spec["degrade"]]
+    # With a "gpu_degrade" section the plan carries no degradation: lines are rendered clean (LineGen --clean) and the GPU stage
+    # (degrade/gpu.py) draws em, contrast, blur, noise and the rest per sample at training time or when an eval set is materialised.
+    deg = None if "gpu_degrade" in cfg else cfg["degrade"][spec["degrade"]]
     mix = cfg["mix"]
     kinds = list(mix)
     kp = np.array([mix[k] for k in kinds], dtype=float)
@@ -294,11 +296,14 @@ def plan_shard(job) -> list[dict]:
         if not text or file is None or text in seen or text in banned or not set(text) - {" "} <= cov.of(file):
             continue
         seen.add(text)
-        delta = int(rng.integers(deg["contrast"][0], deg["contrast"][1] + 1))
-        bg = int(rng.integers(max(140, delta), 256))
-        fg = max(0, bg - delta)
-        if rng.random() < 0.04:
-            fg, bg = bg, fg
+        if deg is None:
+            fg, bg = 0, 255
+        else:
+            delta = int(rng.integers(deg["contrast"][0], deg["contrast"][1] + 1))
+            bg = int(rng.integers(max(140, delta), 256))
+            fg = max(0, bg - delta)
+            if rng.random() < 0.04:
+                fg, bg = bg, fg
         broad = rng.random() < 0.15  # a minority of crops with margins far from the finder's convention
         vm = [rng.uniform(0.0, 0.45) if broad else rng.uniform(0.18, 0.32) for _ in range(2)]
         hm = [rng.uniform(0.05, 1.0) if broad else rng.uniform(0.35, 0.65) for _ in range(2)]
@@ -308,15 +313,15 @@ def plan_shard(job) -> list[dict]:
             "text": text,
             "src": src,
             "font": file,
-            "em": round(_rng_value(rng, deg["em"]), 2),
+            "em": 28.0 if deg is None else round(_rng_value(rng, deg["em"]), 2),
             "fg": fg,
             "bg": bg,
             "ref": round(float(rng.uniform(0.92, 1.12)), 3),
             "vm": [round(float(v), 3) for v in vm],
             "hm": [round(float(v), 3) for v in hm],
-            "blur": round(_rng_value(rng, deg["blur"]), 3),
-            "noise": round(_rng_value(rng, deg["noise"]), 3),
-            "jpeg": int(_rng_value(rng, deg["jpeg_q"])) if rng.random() < deg["jpeg_prob"] else 0,
+            "blur": 0.0 if deg is None else round(_rng_value(rng, deg["blur"]), 3),
+            "noise": 0.0 if deg is None else round(_rng_value(rng, deg["noise"]), 3),
+            "jpeg": 0 if deg is None or rng.random() >= deg["jpeg_prob"] else int(_rng_value(rng, deg["jpeg_q"])),
             "seed": int(rng.integers(0, 2**31 - 1)),
         })  # fmt: skip
     return out

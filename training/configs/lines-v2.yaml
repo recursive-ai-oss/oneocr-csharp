@@ -1,0 +1,46 @@
+# Clean line set for the GPU degradation stage (degrade/gpu.py). Lines are rendered once, black on white, 48 px high
+# (LineGen --clean); em, contrast, blur, noise, JPEG, perspective, light and colour are drawn per sample on the GPU, every epoch
+# for training and once (seeded, parameters stored) for the evaluation sets. Fonts and texts are the pinned sets of lines-v1.
+name: lines-v2
+seed: 20261031
+charset: data/charset-v1.txt
+fonts: data/fonts.yaml
+sets:
+  train: { n: 500000, fonts: train, books: train, degrade: train }
+  val: { n: 3000, fonts: train, books: heldout, degrade: train }        # training fonts and ranges, unseen books
+  eval: { n: 5000, fonts: heldout, books: heldout, degrade: heldout }   # unseen font families, books and degradation ranges
+  diag_fonts: { n: 2000, fonts: heldout, books: heldout, degrade: train }
+  diag_degrade: { n: 2000, fonts: train, books: heldout, degrade: heldout }
+mix: { book: 0.80, numbers: 0.07, codes: 0.05, rare: 0.03, pseudo: 0.05 }
+gpu_degrade:
+  # ranges: lists of [lo, hi]; an entry is picked uniformly (repeats weight it), then a value uniformly inside it.
+  #   em        font size in source pixels (a crop is ~1.8 em high), so 12 is a 22 px crop scaled up to 32
+  #   blur_rel  Gaussian sigma as a fraction of em;  motion: horizontal motion blur length in source px
+  #   noise     read noise sigma in grey levels;  shot: signal-dependent noise factor
+  #   jpeg_q    JPEG quality;  contrast: ink/paper luma difference;  persp: corner jitter as a fraction of the crop height
+  #   light     uneven-light strength
+  # p: probability that the effect applies to a sample (blur: Gaussian blur at all; dark: light-on-dark; tint: coloured ink/paper)
+  train:
+    ranges:
+      em: [[12, 16], [12, 16], [16, 21], [16, 21], [23, 30], [23, 30], [30, 55], [55, 100]]
+      blur_rel: [0.0, 0.09]
+      motion: [1.5, 3.0]
+      noise: [0.0, 8.0]
+      shot: [0.0, 0.03]
+      jpeg_q: [40, 95]
+      contrast: [65, 255]
+      persp: [0.0, 0.15]
+      light: [0.0, 0.35]
+    p: { blur: 0.8, motion: 0.1, jpeg: 0.35, persp: 0.3, light: 0.35, subpixel: 0.2, dark: 0.07, tint: 0.2 }
+  heldout:
+    ranges:
+      em: [[10.5, 12], [21, 23], [100, 115]]
+      blur_rel: [0.09, 0.125]
+      motion: [3.0, 4.0]
+      noise: [8.0, 12.0]
+      shot: [0.03, 0.045]
+      jpeg_q: [25, 40]
+      contrast: [45, 65]
+      persp: [0.15, 0.22]
+      light: [0.35, 0.5]
+    p: { blur: 0.8, motion: 0.1, jpeg: 0.5, persp: 0.3, light: 0.35, subpixel: 0.2, dark: 0.07, tint: 0.2 }

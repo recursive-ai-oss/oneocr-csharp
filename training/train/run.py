@@ -1,9 +1,13 @@
 """Trains crnn-v0 on rendered line crops with CTC. Resumable; appends metrics to a log; writes a run manifest.
 
-Usage: uv run python -m train.run configs/crnn-smoke.yaml
+Usage: uv run python -m train.run configs/crnn-v2.yaml
+
+Training lines are the clean packs of the line set (DATA_DIR/clean/train); every step degrades a fresh batch on the GPU
+(degrade/gpu.py, training ranges), seeded from the run seed and the step so a resumed run draws the same batches.
+Validation and held-out sets are the materialised crops (degrade/materialize.py). Any architecture in `models`.
 
 Paths in the config may use environment variables (e.g. ${ONEOCR_HOME}) so worker locations stay out of the repo.
-CRNN: Shi et al. 2015. CTC: Graves et al. 2006.
+CRNN: Shi et al. 2015. SVTR: Du et al. 2022. CTC: Graves et al. 2006.
 """
 
 from __future__ import annotations
@@ -26,9 +30,10 @@ import torch.nn.functional as F
 import yaml
 
 from data import charset as cs
+from degrade.gpu import degrade
 from eval.lines import evaluate
-from models.crnn import CRNN, DEFAULT_CONFIG, macs_per_column, output_length
-from train.data import LineSet, to_input
+from models import build, default_config, macs_per_column
+from train.data import LineSet, PackSet, to_input
 
 BASE = Path(__file__).resolve().parents[1]
 
@@ -73,13 +78,17 @@ def main() -> None:
 
     random.seed(seed)
     torch.manual_seed(seed)
-    model_cfg = cfg.get("model") or {**DEFAULT_CONFIG, "classes": len(charset)}
+    model_cfg = cfg.get("model") or default_config(cfg["arch"], len(charset))
     assert model_cfg["classes"] == len(charset)
-    model = CRNN(model_cfg).to(dev)
+    model = build(model_cfg).to(dev)
     params = sum(p.numel() for p in model.parameters())
 
-    sets = {k: LineSet(data_root / k, charset) for k in ("train", "val", "eval")}
-    manifest = run_manifest(cfg, {k: data_root / k for k in sets}, charset_path)
+    sets = {"train": PackSet(data_root / "clean" / "train", charset), "val": LineSet(data_root / "val", charset),
+            "eval": LineSet(data_root / "eval", charset)}  # fmt: skip
+    side = yaml.safe_load((BASE / cfg["line_set"]).read_text(encoding="utf-8"))["gpu_degrade"]["train"]
+    gen = torch.Generator(device=dev)
+    dirs = {"train": data_root / "clean" / "train", "val": data_root / "val", "eval": data_root / "eval"}
+    manifest = run_manifest(cfg, dirs, charset_path)
     manifest["parameters"] = params
     manifest["macs_per_column"] = macs_per_column(model.config)
     (run_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=1, ensure_ascii=False), encoding="utf-8")
@@ -118,8 +127,7 @@ def main() -> None:
             x, widths = train.batch(idx)
             tgt = torch.tensor([t for k in idx for t in train.targets[k]])
             tlen = torch.tensor([len(train.targets[k]) for k in idx])
-            ilen = torch.tensor([output_length(int(w), model.config) for w in widths])
-            q.put((x.pin_memory(), widths, tgt, tlen, ilen))
+            q.put((x.pin_memory(), widths, tgt, tlen))
 
     q: queue.Queue = queue.Queue(maxsize=24)
     threading.Thread(target=producer, args=(step, q), daemon=True).start()
@@ -128,7 +136,10 @@ def main() -> None:
     best = float("inf")
     run_loss, run_n = 0.0, 0
     while step < tc["steps"]:
-        x, widths, tgt, tlen, ilen = q.get()
+        x, widths, tgt, tlen = q.get()
+        gen.manual_seed(seed * 1_000_003 + step)
+        x, widths, _ = degrade(x.to(dev, non_blocking=True), widths.to(dev), side, gen)
+        ilen = torch.tensor([model.out_len(int(w)) for w in widths])
         x = to_input(x, dev)
         for g in opt.param_groups:
             g["lr"] = lr_at(step, tc)

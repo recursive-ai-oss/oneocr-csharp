@@ -2,9 +2,14 @@
 //
 //   LineGen --plan plan.jsonl --out dir [--font-root dir] [--height 32]
 //       Renders planned synthetic lines. Output: dir/images/<id>.png (8-bit gray) and dir/labels.jsonl.
+//   LineGen --plan plan.jsonl --out dir --clean [--height 48]
+//       Clean pack for the GPU degradation stage: black text on white at a fixed font size (the plan's size, colours and
+//       degradations are ignored; the stage re-creates them), crops scaled to --height, all lines concatenated in
+//       dir/clean.u8 (row-major H x W bytes per line) and described by dir/labels.jsonl (id, text, w, h, off, font, sha256).
 //   LineGen --page-lines lines.jsonl --out dir [--height 32]
 //       Cuts evaluation crops from page images. Each input line is {id, text, page, box:[x0,y0,x1,y1]} (truth box).
-//       Output: dir/finder (crops cut the way the library's line finder does) and dir/box (the truth box itself).
+//       Output: dir/finder (crops cut the way the library's line finder does), dir/box (the truth box itself) and dir/margin
+//       (the truth box with the library's margins).
 //
 // Rendering is deterministic: the same plan and fonts give byte-identical PNGs.
 //
@@ -22,6 +27,8 @@ using OneImage;
 using OneImage.Text;
 
 string? planPath = null, pageLinesPath = null, outDir = null, coverageList = null, charsetPath = null;
+const double CleanEm = 28;  // font size of clean renders; the GPU stage supplies the apparent size
+bool clean = false;
 string fontRoot = Environment.GetEnvironmentVariable("ONEOCR_FONT_ROOT") ?? "fonts-cache";
 int height = 32;
 for (int i = 0; i < args.Length; i++)
@@ -34,6 +41,7 @@ for (int i = 0; i < args.Length; i++)
         case "--coverage": coverageList = args[++i]; break;
         case "--charset": charsetPath = args[++i]; break;
         case "--font-root": fontRoot = args[++i]; break;
+        case "--clean": clean = true; break;
         case "--height": height = int.Parse(args[++i]); break;
         default: Console.Error.WriteLine($"unknown argument {args[i]}"); return 2;
     }
@@ -52,7 +60,7 @@ if (outDir is null || (planPath is null) == (pageLinesPath is null))
 }
 
 var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Min(24, Environment.ProcessorCount) };
-return planPath is not null ? RunPlan(planPath, outDir, fontRoot, height, po) : RunPageLines(pageLinesPath!, outDir, height, po);
+return planPath is not null ? RunPlan(planPath, outDir, fontRoot, height, po, clean) : RunPageLines(pageLinesPath!, outDir, height, po);
 
 // For every font file in the list, the charset entries the renderer can actually draw (a cmap entry can still point at an empty glyph).
 static int RunCoverage(string listPath, string charsetPath, string outFile, string fontRoot)
@@ -71,8 +79,13 @@ static int RunCoverage(string listPath, string charsetPath, string outFile, stri
     return 0;
 }
 
-static int RunPlan(string planPath, string outDir, string fontRoot, int height, ParallelOptions po)
+static int RunPlan(string planPath, string outDir, string fontRoot, int height, ParallelOptions po, bool clean)
 {
+    if (clean)
+    {
+        return RunClean(planPath, outDir, fontRoot, height, po);
+    }
+
     Directory.CreateDirectory(Path.Combine(outDir, "images"));
     var plan = File.ReadLines(planPath).Where(l => l.Length > 0).Select(l => JsonSerializer.Deserialize<PlanLine>(l, PlanJson.Options)!).ToArray();
     var fontCache = new System.Collections.Concurrent.ConcurrentDictionary<string, FontFamily>();
@@ -86,6 +99,43 @@ static int RunPlan(string planPath, string outDir, string fontRoot, int height, 
     });
     File.WriteAllLines(Path.Combine(outDir, "labels.jsonl"), results, new UTF8Encoding(false));
     Console.WriteLine($"{plan.Length} lines -> {outDir}");
+    return 0;
+}
+
+static int RunClean(string planPath, string outDir, string fontRoot, int height, ParallelOptions po)
+{
+    Directory.CreateDirectory(outDir);
+    var plan = File.ReadLines(planPath).Where(l => l.Length > 0).Select(l => JsonSerializer.Deserialize<PlanLine>(l, PlanJson.Options)!).ToArray();
+    var fontCache = new System.Collections.Concurrent.ConcurrentDictionary<string, FontFamily>();
+    var labels = new List<string>(plan.Length);
+    long off = 0;
+    using var bin = new FileStream(Path.Combine(outDir, "clean.u8"), FileMode.Create, FileAccess.Write);
+    const int Chunk = 20000;
+    for (int s = 0; s < plan.Length; s += Chunk)
+    {
+        int n = Math.Min(Chunk, plan.Length - s);
+        var rows = new byte[n][];
+        var w = new int[n];
+        Parallel.For(0, n, po, k =>
+        {
+            var p = plan[s + k] with { Em = CleanEm, Fg = 0, Bg = 255, Blur = 0, Noise = 0, Jpeg = 0 };
+            FontFamily family = fontCache.GetOrAdd(p.Font, f => new FontCollection().Add(Path.Combine(fontRoot, f)));
+            Image img = RenderSynthetic(p, family, height);
+            w[k] = img.Width;
+            rows[k] = img.ToArray<Gray8>().Select(g => g.V).ToArray();
+        });
+        for (int k = 0; k < n; k++)
+        {
+            var p = plan[s + k];
+            bin.Write(rows[k]);
+            string sha = Convert.ToHexString(SHA256.HashData(rows[k])).ToLowerInvariant();
+            labels.Add(JsonSerializer.Serialize(new PackLine(p.Id, p.Text, w[k], height, off, p.Font, sha), PlanJson.Options));
+            off += rows[k].Length;
+        }
+    }
+
+    File.WriteAllLines(Path.Combine(outDir, "labels.jsonl"), labels, new UTF8Encoding(false));
+    Console.WriteLine($"{plan.Length} clean lines -> {outDir} ({off} bytes)");
     return 0;
 }
 
@@ -187,7 +237,7 @@ static float RefInkHeight(Font font)
 
 static int RunPageLines(string path, string outDir, int height, ParallelOptions po)
 {
-    foreach (var sub in new[] { "finder", "box" })
+    foreach (var sub in new[] { "finder", "box", "margin" })
     {
         Directory.CreateDirectory(Path.Combine(outDir, sub, "images"));
     }
@@ -224,6 +274,7 @@ static int RunPageLines(string path, string outDir, int height, ParallelOptions 
 
     var finder = new string[lines.Length];
     var box = new string[lines.Length];
+    var margin = new string[lines.Length];
     Parallel.For(0, lines.Length, po, i =>
     {
         var l = lines[i];
@@ -237,9 +288,16 @@ static int RunPageLines(string path, string outDir, int height, ParallelOptions 
         int tx0 = Math.Clamp((int)Math.Floor(l.Box[0]), 0, w - 1), tx1 = Math.Clamp((int)Math.Ceiling(l.Box[2]), tx0 + 1, w);
         int ty0 = Math.Clamp((int)Math.Floor(l.Box[1]), 0, h - 1), ty1 = Math.Clamp((int)Math.Ceiling(l.Box[3]), ty0 + 1, h);
         box[i] = Save(img.Crop(tx0, ty0, tx1 - tx0, ty1 - ty0).Resize(height: height), Path.Combine(outDir, "box"), "images", l.Id, l.Text, "page");
+        // the truth box with the library's crop margins (H/2 left and right, H/4 above and below), for pages where ink finding
+        // would also pick up text the truth does not cover
+        double bh = ty1 - ty0;
+        int mx0 = Math.Max(0, (int)Math.Floor(tx0 - bh / 2)), mx1 = Math.Min(w, (int)Math.Ceiling(tx1 + bh / 2));
+        int my0 = Math.Max(0, (int)Math.Floor(ty0 - bh / 4)), my1 = Math.Min(h, (int)Math.Ceiling(ty1 + bh / 4));
+        margin[i] = Save(img.Crop(mx0, my0, mx1 - mx0, my1 - my0).Resize(height: height), Path.Combine(outDir, "margin"), "images", l.Id, l.Text, "page");
     });
     File.WriteAllLines(Path.Combine(outDir, "finder", "labels.jsonl"), finder, new UTF8Encoding(false));
     File.WriteAllLines(Path.Combine(outDir, "box", "labels.jsonl"), box, new UTF8Encoding(false));
+    File.WriteAllLines(Path.Combine(outDir, "margin", "labels.jsonl"), margin, new UTF8Encoding(false));
     Console.WriteLine($"{lines.Length} page lines -> {outDir}");
     return 0;
 }
@@ -270,6 +328,8 @@ static uint Next(ref ulong s)
 record PlanLine(string Id, string Text, string Font, double Em, int Fg, int Bg, double Ref, double[] Vm, double[] Hm, double Blur, double Noise, int Jpeg, long Seed);
 
 record PageLine(string Id, string Text, string Page, double[] Box);
+
+record PackLine(string Id, string Text, int W, int H, long Off, string Font, string Sha256);
 
 record LabelLine(string Id, string Text, int W, int H, string Font, string Sha256);
 

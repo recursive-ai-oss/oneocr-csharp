@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import torch
 
-from models.crnn import CRNN, greedy_decode, output_length
+from models import build
+from models.crnn import greedy_decode
 from train.data import LineSet, edit_distance, to_input
 
 
 @torch.no_grad()
-def evaluate(model: CRNN, data: LineSet, charset: list[str], device: str = "cuda", batch_size: int = 128,
+def evaluate(model: torch.nn.Module, data: LineSet, charset: list[str], device: str = "cuda", batch_size: int = 128,
              limit: int | None = None, errors: list | None = None) -> dict:  # fmt: skip
     model.eval()
     n = min(len(data), limit or len(data))
@@ -20,7 +21,7 @@ def evaluate(model: CRNN, data: LineSet, charset: list[str], device: str = "cuda
         x, widths = data.batch(idx)
         logits = model(to_input(x, device), widths).float().cpu()
         for k, i in enumerate(idx):
-            hyp = greedy_decode(logits[k, : output_length(int(widths[k]), model.config)], charset)
+            hyp = greedy_decode(logits[k, : model.out_len(int(widths[k]))], charset)
             ref = data.texts[i]
             if errors is not None and hyp != ref:
                 errors.append({"id": data.ids[i], "ref": ref, "hyp": hyp})
@@ -45,7 +46,7 @@ def main() -> None:
     ap.add_argument("--errors", help="directory for <set>.errors.jsonl (misread lines)")
     a = ap.parse_args()
     ck = torch.load(a.checkpoint, map_location="cuda", weights_only=False)
-    model = CRNN(ck["config"]).cuda()
+    model = build(ck["config"]).cuda()
     model.load_state_dict(ck["model"])
     for s in a.sets.split(","):
         errs: list = []

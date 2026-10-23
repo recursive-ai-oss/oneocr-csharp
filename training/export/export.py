@@ -20,7 +20,12 @@ import torch
 
 from data import charset as cs
 from export.container import read_container, write_container
-from models.crnn import CRNN, DEFAULT_CONFIG, FoldedReference, fold_batch_norm, load_folded, macs_per_column
+from models import build, fold, load_folded, macs_per_column
+from models.crnn import CRNN, DEFAULT_CONFIG
+from models.crnn import FoldedReference as CrnnReference
+from models.svtr import FoldedReference as SvtrReference
+
+ARCHITECTURE_IDS = {"crnn-v0": "crnn-v0", "svtr-lite": "svtr-lite-v1"}  # svtr-lite-v1 is a proposal: see export/svtr-lite-architecture.md
 
 BASE = Path(__file__).resolve().parents[1]
 INPUT = {"height": 32, "channels": 1, "mean": 0.5, "std": 0.5, "invert": False}
@@ -39,10 +44,10 @@ def random_model(seed: int, config: dict) -> CRNN:
     return m.eval()
 
 
-def export(model: CRNN, charset: list[str], path: Path, version: str, provenance: dict) -> dict:
-    tensors = fold_batch_norm(model.eval())
+def export(model, charset: list[str], path: Path, version: str, provenance: dict) -> dict:
+    tensors = fold(model.eval())
     manifest = {
-        "architecture": "crnn-v0",
+        "architecture": ARCHITECTURE_IDS[model.config.get("arch", "crnn-v0")],
         "name": "line-recognizer",
         "version": version,
         "license": "MIT OR Apache-2.0",
@@ -87,7 +92,7 @@ def main() -> None:
     charset = cs.load(BASE / a.charset)
     if a.checkpoint:
         ck = torch.load(a.checkpoint, map_location="cpu", weights_only=False)
-        model = CRNN(ck["config"])
+        model = build(ck["config"])
         model.load_state_dict(ck["model"])
         charset = ck["charset"]
         provenance = {"run": ck["manifest"], "step": ck["step"]}
@@ -99,7 +104,7 @@ def main() -> None:
     # round trip: the reader must return exactly the fp16 values that were written
     m2, tensors = read_container(out)
     assert m2["charset"] == charset and m2["config"] == model.config
-    ref = {k: v.half().float().numpy() for k, v in fold_batch_norm(model).items()}
+    ref = {k: v.half().float().numpy() for k, v in fold(model).items()}
     assert all((tensors[k] == ref[k]).all() for k in ref), "round trip mismatch"
 
     params = sum(p.numel() for p in model.parameters())
@@ -127,7 +132,8 @@ def main() -> None:
             report[f"{label}_fp32"] = evaluate(fp32, ds, charset)
             report[f"{label}_fp16_folded"] = evaluate(folded, ds, charset)
     # reference forward on random input, as a sanity check that fixtures will be producible
-    FoldedReference(model.config, {k: torch.from_numpy(v) for k, v in tensors.items()}).forward(torch.randn(1, 1, 32, 100))
+    reference = SvtrReference if model.config.get("arch") == "svtr-lite" else CrnnReference
+    reference(model.config, {k: torch.from_numpy(v) for k, v in tensors.items()}).forward(torch.randn(1, 1, 32, 100))
     Path(str(out) + ".json").write_text(json.dumps(report, indent=1), encoding="utf-8")
     print(json.dumps(report, indent=1))
 
