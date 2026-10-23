@@ -21,8 +21,17 @@ internal sealed class ConvBlock
     /// <summary><see cref="K"/> rounded up to a multiple of 16 so no dot product has a tail; the padding is zero.</summary>
     public required int KPadded { get; init; }
 
-    /// <summary>Weights as <c>[Out][KPadded]</c> in (in, ky, kx) order.</summary>
+    /// <summary>
+    /// Weights as <c>[Out][KPadded]</c> with the taps in (ky, kx, in) order: the container stores <c>[out][in][kh][kw]</c>, and
+    /// the library's accumulation order runs over (ky, kx, in) so that a window of a channels-last input is contiguous.
+    /// </summary>
     public required float[] Weights { get; init; }
+
+    /// <summary>For one-channel blocks of at most 16 taps: the weights as <c>[tap][Out]</c>, otherwise null.</summary>
+    public float[]? WeightsT { get; init; }
+
+    /// <summary>Whether the taps of one kernel row (<c>KernelW * In</c>) are a multiple of 16, so tiles can read windows in place.</summary>
+    public bool RowsAreBlocks => (KernelW * In) % 16 == 0;
 
     public required float[] Bias { get; init; }
 }
@@ -161,13 +170,35 @@ internal sealed class CrnnModel
             float[] padded = new float[checked(d.Out * kPadded)];
             for (int o = 0; o < d.Out; o++)
             {
-                Array.Copy(weight, (long)o * k, padded, (long)o * kPadded, k);
+                for (int ic = 0; ic < channels; ic++)
+                {
+                    for (int ky = 0; ky < kh; ky++)
+                    {
+                        for (int kx = 0; kx < kw; kx++)
+                        {
+                            padded[(o * kPadded) + (((ky * kw) + kx) * channels) + ic] = weight[((((o * channels) + ic) * kh) + ky) * kw + kx];
+                        }
+                    }
+                }
+            }
+
+            float[]? transposed = null;
+            if (channels == 1 && k <= 16 && d.Out % 8 == 0)
+            {
+                transposed = new float[k * d.Out];
+                for (int o = 0; o < d.Out; o++)
+                {
+                    for (int tap = 0; tap < k; tap++)
+                    {
+                        transposed[(tap * d.Out) + o] = padded[(o * kPadded) + tap];
+                    }
+                }
             }
 
             blocks[i] = new ConvBlock
             {
                 In = channels, Out = d.Out, KernelH = kh, KernelW = kw, PadH = ph, PadW = pw, PoolH = poolH, PoolW = poolW,
-                K = k, KPadded = kPadded, Weights = padded, Bias = ReadChecked(container, $"conv.{i}.bias", d.Out),
+                K = k, KPadded = kPadded, Weights = padded, WeightsT = transposed, Bias = ReadChecked(container, $"conv.{i}.bias", d.Out),
             };
             channels = d.Out;
         }

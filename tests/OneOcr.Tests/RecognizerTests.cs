@@ -70,42 +70,43 @@ public class RecognizerTests
         }
     }
 
-    [Fact]
-    public void ScalarAndAvx2AreBitIdenticalOnEveryLayerAndAtEveryDegree()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void EveryPathIsBitIdenticalToScalarOnEveryLayerAtEveryDegree(int shapeIndex)
     {
-        if (!Dispatch.Avx2Available)
-        {
-            return;
-        }
-
-        var shape = TestModels.Small;
+        // Small has widths that are not multiples of 16 (row kernels, tails); SmokeLike has the real model's tile-friendly sizes.
+        var shape = shapeIndex == 0 ? TestModels.Small : TestModels.SmokeLike;
         byte[] file = TestModels.RandomContainer(shape, seed: 11);
         LineRecognizer scalar = Create(file, KernelPath.Scalar);
-        LineRecognizer avx2 = Create(file, KernelPath.Avx2);
-        foreach (int width in new[] { 16, 33, 64, 97, 128, 301 })
+        foreach (int width in shapeIndex == 0 ? new[] { 16, 33, 64, 97, 128, 301 } : new[] { 40, 131 })
         {
             byte[] image = TestModels.RandomImage(32, width, seed: width);
             ForwardTrace baseline = Trace(scalar, image, width, 1, out _);
             RecognizedLine baselineLine = scalar.Recognize(image, width, 1);
-            foreach (var (recognizer, degree) in new[] { (scalar, 4), (avx2, 1), (avx2, 3), (avx2, 8) })
+            foreach (KernelPath path in Dispatch.Available())
             {
-                ForwardTrace other = Trace(recognizer, image, width, degree, out _);
-                Assert.Equal(baseline.Layers.Keys.Order(), other.Layers.Keys.Order());
-                foreach (var (name, (_, data)) in baseline.Layers)
+                LineRecognizer recognizer = Create(file, path);
+                foreach (int degree in new[] { 1, 4, 8 })
                 {
-                    float[] o = other.Layers[name].Data;
-                    for (int i = 0; i < data.Length; i++)
+                    ForwardTrace other = Trace(recognizer, image, width, degree, out _);
+                    Assert.Equal(baseline.Layers.Keys.Order(), other.Layers.Keys.Order());
+                    foreach (var (name, (_, data)) in baseline.Layers)
                     {
-                        if (BitConverter.SingleToInt32Bits(data[i]) != BitConverter.SingleToInt32Bits(o[i]))
+                        float[] o = other.Layers[name].Data;
+                        for (int i = 0; i < data.Length; i++)
                         {
-                            Assert.Fail($"width {width}, degree {degree}: {name}[{i}] differs: {data[i]:R} vs {o[i]:R}");
+                            if (BitConverter.SingleToInt32Bits(data[i]) != BitConverter.SingleToInt32Bits(o[i]))
+                            {
+                                Assert.Fail($"{path}, width {width}, degree {degree}: {name}[{i}] differs: {data[i]:R} vs {o[i]:R}");
+                            }
                         }
                     }
-                }
 
-                RecognizedLine line = recognizer.Recognize(image, width, degree);
-                Assert.Equal(baselineLine.Text, line.Text);
-                Assert.Equal(BitConverter.SingleToInt32Bits(baselineLine.Confidence), BitConverter.SingleToInt32Bits(line.Confidence));
+                    RecognizedLine line = recognizer.Recognize(image, width, degree);
+                    Assert.Equal(baselineLine.Text, line.Text);
+                    Assert.Equal(BitConverter.SingleToInt32Bits(baselineLine.Confidence), BitConverter.SingleToInt32Bits(line.Confidence));
+                }
             }
         }
     }
@@ -169,14 +170,17 @@ public class RecognizerTests
             Assert.Skip("ONEOCR_HASH_OUT is not set.");
         }
 
-        byte[] file = TestModels.RandomContainer(TestModels.Small, seed: 31);
-        LineRecognizer r = Create(file, Dispatch.Best);
+        byte[] file = TestModels.RandomContainer(TestModels.SmokeLike, seed: 31);
+        // ONEOCR_HASH_PATH (Scalar, Vector128, Avx2, Avx512) picks a path explicitly; otherwise the machine's best one is used.
+        KernelPath hashPath = Enum.TryParse(Environment.GetEnvironmentVariable("ONEOCR_HASH_PATH"), out KernelPath forced) ? forced : Dispatch.Best;
+        LineRecognizer r = Create(file, hashPath);
+        Console.Error.WriteLine($"PATH {hashPath}");
         using var sha = System.Security.Cryptography.SHA256.Create();
         var lines = new List<string>();
-        foreach (int width in new[] { 40, 111, 300 })
+        foreach (int width in new[] { 40, 111, 200 })
         {
             byte[] image = TestModels.RandomImage(32, width, width);
-            foreach (int degree in new[] { 1, 4 })
+            foreach (int degree in new[] { 1, 4, 8 })
             {
                 ForwardTrace trace = Trace(r, image, width, degree, out _);
                 foreach (var (name, (_, data)) in trace.Layers.OrderBy(k => k.Key, StringComparer.Ordinal))
@@ -204,7 +208,7 @@ public class RecognizerTests
 
         byte[] file = TestModels.RandomContainer(TestModels.Full, seed: 1);
         byte[] image = TestModels.RandomImage(32, 400, 1);
-        foreach (KernelPath path in Dispatch.Avx2Available ? new[] { KernelPath.Scalar, KernelPath.Avx2 } : new[] { KernelPath.Scalar })
+        foreach (KernelPath path in Dispatch.Available())
         {
             foreach (int degree in new[] { 1, 4 })
             {

@@ -163,11 +163,11 @@ public class EngineTests
         Assert.Equal(3, baseline.Count(c => c == '\n'));
         Assert.Equal(baseline, scalar.ToText(page, 4));
         Assert.Equal(baseline, scalar.ToText(page));
-        if (Dispatch.Avx2Available)
+        foreach (KernelPath path in Dispatch.Available())
         {
-            var avx2 = OcrEngine.Create(container, null, KernelPath.Avx2);
-            Assert.Equal(baseline, avx2.ToText(page, 1));
-            Assert.Equal(baseline, avx2.ToText(page, 8));
+            var engine = OcrEngine.Create(container, null, path);
+            Assert.Equal(baseline, engine.ToText(page, 1));
+            Assert.Equal(baseline, engine.ToText(page, 8));
         }
 
         Assert.Equal(baseline, page.ToText(scalar));

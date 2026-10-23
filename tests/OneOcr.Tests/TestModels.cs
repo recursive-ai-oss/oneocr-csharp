@@ -121,6 +121,9 @@ internal static class TestModels
     /// <summary>Same layer pattern as the spec's example, heights 32 to 1 through five pooling stages, narrower channels.</summary>
     public static Shape Small { get; } = new(32, [(8, 2, 2), (16, 2, 2), (16, 2, 1), (32, 2, 1), (32, 2, 1)], 24, 2, 41);
 
+    /// <summary>The layer sizes of the first trained recognizer (hidden 192, 622 classes), whose widths are all multiples of 16.</summary>
+    public static Shape SmokeLike { get; } = new(32, [(32, 2, 2), (64, 2, 2), (128, 1, 1), (128, 2, 1), (192, 2, 1), (192, 2, 1)], 192, 2, 622);
+
     /// <summary>Roughly the size of the intended model.</summary>
     public static Shape Full { get; } = new(32, [(64, 2, 2), (128, 2, 2), (128, 2, 1), (256, 2, 1), (256, 2, 1)], 256, 2, 700);
 

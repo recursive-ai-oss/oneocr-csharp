@@ -65,7 +65,17 @@ public sealed class LineRecognizer
     public RecognizedLine Recognize(ReadOnlySpan<byte> gray, int width, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
     {
         float[] logits = Forward(gray, width, maxDegreeOfParallelism, null, cancellationToken, out int steps);
-        return Decode(logits, steps);
+        try
+        {
+            return Decode(logits, steps);
+        }
+        finally
+        {
+            if (logits.Length > 0)
+            {
+                System.Buffers.ArrayPool<float>.Shared.Return(logits);
+            }
+        }
     }
 
     internal float[] Forward(
