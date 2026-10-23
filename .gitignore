@@ -1,0 +1,27 @@
+# Build output (redirected outside the repo by Directory.Build.props; ignored here as a backstop)
+bin/
+obj/
+artifacts/
+*.user
+.vs/
+.idea/
+TestResults/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Data, weights and checkpoints are never committed
+*.onm
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.npy
+*.npz
+/training/data/
+/training/runs/
+/training/out/
