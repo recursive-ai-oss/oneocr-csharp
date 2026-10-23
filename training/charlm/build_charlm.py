@@ -307,7 +307,9 @@ def main() -> None:
         sizes = [len(kept[n]) for n in range(1, args.order + 1)]
         print(f"{script}: entries per order {sizes}, mean log prob {mean:.3f} nats/symbol "
               f"(perplexity {math.exp(-mean):.2f}), discounts {[round(d, 2) for d in est.disc[1:]]}", file=sys.stderr)
+        before = buf.tell()
         write_model(buf, script, alphabet, args.order, mean, kept, bows)
+        print(f"{script}: {buf.tell() - before} bytes", file=sys.stderr)
         models += 1
     with open(args.out, "wb") as f:
         f.write(b"OCLM" + struct.pack("<HH", 1, models))
