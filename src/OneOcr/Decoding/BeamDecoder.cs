@@ -43,11 +43,18 @@ internal sealed class Prepared
                 var map = new int[n];
                 Array.Fill(map, -1);
                 string[] alphabet = Scripts[s].Alphabet;
+                var symbolOf = new Dictionary<string, int>(StringComparer.Ordinal);
                 for (int a = 0; a < alphabet.Length; a++)
                 {
-                    if (index.TryGetValue(alphabet[a], out int cls))
+                    symbolOf[alphabet[a]] = a + ScriptModel.FirstLetter;
+                }
+
+                // The model is case-folded: a class is looked up by its simple lowercase form.
+                for (int cls = 1; cls < n; cls++)
+                {
+                    if (symbolOf.TryGetValue(Fold(charset[cls]), out int sym))
                     {
-                        map[cls] = a + ScriptModel.FirstLetter;
+                        map[cls] = sym;
                     }
                 }
 
@@ -148,6 +155,18 @@ internal sealed class Prepared
     public Dictionary<long, int>? TrieChildren { get; }
 
     public bool[]? TrieIsWord { get; }
+
+    /// <summary>The simple lowercase form of a one-code-point string (other strings are returned as they are).</summary>
+    public static string Fold(string s)
+    {
+        if (s.Length is 0 or > 2 || !System.Text.Rune.TryGetRuneAt(s, 0, out System.Text.Rune r) || r.Utf16SequenceLength != s.Length)
+        {
+            return s;
+        }
+
+        // U+0130 has no one-to-one lowercase in the full mapping the builder uses, so it stays as it is.
+        return r.Value == 0x130 ? s : System.Text.Rune.ToLowerInvariant(r).ToString();
+    }
 
     private readonly record struct TextElement(string Text, bool Digit);
 
@@ -552,7 +571,7 @@ internal sealed class BeamDecoder
             return cmp != 0 ? cmp : nodeIds[x].CompareTo(nodeIds[y]);
         });
 
-        List<string>? greedyCodes = _script is null ? null : Prepared.CodeWords(greedy.Text);
+        List<string>? greedyCodes = _options.LanguageModel is null ? null : Prepared.CodeWords(greedy.Text);
         foreach (int b in finalOrder)
         {
             int id = nodeIds[b];

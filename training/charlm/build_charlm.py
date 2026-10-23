@@ -4,7 +4,7 @@
     python3 training/charlm/build_charlm.py --texts DIR --out charlm-v1.bin [--order 4] [--min-counts 1,3,4,6]
 
 DIR holds pg<ID>.txt for the books listed in training/data/texts.yaml (the same files `python -m data.texts fetch` writes);
-each file is checked against the SHA-256 in the manifest. Only books whose split is `train` are used: the held-out books
+each file is checked against the SHA-256 in the manifest. Words are lowercased (simple case mapping, one code point to one) before they are counted. Only books whose split is `train` are used: the held-out books
 the recognizer is validated on, and the two books the page evaluation sets are set in, never reach the model.
 
 The model scores one word at a time. A word is a space-delimited token of a paragraph; it is dropped when it contains a digit,
@@ -93,6 +93,12 @@ def load_charset(path: Path) -> list[str]:
     if entries and entries[-1] == "":
         entries.pop()
     return entries[1:]
+
+
+def fold(ch: str) -> str:
+    """Simple lowercase form of one character (characters whose lowercase is not a single code point stay as they are)."""
+    low = ch.lower()
+    return low if len(low) == 1 else ch
 
 
 def quant_prob(lnp: float) -> int:
@@ -276,11 +282,16 @@ def main() -> None:
     for script in SCRIPTS:
         tokens = words[script]
         # Keep a word only if every character is a letter of the script or shared punctuation, and in the charset.
+        # The model is case-folded: words are lowercased before counting, so "NASI" and "Nasi" are the word "nasi".
         sym = Counter()
+        folded: Counter = Counter()
         for tok, c in tokens.items():
             if all(ch in charset and script_of_char(ch) in (script, "common") for ch in tok):
-                for ch in tok:
+                low = "".join(fold(ch) for ch in tok)
+                folded[low] += c
+                for ch in low:
                     sym[ch] += c
+        tokens = folded
         alphabet = [ch for ch, c in sorted(sym.items()) if c >= args.min_symbol_count]
         if len(alphabet) > 250:
             alphabet = sorted(ch for ch, _ in sym.most_common(250))

@@ -5,7 +5,9 @@ line. It is produced by `training/charlm/build_charlm.py` and read by `CharLangu
 
 ## What the model scores
 
-A word is a run of non-space characters. The model scores one word at a time, one symbol after another, starting from a
+A word is a run of non-space characters, case-folded: each character is looked up by its simple lowercase form (Unicode
+one-to-one lowercase mapping; a character without one, and U+0130, stay as they are), so `NASI`, `Nasi` and `nasi` are one word and
+the alphabet holds lowercase letters. The model scores one word at a time, one symbol after another, starting from a
 word-start symbol and ending with a word-end symbol. There is no context across spaces. Symbols are small integers:
 
 | id | meaning |
@@ -14,7 +16,7 @@ word-start symbol and ending with a word-end symbol. There is no context across 
 | 1 | word end (only ever the last symbol of an n-gram) |
 | 2 … 251 | the script's alphabet, in the file's order (`id = index + 2`) |
 
-The alphabet holds at most 250 characters. A character that is not in a script's alphabet makes its word unscorable for
+The alphabet holds at most 250 characters. A character whose folded form is not in a script's alphabet makes its word unscorable for
 that script (the decoder gives such words no language-model score).
 
 ## Layout
@@ -71,4 +73,5 @@ over the file, and that the bytes of a table are present. Violations are `OcrLim
 
 ## Sizes
 
-The model shipped with the recognizer (order 4, minimum counts 1, 3, 4, 6; 187 training books) is 1.6 MB for the three scripts.
+The model shipped with the recognizer (order 4, minimum counts 1, 3, 4, 6; the 187 training books, case-folded) is 1.42 MB: latin 1,015,999 bytes
+(130 characters), greek 301,157 bytes (57), cyrillic 104,747 bytes (57).

@@ -187,6 +187,62 @@ public class DecodingTests
     }
 
     [Fact]
+    public void CaseFoldingUsesTheSimpleLowercaseForm()
+    {
+        Assert.Equal("o", Prepared.Fold("O"));
+        Assert.Equal("\u00e9", Prepared.Fold("\u00c9"));
+        Assert.Equal("\u03c3", Prepared.Fold("\u03a3"));
+        Assert.Equal("\u0436", Prepared.Fold("\u0416"));
+        Assert.Equal("\u00df", Prepared.Fold("\u00df"));
+        Assert.Equal("\u0130", Prepared.Fold("\u0130"));
+        Assert.Equal("7", Prepared.Fold("7"));
+        Assert.Equal("ab", Prepared.Fold("ab"));
+
+        // A capital letter is scored as its lowercase form: 'O' in the charset reads as the alphabet's 'o'.
+        float[] logits = Frames(S(4), S(0), [(2, 10f), (9, 10.4f)], S(0), S(3));
+        Assert.Equal("cOb", Greedy(logits).Text);
+        Assert.Equal("cab", Beam(logits, new DecodeOptions { Mode = CtcDecoding.Beam, LanguageModel = CabModel() }));
+    }
+
+    [Fact]
+    public void EngineDecodingDefaultsToGreedyAndCanBeChangedPerEngineOrPerCall()
+    {
+        var shape = TestModels.Small;
+        using var stream = new MemoryStream(TestModels.RandomContainer(shape, 3));
+        OcrEngine engine = OcrEngine.Load(stream);
+        Assert.Same(DecodeOptions.Greedy, engine.Decoding);
+
+        var pixels = new OneImage.Gray8[500 * 200];
+        Array.Fill(pixels, new OneImage.Gray8(255));
+        foreach (int top in new[] { 30, 90, 150 })
+        {
+            for (int y = top; y < top + 24; y++)
+            {
+                for (int x = 40; x < 460; x++)
+                {
+                    if ((x / 5) % 3 != 0)
+                    {
+                        pixels[(y * 500) + x] = new OneImage.Gray8(20);
+                    }
+                }
+            }
+        }
+
+        OneImage.Image page = OneImage.Image.FromPixels<OneImage.Gray8>(pixels, 500, 200);
+        var beam = new DecodeOptions { Mode = CtcDecoding.Beam, BeamWidth = 4 };
+        string greedy = engine.ToText(page, 1);
+        Assert.Equal(greedy, engine.ToText(page, DecodeOptions.Greedy, 1));
+        string viaCall = engine.ToText(page, beam, 1);
+        OcrEngine other = engine.WithDecoding(beam);
+        Assert.Same(beam, other.Decoding);
+        Assert.Same(DecodeOptions.Greedy, engine.Decoding);
+        Assert.Equal(viaCall, other.ToText(page, 1));
+        Assert.Equal(viaCall, other.ToText(page, 4));
+        Assert.Throws<ArgumentNullException>(() => engine.WithDecoding(null!));
+        Assert.Throws<OcrLimitException>(() => engine.WithDecoding(new DecodeOptions { Mode = CtcDecoding.Beam, BeamWidth = 1000 }));
+    }
+
+    [Fact]
     public void BeamDecodingOfAModelRunsAtEveryDegreeWithTheSameText()
     {
         var recognizer = new LineRecognizer(

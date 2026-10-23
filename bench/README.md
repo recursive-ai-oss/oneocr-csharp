@@ -205,3 +205,46 @@ uv run python -m oneocr_bench score --hyp OUT
 (precision and recall at IoU 0.5) and times grayscale conversion, line finding and line cropping. `OneOcr.Bench kernels --model F --width 1000 --degree 1` prints the time of each stage (convolution blocks, LSTM layers,
 classifier) for one line. `OneOcr.Bench randommodel --out F`
 writes a random-weight model for pipeline checks.
+
+## Decoding evaluation
+
+`OneOcr.Bench decode --model M --lines DIR --lm charlm-v1.bin [--modes greedy,beam:8,lm:8:0.8:0] [--max N]` reads truth-line crops
+(`DIR/labels.jsonl` with `id` and `text`, `DIR/images/<id>.png`, 32 px high, cut from the pages by their truth word boxes), runs the
+network once per line and decodes the same output in every mode. Modes: `greedy`; `beam:W`; `lm:W:ALPHA:BETA` (beam search with the
+character model, weight ALPHA, per-character bonus BETA); `lexlm:W:ALPHA:BETA:BOOST` (adds `--lexicon FILE`). Columns: CER and WER
+over all lines; `numCER`, `numTokErr`: character errors and the share of misread words among truth words that contain a digit
+("numbers and IDs"), with their count; `otherTokErr` for the other words; mean decode time per line (the network is not included).
+`--max N` keeps every k-th line so that at most N are read.
+
+`recognizer crnn-v0 0.2.0`, `charlm-v1` (order 4, 1.42 MB), width 8, weight 0.8, bonus 0. Per set up to 2,500 lines; one image of
+`clean300-v1` is unreadable (a truncated file in the line set) and is skipped.
+
+| set (lines) | mode | CER % | WER % | digit words wrong % (of n) | other words wrong % |
+|---|---|---|---|---|---|
+| clean300-v1 (796) | greedy | 0.11 | 0.43 | 0.00 (590) | 0.46 |
+|  | beam 8 | 0.11 | 0.43 | 0.00 (590) | 0.46 |
+|  | beam 8 + model | 0.10 | 0.34 | 0.00 (590) | 0.37 |
+| degraded-v1 (1126) | greedy | 40.57 | 60.51 | 34.37 (803) | 62.36 |
+|  | beam 8 | 40.54 | 60.42 | 34.25 (803) | 62.28 |
+|  | beam 8 + model | 40.18 | 58.31 | 34.37 (803) | 60.00 |
+| screenshot-v1 (875) | greedy | 1.82 | 6.06 | 3.54 (311) | 6.36 |
+|  | beam 8 | 1.82 | 5.99 | 3.54 (311) | 6.28 |
+|  | beam 8 + model | 1.72 | 5.40 | 3.54 (311) | 5.62 |
+| layout-v1 (1551) | greedy | 4.01 | 7.81 | 9.15 (481) | 7.73 |
+|  | beam 8 | 4.01 | 7.81 | 9.15 (481) | 7.73 |
+|  | beam 8 + model | 3.94 | 7.47 | 9.15 (481) | 7.37 |
+| phone-v1 (2264) | greedy | 14.60 | 21.38 | 16.54 (133) | 21.68 |
+|  | beam 8 | 14.48 | 21.29 | 15.79 (133) | 21.63 |
+|  | beam 8 + model | 13.38 | 18.55 | 16.54 (133) | 18.68 |
+| receipts-v1 (2297) | greedy | 35.98 | 56.80 | 57.58 (1082) | 56.13 |
+|  | beam 8 | 35.96 | 56.93 | 57.76 (1082) | 56.21 |
+|  | beam 8 + model | 36.15 | 56.76 | 57.58 (1082) | 56.05 |
+
+The language model never changes a word that contains a digit or a code symbol (`docs/spec/decoding.md`), so those columns equal
+greedy's by construction. Decode time per line, one thread (Ryzen 9 7950X3D, .NET 10, a GPU training job running beside, so information only):
+greedy 0.01 to 0.08 ms, beam search 0.07 to 0.62 ms, beam search with the model 0.09 to 0.75 ms; the network pass takes 2 to 20 ms
+per line, so beam search with the model adds 3 to 7 % to a line. On the 30 `clean300-v1` pages the whole run takes 611 ms per page
+(greedy) and 620 ms (model) at one thread, 192 and 198 ms at the default degree.
+
+Page level on `clean300-v1` (`OneOcr.Bench run ... --beam 8 --lm charlm-v1.bin`, scored with the page scorer): CER 0.171 %, WER 0.337 %
+greedy; CER 0.157 %, WER 0.271 % with the model.

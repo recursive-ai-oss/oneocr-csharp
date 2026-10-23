@@ -47,8 +47,8 @@ For each step `t`:
    the first `BeamWidth`.
 
 After the last step each kept prefix gets `final = logadd(pb, pnb) + R_end(prefix)`; the best (ties: created earlier) is the
-text. If a language model is in use, the best prefix whose code words (below) match the greedy reading's is taken, and the
-greedy reading if none does.
+text. If a language model is set (whether or not a script fits the line), the best prefix whose code words (below) match the greedy
+reading's is taken, and the greedy reading if none does.
 
 Confidence: `exp(logadd(pb, pnb) / n)` of the chosen text with `n` emitted characters, clamped to `[0, 1]` (0 for empty text).
 It is the per-character geometric mean of the probability of the text over all alignments, and is not calibrated.
@@ -60,11 +60,11 @@ finished words, `InsertionBonus` per character, and a part for the open word.
 
 * **Language model** (when set): for a script chosen once per line (the model whose alphabet contains the most letters of the
   greedy text's characters; the first on ties; none if no letter fits), each character `s` of a word that is not *protected*
-  adds `LanguageModelWeight * max(LogProb(context, s) - mean, -1)`, where `mean` is the file's mean and the context is the
-  word's earlier symbols led by the word start. A finished word additionally adds the same for the word end. The open word counts
+  adds `LanguageModelWeight * max(LogProb(context, fold(s)) - mean, -1)`, where `fold` is the simple lowercase mapping (see
+  `char-lm-v1.md`), `mean` is the file's mean and the context is the word's earlier symbols led by the word start. A finished word additionally adds the same for the word end. The open word counts
   without the word end in `R` and with it in `R_end`.
 * **Protected words**: a word is protected, and gets no language-model score, if it contains a decimal digit, one of
-  `@ # _ / \ = % + * ~ ^ | < > [ ] { }`, or a character outside the script's alphabet.
+  `@ # _ / \ = % + * ~ ^ | < > [ ] { }`, or a character whose folded form is outside the script's alphabet.
 * **Lexicon** (when set): the open or finished word adds `LexiconBoost` when it spells a lexicon word exactly (same code points)
   and `LexiconBoost / 2` when it is a proper prefix of one and at least two characters long; nothing otherwise. Words with
   characters not in the charset are dropped from the lexicon.
