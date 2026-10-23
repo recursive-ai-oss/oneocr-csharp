@@ -2,7 +2,7 @@
 
 `fuzz/OneOcr.Fuzz` holds one target per input surface. Today: `container` (model container bytes, version 0 and 1 with calibration, through the parser, the recognizer builder, one forward pass and word splitting, under tight `OcrLimits`; only `OcrModelException` and `OcrLimitException` may come out). `fuzz/corpus/container/` holds the seed corpus (small valid containers written by `OneOcr.Fuzz seeds <dir>`).
 
-Two more targets, chosen with `ONEOCR_FUZZ_TARGET`: `charlm` (character language model bytes through the parser and, when they parse, a beam search with the model attached) and `lexicon` (lexicon file bytes). Their seeds are in `fuzz/corpus/charlm/` and `fuzz/corpus/lexicon/`, written by `ONEOCR_FUZZ_TARGET=charlm OneOcr.Fuzz seeds <dir>`.
+Three more targets, chosen with `ONEOCR_FUZZ_TARGET`: `charlm` (character language model bytes through the parser and, when they parse, a beam search with the model attached) `lexicon` (lexicon file bytes) and `pagejson` (`oneocr.page` JSON through the reader under tight limits; whatever parses must write and read back to the same bytes). Their seeds are in `fuzz/corpus/charlm/`, `fuzz/corpus/lexicon/` and `fuzz/corpus/pagejson/`, written by `ONEOCR_FUZZ_TARGET=charlm OneOcr.Fuzz seeds <dir>`.
 
     OneOcr.Fuzz                         run under libFuzzer (SharpFuzz); the target comes from ONEOCR_FUZZ_TARGET
     OneOcr.Fuzz replay <file>...        run saved inputs once each

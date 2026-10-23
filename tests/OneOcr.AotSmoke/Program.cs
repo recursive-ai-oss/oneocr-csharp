@@ -75,11 +75,30 @@ if (b1 != b4 || b1.Split('\n').Length != 3)
 // A version 1 container: calibration is parsed (source-generated JSON), applied, and words come back with boxes.
 OcrEngine calibrated = OcrEngine.Load(new System.IO.MemoryStream(TestModels.RandomContainerV1(pageShape, 3,
     "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,1],\"y\":[0,0.5]}}}")));
-OcrRecognition words = calibrated.Recognize(page, 1);
-if (words.Text != t1 || words.Lines.Count != 3 || words.Diagnostics.Count != 0 || calibrated.Recognize(page, 4).Text != t1)
+OneOcr.OcrPage words = calibrated.Ocr(page, new OneOcr.OcrOptions { MaxDegreeOfParallelism = 1 });
+if (words.ToText() != t1 || words.Blocks.Sum(bl => bl.Lines.Count) != 3 || calibrated.Ocr(page, new OneOcr.OcrOptions { MaxDegreeOfParallelism = 4 }).ToText() != t1)
 {
-    Console.Error.WriteLine("Recognize disagrees with ToText");
+    Console.Error.WriteLine("Ocr disagrees with ToText");
     return 1;
+}
+
+// The page model's JSON: write, read, write again (source-generated, no reflection), and a malformed document is a typed error.
+string json = OneOcr.OcrPageJson.ToJson([words]);
+System.Collections.Generic.IReadOnlyList<OneOcr.OcrPage> back = OneOcr.OcrPageJson.Parse(json);
+if (back.Count != 1 || OneOcr.OcrPageJson.ToJson(back) != json || back[0].ToText() != t1)
+{
+    Console.Error.WriteLine("page JSON does not round trip");
+    return 1;
+}
+
+try
+{
+    OneOcr.OcrPageJson.Parse(json.Replace("\"oneocr.page\"", "\"other\""));
+    Console.Error.WriteLine("wrong format accepted");
+    return 1;
+}
+catch (OneOcr.OcrFormatException)
+{
 }
 
 OneOcr.OneOcr.Configure(engine);

@@ -233,7 +233,13 @@ public sealed class LineRecognizer
             float raw = total / (last - first + 1);
             OcrScript script = ScriptDetector.Of(word);
             float calibrated = _model.Calibration is { } c ? c.Apply(script, raw) : raw;
-            words.Add(new RecognizedWord(word, (float)(left * stepWidth), (float)(right * stepWidth), calibrated, raw, script, last - first + 1));
+            var chars = new List<RecognizedChar>(last - first + 1);
+            for (int k = first; k <= last; k++)
+            {
+                chars.Add(new RecognizedChar(_model.Charset[runs[k].Class], runs[k].First * stepWidth, (runs[k].Last + 1) * stepWidth, runs[k].MaxProbability));
+            }
+
+            words.Add(new RecognizedWord(word, (float)(left * stepWidth), (float)(right * stepWidth), calibrated, raw, script, last - first + 1, chars));
             first = -1;
         }
 
@@ -296,7 +302,11 @@ public sealed class LineRecognizer
 internal readonly record struct CharRun(int Class, int First, int Last, float MaxProbability);
 
 /// <summary>A word of a line: x edges in pixels of the line image, calibrated and raw confidence, script, and the number of characters it was built from.</summary>
-internal readonly record struct RecognizedWord(string Text, float X0, float X1, float Confidence, float RawConfidence, OcrScript Script, int Characters);
+internal readonly record struct RecognizedWord(
+    string Text, float X0, float X1, float Confidence, float RawConfidence, OcrScript Script, int Characters, IReadOnlyList<RecognizedChar> Chars);
+
+/// <summary>One character of a recognized word: its text, the extent of its run of steps in pixels of the line image, and the run's largest probability.</summary>
+internal readonly record struct RecognizedChar(string Text, double X0, double X1, float Probability);
 
 /// <summary>A decoded line with its words. <c>RawConfidence</c> is the whole-line rule of <see cref="RecognizedLine"/>.</summary>
 internal sealed record LineWords(string Text, float RawConfidence, IReadOnlyList<RecognizedWord> Words);

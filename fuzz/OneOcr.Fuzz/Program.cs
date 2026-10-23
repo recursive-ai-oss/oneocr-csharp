@@ -1,3 +1,4 @@
+using OneOcr;
 using System.Diagnostics;
 using OneOcr.Fuzz;
 using OneOcr.Tests;
@@ -23,6 +24,7 @@ internal static class Program
             "container" => ContainerTarget.Run,
             "charlm" => CharLmTarget.Run,
             "lexicon" => LexiconTarget.Run,
+            "pagejson" => PageJsonTarget.Run,
             _ => throw new ArgumentException($"Unknown target '{name}'."),
         };
     }
@@ -68,6 +70,8 @@ internal static class Program
         }
 
         var rng = new Random(seed);
+        // Truncated inputs are not kept for further mutation: they would shrink the corpus toward inputs that fail at once.
+        int keepAtLeast = corpus.Max(c => c.Length) / 2;
         var clock = Stopwatch.StartNew();
         long runs = 0;
         while (clock.Elapsed.TotalSeconds < seconds)
@@ -115,7 +119,7 @@ internal static class Program
 
             target(input);
             runs++;
-            if (runs % 64 == 0 && input.Length >= 16)
+            if (runs % 64 == 0 && input.Length >= Math.Max(16, keepAtLeast))
             {
                 if (corpus.Count < 256)
                 {
@@ -142,6 +146,15 @@ internal static class Program
             File.WriteAllBytes(Path.Combine(dir, "order3.seed"), TestLm.Build("latin", alphabet, ["cab", "cab", "dab", "cod", "b\u00e9"], 3));
             File.WriteAllBytes(Path.Combine(dir, "order2.seed"), TestLm.Build("latin", alphabet, ["cab", "dab", "cod"], 2));
             File.WriteAllBytes(Path.Combine(dir, "two-scripts.seed"), TestLm.Assemble([("latin", alphabet, ["cab", "dab"]), ("other", ["x", "y"], ["xy", "yx"])], 3));
+            return;
+        }
+
+        if (target == "pagejson")
+        {
+            OcrPage sample = SamplePage.Build();
+            File.WriteAllText(Path.Combine(dir, "full.seed"), OcrPageJson.ToJson([sample, new OcrPage(1, 100, 50, 300, [])]));
+            File.WriteAllText(Path.Combine(dir, "indented.seed"), OcrPageJson.ToJson([sample], new OcrPageJsonOptions { Indented = true, IncludeChars = false }));
+            File.WriteAllText(Path.Combine(dir, "empty.seed"), OcrPageJson.ToJson([]));
             return;
         }
 

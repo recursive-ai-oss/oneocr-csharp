@@ -54,11 +54,12 @@ internal static class LinePreprocessor
     /// scales it to <paramref name="height"/> rows. Returns a buffer from <paramref name="pool"/> whose first
     /// <c>height * width</c> pixels are the scaled line; the caller gives it back to the pool.
     /// </summary>
-    public static Gray8[] Prepare(ReadOnlySpan<byte> page, int pageWidth, LineBox box, int height, BufferPool<Gray8> pool, out int width)
+    public static Gray8[] Prepare(ReadOnlySpan<byte> page, int pageWidth, LineBox box, int height, BufferPool<Gray8> pool, ResizerPool resizers, out int width)
     {
         int count = checked(box.Width * box.Height);
+        (int scaledWidth, int scaledHeight) = PixelResizer.GetSize(box.Width, box.Height, null, height);
         Gray8[] crop = pool.Rent(count);
-        Image scaled;
+        Gray8[]? result = null;
         try
         {
             for (int y = 0; y < box.Height; y++)
@@ -71,26 +72,32 @@ internal static class LinePreprocessor
                 }
             }
 
-            scaled = Image.FromPixels<Gray8>(crop.AsSpan(0, count), box.Width, box.Height).Resize(height: height);
+            result = pool.Rent(checked(scaledWidth * scaledHeight));
+            PixelResizer resizer = resizers.Rent();
+            try
+            {
+                resizer.Resize<Gray8>(crop.AsSpan(0, count), box.Width, box.Height, result.AsSpan(0, scaledWidth * scaledHeight), scaledWidth, scaledHeight);
+            }
+            finally
+            {
+                resizers.Return(resizer);
+            }
+        }
+        catch
+        {
+            if (result is not null)
+            {
+                pool.Return(result);
+            }
+
+            throw;
         }
         finally
         {
             pool.Return(crop);
         }
 
-        width = scaled.Width;
-        int rows = scaled.Height;
-        Gray8[] result = pool.Rent(checked(width * rows));
-        try
-        {
-            scaled.CopyPixelsTo<Gray8>(result.AsSpan(0, width * rows), new ImageRect(0, 0, width, rows), 1);
-        }
-        catch
-        {
-            pool.Return(result);
-            throw;
-        }
-
+        width = scaledWidth;
         return result;
     }
 }

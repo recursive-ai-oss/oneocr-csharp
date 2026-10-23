@@ -18,6 +18,23 @@ public abstract class OcrException : Exception
     }
 }
 
+/// <summary>An input that is not in the format it claims to be: a page-model JSON document with a wrong member, type or value.</summary>
+public sealed class OcrFormatException : OcrException
+{
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">What is wrong, naming the member where known.</param>
+    public OcrFormatException(string message) : base(message)
+    {
+    }
+
+    /// <summary>Creates the exception with the error that caused it.</summary>
+    /// <param name="message">What is wrong.</param>
+    /// <param name="innerException">The underlying parse error.</param>
+    public OcrFormatException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
+}
+
 /// <summary>A model file is malformed, truncated, inconsistent, or describes an architecture this version cannot run.</summary>
 public sealed class OcrModelException : OcrException
 {

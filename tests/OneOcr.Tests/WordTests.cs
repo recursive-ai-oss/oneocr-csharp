@@ -314,15 +314,22 @@ public class WordTests
         return (ModelContainer.Parse(Container(Calibration)), page);
     }
 
-    private static string Flatten(OcrRecognition r)
+    private static string Flatten(OcrPage r)
     {
         var sb = new StringBuilder();
-        foreach (OcrLine l in r.Lines)
+        foreach (OcrBlock b in r.Blocks)
         {
-            sb.Append(CultureInvariant($"L {l.Text.Length} {BitConverter.SingleToInt32Bits(l.Confidence):x8} {l.Left} {l.Top} {l.Right} {l.Bottom}\n"));
-            foreach (OcrWord w in l.Words)
+            foreach (OcrLine l in b.Lines)
             {
-                sb.Append(CultureInvariant($"  {w.Text} {BitConverter.SingleToInt32Bits(w.Left):x8} {BitConverter.SingleToInt32Bits(w.Top):x8} {BitConverter.SingleToInt32Bits(w.Right):x8} {BitConverter.SingleToInt32Bits(w.Bottom):x8} {BitConverter.SingleToInt32Bits(w.Confidence):x8} {BitConverter.SingleToInt32Bits(w.RawConfidence):x8}\n"));
+                sb.Append(CultureInvariant($"L {l.Text.Length} {BitConverter.SingleToInt32Bits(l.Confidence):x8} {l.Box.Left} {l.Box.Top} {l.Box.Right} {l.Box.Bottom}\n"));
+                foreach (OcrWord w in l.Words)
+                {
+                    sb.Append(CultureInvariant($"  {w.Text} {w.Box.Left} {w.Box.Top} {w.Box.Right} {w.Box.Bottom} {BitConverter.SingleToInt32Bits(w.Confidence):x8} {BitConverter.SingleToInt32Bits(w.RawConfidence):x8}\n"));
+                    foreach (OcrChar c in w.Chars)
+                    {
+                        sb.Append(CultureInvariant($"    {c.Text} {c.Box.Left} {c.Box.Right} {BitConverter.SingleToInt32Bits(c.Confidence):x8}\n"));
+                    }
+                }
             }
         }
 
@@ -331,40 +338,42 @@ public class WordTests
 
     private static string CultureInvariant(FormattableString s) => FormattableString.Invariant(s);
 
+    private static OcrPage Ocr(OcrEngine e, Image page, int degree) => e.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = degree });
+
     [Fact]
-    public void RecognizeIsBitIdenticalOnEveryPathAndDegreeAndMatchesToText()
+    public void OcrIsBitIdenticalOnEveryPathAndDegreeAndMatchesToText()
     {
         var (container, page) = EngineSetup();
         var scalar = OcrEngine.Create(container, null, KernelPath.Scalar);
-        OcrRecognition baseline = scalar.Recognize(page, 1);
+        OcrPage baseline = Ocr(scalar, page, 1);
         string flat = Flatten(baseline);
-        Assert.Equal(4, baseline.Lines.Count);
-        Assert.Contains(baseline.Lines, l => l.Words.Count > 1);
-        Assert.Equal(scalar.ToText(page, 1), baseline.Text);
-        Assert.Empty(baseline.Diagnostics);
-        Assert.Equal(flat, Flatten(scalar.Recognize(page, 4)));
-        Assert.Equal(flat, Flatten(scalar.Recognize(page)));
+        var lines = baseline.Blocks.SelectMany(b => b.Lines).ToList();
+        Assert.Equal(4, lines.Count);
+        Assert.Contains(lines, l => l.Words.Count > 1);
+        Assert.Equal(scalar.ToText(page, 1), baseline.ToText());
+        Assert.Equal(flat, Flatten(Ocr(scalar, page, 4)));
+        Assert.Equal(flat, Flatten(scalar.Ocr(page)));
+        string json = OcrPageJson.ToJson([baseline]);
         foreach (KernelPath path in Dispatch.Available())
         {
             var engine = OcrEngine.Create(container, null, path);
-            Assert.Equal(flat, Flatten(engine.Recognize(page, 1)));
-            Assert.Equal(flat, Flatten(engine.Recognize(page, 8)));
+            Assert.Equal(flat, Flatten(Ocr(engine, page, 1)));
+            Assert.Equal(flat, Flatten(Ocr(engine, page, 8)));
+            Assert.Equal(json, OcrPageJson.ToJson([Ocr(engine, page, 3)]));
         }
 
-        foreach (OcrLine line in baseline.Lines)
+        foreach (OcrLine line in lines)
         {
-            float prev = line.Left;
+            double prev = line.Box.Left;
             foreach (OcrWord w in line.Words)
             {
-                Assert.True(w.BoxIsApproximate);
                 Assert.InRange(w.Confidence, 0f, 1f);
                 Assert.InRange(w.RawConfidence, 0f, 1f);
-                Assert.True(w.Left <= w.Right);
-                Assert.True(w.Left >= 0 && w.Right <= 900);
-                Assert.Equal(line.Top, w.Top);
-                Assert.Equal(line.Bottom, w.Bottom);
-                Assert.True(w.Left >= prev - 0.01f, "words run left to right");
-                prev = w.Right;
+                Assert.True(w.Box.Left <= w.Box.Right);
+                Assert.True(w.Box.Left >= 0 && w.Box.Right <= 900);
+                Assert.True(w.Box.Left >= prev - 0.01, "words run left to right");
+                prev = w.Box.Right;
+                Assert.All(w.Chars, c => Assert.True(c.BoxIsApproximate));
             }
         }
     }
@@ -374,22 +383,22 @@ public class WordTests
     {
         var (_, page) = EngineSetup();
         var engine = OcrEngine.Create(ModelContainer.Parse(Container(null)), null, KernelPath.Scalar);
-        OcrRecognition r = engine.Recognize(page, 1);
-        Assert.Single(r.Diagnostics);
-        foreach (OcrWord w in r.Lines.SelectMany(l => l.Words))
+        OcrPage r = Ocr(engine, page, 1);
+        Assert.Contains(ModelContainer.NoCalibrationNote, r.Diagnostics);
+        foreach (OcrWord w in r.Words)
         {
             Assert.Equal(w.RawConfidence, w.Confidence);
         }
 
-        Assert.Throws<ArgumentNullException>(() => engine.Recognize(null!));
-        Assert.Empty(engine.Recognize(Image.FromPixels<Gray8>(Enumerable.Repeat(new Gray8(255), 300 * 200).ToArray(), 300, 200)).Lines);
+        Assert.Throws<ArgumentNullException>(() => engine.Ocr(null!));
+        Assert.Empty(engine.Ocr(Image.FromPixels<Gray8>(Enumerable.Repeat(new Gray8(255), 300 * 200).ToArray(), 300, 200)).Words);
     }
 
     [Fact]
-    public void RecognizeRejectsOversizedImages()
+    public void OcrRejectsOversizedImages()
     {
         var (container, page) = EngineSetup();
         var engine = OcrEngine.Create(container, new OcrLimits { MaxImagePixels = 1000 }, KernelPath.Scalar);
-        Assert.Throws<OcrLimitException>(() => engine.Recognize(page));
+        Assert.Throws<OcrLimitException>(() => engine.Ocr(page));
     }
 }
