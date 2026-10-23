@@ -22,6 +22,6 @@ __pycache__/
 *.safetensors
 *.npy
 *.npz
-/training/data/
+/training/data/raw/
 /training/runs/
 /training/out/

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>LineGen</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="RecursiveAI.OneImage" Version="1.5.0" />
+    <PackageReference Include="RecursiveAI.OneImage.Text" Version="1.5.0" />
+  </ItemGroup>
+</Project>
