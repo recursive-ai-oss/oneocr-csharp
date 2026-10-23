@@ -1,53 +1,153 @@
-"""Font manifest tooling: verifies (or with --write fills in) the SHA-256 of every font file.
+"""Font manifest tooling.
 
-Fonts are open-licensed only (OFL, Ubuntu Font Licence). The manifest pins each file by hash so a
-dataset can be reproduced from the same font bytes.
+  uv run python -m data.fonts build   # font_families.yaml -> fonts.yaml (queries the pinned upstream commit)
+  uv run python -m data.fonts fetch   # download every font file listed in fonts.yaml into $ONEOCR_FONT_ROOT, verifying SHA-256
+  uv run python -m data.fonts verify  # check files on disk against fonts.yaml
+
+Fonts come from the Google Fonts repository at a pinned commit; every URL contains the commit, every file and licence
+text is pinned by SHA-256. Only OFL, Apache-2.0 and Ubuntu Font Licence families are accepted; the licence is read
+from the family's own licence file and recorded in the manifest.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
+import subprocess
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import yaml
 
-MANIFEST = Path(__file__).with_name("fonts.yaml")
+HERE = Path(__file__).parent
+MANIFEST = HERE / "fonts.yaml"
+FAMILIES = HERE / "font_families.yaml"
+LICENSE_MARKS = {
+    "OFL-1.1": "SIL OPEN FONT LICENSE Version 1.1",
+    "Apache-2.0": "Apache License",
+    "UFL-1.0": "UBUNTU FONT LICENCE Version 1.0",
+}
+LICENSE_DIRS = {"OFL-1.1": "ofl", "Apache-2.0": "apache", "UFL-1.0": "ufl"}
 
 
 def font_root() -> Path:
-    return Path(os.environ.get("ONEOCR_FONT_ROOT", "/usr/share/fonts/truetype"))
+    return Path(os.environ.get("ONEOCR_FONT_ROOT", "fonts-cache"))
 
 
 def load_manifest() -> list[dict]:
     return yaml.safe_load(MANIFEST.read_text(encoding="utf-8"))["fonts"]
 
 
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def sha256(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+def http(url: str) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "oneocr-fonts"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return r.read()
+
+
+def api(path: str):
+    token = os.environ.get("GITHUB_TOKEN") or subprocess.run(["gh", "auth", "token"], capture_output=True, text=True).stdout.strip()
+    req = urllib.request.Request(
+        f"https://api.github.com/{path}", headers={"Authorization": f"Bearer {token}", "User-Agent": "oneocr-fonts"} if token else {}
+    )
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)
+
+
+def raw_url(repo: str, commit: str, path: str) -> str:
+    return f"https://raw.githubusercontent.com/{repo}/{commit}/{urllib.parse.quote(path)}"
+
+
+def pick_files(names: list[str], limit: int) -> list[str]:
+    """Static weights first (regular, bold, italic, bold italic, then others); variable fonts count as one file each."""
+    ttf = sorted(n for n in names if n.endswith(".ttf"))
+    first = ["Regular", "Bold", "Italic", "BoldItalic"]
+
+    def rank(n: str) -> tuple:
+        stem = n.rsplit("-", 1)[-1][:-4] if "-" in n else n[:-4]
+        return (first.index(stem) if stem in first else 4, n)
+
+    return sorted(ttf, key=rank)[:limit]
+
+
+def build() -> None:
+    spec = yaml.safe_load(FAMILIES.read_text(encoding="utf-8"))
+    repo, commit = spec["repo"], spec["commit"]
+    entries = []
+    for split, fams in spec["families"].items():
+        for fam in fams:
+            assert fam not in spec["never"], fam
+            for lic, d in LICENSE_DIRS.items():  # noqa: B007 (lic is used after the loop)
+                try:
+                    listing = api(f"repos/{repo}/contents/{d}/{fam}?ref={commit}")
+                except Exception:
+                    continue
+                break
+            else:
+                print(f"MISSING family {fam}", file=sys.stderr)
+                continue
+            names = [x["name"] for x in listing]
+            lic_files = [n for n in names if n in ("OFL.txt", "LICENSE.txt", "UFL.txt")]
+            if not lic_files:
+                print(f"NO LICENCE FILE {fam}", file=sys.stderr)
+                continue
+            lic_text = http(raw_url(repo, commit, f"{d}/{fam}/{lic_files[0]}"))
+            mark_ok = LICENSE_MARKS[lic].lower() in lic_text.decode("utf-8", "replace").lower()
+            first_line = lic_text.decode("utf-8", "replace").splitlines()[0].strip()
+            if not mark_ok:
+                print(f"LICENCE TEXT MISMATCH {fam}: expected {lic}", file=sys.stderr)
+                continue
+            files = pick_files(names, spec["max_files_per_family"])
+            if not files:
+                print(f"NO TTF {fam}", file=sys.stderr)
+                continue
+            for n in files:
+                path = f"{d}/{fam}/{n}"
+                data = http(raw_url(repo, commit, path))
+                entries.append({
+                    "family": fam, "file": path, "split": split, "license": lic,
+                    "license_file": f"{d}/{fam}/{lic_files[0]}", "license_sha256": sha256(lic_text),
+                    "copyright": re.sub(r"^Copyright\s*", "", first_line), "url": raw_url(repo, commit, path), "sha256": sha256(data),
+                })  # fmt: skip
+            print(f"{fam}: {len(files)} files, {lic}", file=sys.stderr)
+    head = (
+        f"# Generated by `python -m data.fonts build` from font_families.yaml. Source: github.com/{repo} at {commit}.\n"
+        "# `split: heldout` families are used only for evaluation sets, never for training.\n"
+        "# Licence texts are the families' own OFL.txt / LICENSE.txt / UFL.txt files (hash in license_sha256).\n"
+    )
+    MANIFEST.write_text(head + yaml.safe_dump({"fonts": entries}, sort_keys=False, allow_unicode=True, width=200), encoding="utf-8")
+    print(f"{len(entries)} fonts in {len({e['family'] for e in entries})} families")
+
+
+def fetch(verify_only: bool) -> None:
+    root = font_root()
+    bad = 0
+    for f in load_manifest():
+        p = root / f["file"]
+        if not p.exists():
+            if verify_only:
+                print(f"MISSING {f['file']}")
+                bad += 1
+                continue
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(http(f["url"]))
+        if sha256(p.read_bytes()) != f["sha256"]:
+            print(f"MISMATCH {f['file']}")
+            bad += 1
+    print(f"{len(load_manifest())} fonts, {bad} problems")
+    sys.exit(1 if bad else 0)
 
 
 def main() -> None:
-    write = "--write" in sys.argv
-    fonts = load_manifest()
-    root = font_root()
-    bad = 0
-    text = MANIFEST.read_text(encoding="utf-8")
-    for f in fonts:
-        digest = sha256(root / f["file"])
-        if f["sha256"] and f["sha256"] != digest:
-            print(f"MISMATCH {f['file']}: {digest}")
-            bad += 1
-        if write and not f["sha256"]:
-            # the entry's file line is unique, so the empty hash after it is the one to fill
-            head, _, tail = text.partition(f"    file: {f['file']}\n")
-            tail = tail.replace('sha256: ""', f'sha256: "{digest}"', 1)
-            text = head + f"    file: {f['file']}\n" + tail
-    if write:
-        MANIFEST.write_text(text, encoding="utf-8")
-    print(f"{len(fonts)} fonts, {bad} mismatches")
-    sys.exit(1 if bad else 0)
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "verify"
+    {"build": build, "fetch": lambda: fetch(False), "verify": lambda: fetch(True)}[cmd]()
 
 
 if __name__ == "__main__":

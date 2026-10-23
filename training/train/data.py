@@ -19,6 +19,11 @@ def normalize(gray_u8: np.ndarray) -> np.ndarray:
     return ((gray_u8.astype(np.float32) / 255.0) - MEAN) / STD
 
 
+def to_input(x: torch.Tensor, device: str) -> torch.Tensor:
+    """Container input rule on the device: x = p / 255, then (x - mean) / std."""
+    return ((x.to(device, non_blocking=True).float() / 255.0) - MEAN) / STD
+
+
 def load_gray(path: str | Path) -> np.ndarray:
     with Image.open(path) as im:
         assert im.mode == "L", f"{path}: expected 8-bit gray, got {im.mode}"
@@ -43,11 +48,11 @@ class LineSet:
         return len(self.images)
 
     def batch(self, idx: list[int]) -> tuple[torch.Tensor, torch.Tensor]:
-        """Pads to the widest image by replicating each image's last column (paper colour)."""
+        """uint8 [B, 1, H, Wmax] padded by replicating each image's last column (paper colour); true widths. Use `to_input`."""
         wmax = max(self.widths[i] for i in idx)
-        x = np.empty((len(idx), 1, self.images[idx[0]].shape[0], wmax), dtype=np.float32)
+        x = np.empty((len(idx), 1, self.images[idx[0]].shape[0], wmax), dtype=np.uint8)
         for k, i in enumerate(idx):
-            im = normalize(self.images[i])
+            im = self.images[i]
             x[k, 0, :, : im.shape[1]] = im
             x[k, 0, :, im.shape[1] :] = im[:, -1:]
         return torch.from_numpy(x), torch.tensor([self.widths[i] for i in idx])

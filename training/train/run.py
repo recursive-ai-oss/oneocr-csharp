@@ -13,8 +13,10 @@ import json
 import math
 import os
 import platform
+import queue
 import random
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -25,8 +27,8 @@ import yaml
 
 from data import charset as cs
 from eval.lines import evaluate
-from models.crnn import CRNN, DEFAULT_CONFIG, output_length
-from train.data import LineSet
+from models.crnn import CRNN, DEFAULT_CONFIG, macs_per_column, output_length
+from train.data import LineSet, to_input
 
 BASE = Path(__file__).resolve().parents[1]
 
@@ -79,6 +81,7 @@ def main() -> None:
     sets = {k: LineSet(data_root / k, charset) for k in ("train", "val", "eval")}
     manifest = run_manifest(cfg, {k: data_root / k for k in sets}, charset_path)
     manifest["parameters"] = params
+    manifest["macs_per_column"] = macs_per_column(model.config)
     (run_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=1, ensure_ascii=False), encoding="utf-8")
 
     opt = torch.optim.AdamW(model.parameters(), lr=tc["lr"], weight_decay=tc["weight_decay"])
@@ -104,19 +107,29 @@ def main() -> None:
         torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step, "config": model_cfg,
                     "charset": charset, "manifest": manifest}, path)  # fmt: skip
 
+    def producer(first: int, q: queue.Queue) -> None:
+        """Builds batches on a background thread so the GPU is not waiting for numpy."""
+        cached_epoch, batches = -1, []
+        for st in range(first, tc["steps"]):
+            epoch, i = divmod(st, steps_per_epoch)
+            if epoch != cached_epoch:
+                cached_epoch, batches = epoch, train.epoch_batches(tc["batch"], random.Random(seed * 100003 + epoch))
+            idx = batches[i]
+            x, widths = train.batch(idx)
+            tgt = torch.tensor([t for k in idx for t in train.targets[k]])
+            tlen = torch.tensor([len(train.targets[k]) for k in idx])
+            ilen = torch.tensor([output_length(int(w), model.config) for w in widths])
+            q.put((x.pin_memory(), widths, tgt, tlen, ilen))
+
+    q: queue.Queue = queue.Queue(maxsize=24)
+    threading.Thread(target=producer, args=(step, q), daemon=True).start()
+
     t0 = time.time()
+    best = float("inf")
     run_loss, run_n = 0.0, 0
-    cached_epoch, batches = -1, []
     while step < tc["steps"]:
-        epoch, i = divmod(step, steps_per_epoch)
-        if epoch != cached_epoch:
-            cached_epoch, batches = epoch, train.epoch_batches(tc["batch"], random.Random(seed * 100003 + epoch))
-        idx = batches[i]
-        x, widths = train.batch(idx)
-        x = x.to(dev, non_blocking=True)
-        tgt = torch.tensor([t for k in idx for t in train.targets[k]])
-        tlen = torch.tensor([len(train.targets[k]) for k in idx])
-        ilen = torch.tensor([output_length(int(w), model.config) for w in widths])
+        x, widths, tgt, tlen, ilen = q.get()
+        x = to_input(x, dev)
         for g in opt.param_groups:
             g["lr"] = lr_at(step, tc)
         model.train()
@@ -135,8 +148,11 @@ def main() -> None:
             emit({"step": step, "loss": run_loss / run_n, "lr": lr_at(step, tc), "elapsed_s": round(time.time() - t0, 1)})
             run_loss, run_n = 0.0, 0
         if step % tc["eval_every"] == 0 or step == tc["steps"]:
-            emit({"step": step, "val": evaluate(model, sets["val"], charset, dev, limit=500),
-                  "eval_heldout": evaluate(model, sets["eval"], charset, dev, limit=500)})  # fmt: skip
+            v = evaluate(model, sets["val"], charset, dev, limit=1500)
+            emit({"step": step, "val": v, "eval_heldout": evaluate(model, sets["eval"], charset, dev, limit=1500)})
+            if v["cer"] < best:  # the best checkpoint is picked on validation (training fonts), never on the held-out set
+                best = v["cer"]
+                save(run_dir / "best.pt")
         if step % tc["ckpt_every"] == 0 or step == tc["steps"]:
             save(ckpt_path)
     save(run_dir / "final.pt")
