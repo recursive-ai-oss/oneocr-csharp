@@ -50,20 +50,47 @@ internal static class LinePreprocessor
     }
 
     /// <summary>
-    /// Crops <paramref name="box"/> out of a grayscale page image and scales it to <paramref name="height"/> rows; returns the
-    /// 8-bit pixels and the scaled width.
+    /// Crops <paramref name="box"/> out of an 8-bit grayscale page (row-major, <paramref name="pageWidth"/> pixels per row) and
+    /// scales it to <paramref name="height"/> rows. Returns a buffer from <paramref name="pool"/> whose first
+    /// <c>height * width</c> pixels are the scaled line; the caller gives it back to the pool.
     /// </summary>
-    public static byte[] Prepare(Image page, LineBox box, int height, out int width)
+    public static Gray8[] Prepare(ReadOnlySpan<byte> page, int pageWidth, LineBox box, int height, BufferPool<Gray8> pool, out int width)
     {
-        Image scaled = page.Crop(box.X, box.Y, box.Width, box.Height).Resize(height: height);
-        width = scaled.Width;
-        Gray8[] px = scaled.ToArray<Gray8>();
-        var bytes = new byte[px.Length];
-        for (int i = 0; i < bytes.Length; i++)
+        int count = checked(box.Width * box.Height);
+        Gray8[] crop = pool.Rent(count);
+        Image scaled;
+        try
         {
-            bytes[i] = px[i].V;
+            for (int y = 0; y < box.Height; y++)
+            {
+                ReadOnlySpan<byte> row = page.Slice(((box.Y + y) * pageWidth) + box.X, box.Width);
+                Span<Gray8> to = crop.AsSpan(y * box.Width, box.Width);
+                for (int x = 0; x < row.Length; x++)
+                {
+                    to[x] = new Gray8(row[x]);
+                }
+            }
+
+            scaled = Image.FromPixels<Gray8>(crop.AsSpan(0, count), box.Width, box.Height).Resize(height: height);
+        }
+        finally
+        {
+            pool.Return(crop);
         }
 
-        return bytes;
+        width = scaled.Width;
+        int rows = scaled.Height;
+        Gray8[] result = pool.Rent(checked(width * rows));
+        try
+        {
+            scaled.CopyPixelsTo<Gray8>(result.AsSpan(0, width * rows), new ImageRect(0, 0, width, rows), 1);
+        }
+        catch
+        {
+            pool.Return(result);
+            throw;
+        }
+
+        return result;
     }
 }

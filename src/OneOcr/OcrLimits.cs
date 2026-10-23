@@ -60,6 +60,14 @@ public sealed class OcrLimits
     /// <summary>Most pixels (width times height) of an image that will be read for recognition. Default 2^27 (a 11585 x 11585 image).</summary>
     public long MaxImagePixels { get; init; } = 1L << 27;
 
+    /// <summary>
+    /// Most bytes of scratch memory each engine keeps for reuse between lines and calls, separately for the recognizer's
+    /// activation buffers and the page and line pixel buffers. Memory in use is not counted, so peak memory is the working set of
+    /// the lines being read plus at most this much. Reuse keeps repeated large allocations, and the garbage they leave, out of the
+    /// managed heap. Default 64 MiB; 0 keeps nothing.
+    /// </summary>
+    public long MaxPooledBufferBytes { get; init; } = 64L * 1024 * 1024;
+
     /// <summary>Most text lines recognized on one page. Default 4096.</summary>
     public int MaxLinesPerPage { get; init; } = 4096;
 }
