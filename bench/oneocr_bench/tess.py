@@ -45,7 +45,8 @@ def run_one(tess: str, model: str, psm: int, img: Path, out_base: Path, threads1
     else:
         env.pop("OMP_THREAD_LIMIT", None)
     t0 = time.perf_counter()
-    p = subprocess.Popen([tess, model, str(img), str(out_base), "-l", "eng", "--psm", str(psm), "txt", "tsv"], env=env,
+    p = subprocess.Popen([tess, model, str(img), str(out_base), "-l", "eng", "--psm", str(psm),
+                          "-c", "tessedit_create_txt=1", "-c", "tessedit_create_tsv=1"], env=env,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     _, status, ru = os.wait4(p.pid, 0)
     dt = time.perf_counter() - t0
@@ -128,9 +129,9 @@ def main(set_name: str, models: list[str], psms: list[int], tess: str, results: 
 
 
 def report() -> None:
-    """One markdown table over every set that has results: best-of-PSM rows."""
-    lines = ["| category (set) | model | PSM | CER % | WER % | order % | recall-CER % | F1@0.5 | s/page 1 thread | s/page default | peak RSS MB (1t / default) | load1 before / max during / after |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    """Markdown tables over every set that has results: the selected PSM per model, then the best PSM per metric."""
+    lines = ["| category (set) | model | PSM | CER % | WER % | order % | recall-CER % | recall-WER % | F1@0.5 | s/page 1 thread | s/page default | peak RSS MB (1t / default) | load1 before / max during / after |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for name, spec in SETS.items():
         p = data_dir() / "results" / name / "tesseract.json"
         if not p.exists():
@@ -143,8 +144,22 @@ def report() -> None:
             a, b = r["1thread"], r["default"]
             f1 = f"{a['f1']:.3f}" if a["f1"] is not None else "-"
             lines.append(f"| {spec.category} ({name}) | {model} | {psm} | {a['cer'] * 100:.2f} | {a['wer'] * 100:.2f} | {a['order_err'] * 100:.2f} | "
-                         f"{a['cer_recall'] * 100:.2f} | {f1} | {a['s_per_page']:.2f} | {b['s_per_page']:.2f} | "
+                         f"{a['cer_recall'] * 100:.2f} | {a['wer_recall'] * 100:.2f} | {f1} | {a['s_per_page']:.2f} | {b['s_per_page']:.2f} | "
                          f"{a['peak_rss_mb']:.0f} / {b['peak_rss_mb']:.0f} | {load} |")
+    lines += ["", "Best PSM chosen separately for each metric (the hardest baseline for a per-metric gate); same runs as above.", "",
+              "| category (set) | model | CER % (PSM) | WER % (PSM) | order % (PSM) |", "|---|---|---|---|---|"]
+    for name, spec in SETS.items():
+        p = data_dir() / "results" / name / "tesseract.json"
+        if not p.exists():
+            continue
+        d = json.loads(p.read_text())
+        for model in d["best_psm"]:
+            rs = [r for r in d["rows"] if r["model"] == model]
+            cells = []
+            for k in ("cer", "wer", "order_err"):
+                r = min(rs, key=lambda r: r["1thread"][k])
+                cells.append(f"{r['1thread'][k] * 100:.2f} ({r['psm']})")
+            lines.append(f"| {spec.category} ({name}) | {model} | " + " | ".join(cells) + " |")
     out = "\n".join(lines) + "\n"
     (data_dir() / "results" / "tesseract-table.md").write_text(out)
     print(out)
