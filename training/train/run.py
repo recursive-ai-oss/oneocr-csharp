@@ -129,7 +129,7 @@ def main() -> None:
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         opt.step()
         step += 1
-        run_loss += float(loss)
+        run_loss += loss.item()
         run_n += 1
         if step % tc["log_every"] == 0:
             emit({"step": step, "loss": run_loss / run_n, "lr": lr_at(step, tc), "elapsed_s": round(time.time() - t0, 1)})
