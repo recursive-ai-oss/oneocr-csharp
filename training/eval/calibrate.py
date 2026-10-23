@@ -121,6 +121,10 @@ def main() -> None:
     f = sub.add_parser("fit")
     f.add_argument("--hyps", required=True)
     f.add_argument("--out", required=True)
+    t = sub.add_parser("table", help="markdown ECE before/after for the held-out synthetic sets and every page category")
+    t.add_argument("--calibration", required=True)
+    t.add_argument("--hyps-dir", required=True)
+    t.add_argument("--out", required=True)
     e = sub.add_parser("ece")
     e.add_argument("--calibration", required=True)
     e.add_argument("hyps", nargs="+")
@@ -133,6 +137,38 @@ def main() -> None:
             cal["scripts"][s] = fit_map(np.array([x[1] for x in g]), np.array([x[2] for x in g]))
             print(s, len(g), "words,", len(cal["scripts"][s]["x"]), "knots, accuracy", round(sum(x[2] for x in g) / len(g), 4))
         Path(a.out).write_text(json.dumps(cal, indent=1), encoding="utf-8")
+    elif a.cmd == "table":
+        cal = json.loads(Path(a.calibration).read_text(encoding="utf-8"))
+        d = Path(a.hyps_dir)
+        names = [
+            "calib",
+            "eval",
+            "diag_fonts",
+            "diag_degrade",
+            "clean300-v1",
+            "degraded-v1",
+            "screenshot-v1",
+            "layout-v1",
+            "phone-v1",
+            "receipts-v1",
+        ]
+        lines = [
+            "| set | scope | words | word accuracy % | mean raw confidence | ECE raw | ECE calibrated |",
+            "|---|---|---:|---:|---:|---:|---:|",
+        ]
+        report = {}
+        for n in names:
+            rep = ece_report(word_samples(read_hyps(d / f"{n}.hyps.jsonl")), cal)
+            report[n] = rep
+            for scope, r in rep.items():
+                label = f"{n} (fit set)" if n == "calib" else n
+                lines.append(
+                    f"| {label} | {scope} | {r['words']} | {100 * r['accuracy']:.2f} | {r['mean_raw']:.4f} "
+                    f"| {r['ece_raw']:.4f} | {r['ece_calibrated']:.4f} |"
+                )
+        Path(a.out).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        Path(a.out).with_suffix(".json").write_text(json.dumps(report, indent=1), encoding="utf-8")
+        print("\n".join(lines))
     else:
         cal = json.loads(Path(a.calibration).read_text(encoding="utf-8"))
         for h in a.hyps:
