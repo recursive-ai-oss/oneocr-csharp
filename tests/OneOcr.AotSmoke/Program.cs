@@ -72,6 +72,16 @@ if (b1 != b4 || b1.Split('\n').Length != 3)
     return 1;
 }
 
+// A version 1 container: calibration is parsed (source-generated JSON), applied, and words come back with boxes.
+OcrEngine calibrated = OcrEngine.Load(new System.IO.MemoryStream(TestModels.RandomContainerV1(pageShape, 3,
+    "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,1],\"y\":[0,0.5]}}}")));
+OcrRecognition words = calibrated.Recognize(page, 1);
+if (words.Text != t1 || words.Lines.Count != 3 || words.Diagnostics.Count != 0 || calibrated.Recognize(page, 4).Text != t1)
+{
+    Console.Error.WriteLine("Recognize disagrees with ToText");
+    return 1;
+}
+
 OneOcr.OneOcr.Configure(engine);
 if (page.ToText() != t1)
 {
