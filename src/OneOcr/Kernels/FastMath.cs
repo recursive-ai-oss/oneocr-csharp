@@ -5,7 +5,7 @@ namespace OneOcr.Kernels;
 /// <summary>
 /// Exponential, sigmoid and tanh built from IEEE operations only (add, multiply, divide, fused multiply-add, round to
 /// nearest even), in one fixed order, so every path and every platform produces the same bits. The runtime's own math
-/// library is deliberately not used. The vector versions in <see cref="FastMathAvx2"/> repeat this sequence operation for operation.
+/// library is deliberately not used. The vector versions in FastMathVector.cs repeat this sequence operation for operation.
 ///
 /// exp(x): clamp x to [-80, 80]; n = round(x * log2(e)); r = x - n * ln2 (two fused steps, ln2 split in high and low parts,
 /// Cody-Waite); exp(r) ~ 1 + r + r^2 * P(r) with P a degree-5 Horner polynomial from the Taylor series (|r| &lt;= ln2/2, relative

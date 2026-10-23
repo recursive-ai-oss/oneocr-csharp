@@ -14,6 +14,9 @@ using OneOcr.Layout;
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
 //       compares found text lines with lines derived from the truth word boxes (precision and recall at IoU >= 0.5) and times
 //       grayscale conversion, line finding and line preprocessing per page.
+//   OneOcr.Bench kernels --model FILE [--width 1000] [--degree 1] [--repeat 20]
+//       median wall time of each stage (conv blocks, LSTM layers, classifier) for one line of the given width, on a
+//       synthetic image, at the given degree of parallelism.
 //   OneOcr.Bench randommodel --out FILE
 //       writes a random-weight model of the intended size, to exercise the pipeline before trained weights exist (the text is garbage).
 //
@@ -39,6 +42,7 @@ internal static class Program
             "run" => Run(options),
             "lines" => Lines(options),
             "randommodel" => RandomModel(options),
+            "kernels" => Kernels(options),
             _ => 2,
         };
     }
@@ -53,6 +57,46 @@ internal static class Program
     {
         values.Sort();
         return values[values.Count / 2];
+    }
+
+    private static int Kernels(Dictionary<string, string> o)
+    {
+        int width = Int(o, "width", 1000), degree = Int(o, "degree", 1), repeat = Math.Max(1, Int(o, "repeat", 20));
+        var recognizer = OneOcr.Recognition.LineRecognizer.Load(Need(o, "model"));
+        byte[] image = OneOcr.Tests.TestModels.RandomImage(recognizer.InputHeight, width, 1);
+        var samples = new Dictionary<string, List<double>>(StringComparer.Ordinal);
+        var total = new List<double>();
+        for (int r = -2; r < repeat; r++)
+        {
+            var trace = new OneOcr.Recognition.ForwardTrace();
+            var clock = Stopwatch.StartNew();
+            recognizer.Forward(image, width, degree, trace, System.Threading.CancellationToken.None, out _);
+            double all = clock.Elapsed.TotalMilliseconds;
+            if (r < 0)
+            {
+                continue;
+            }
+
+            total.Add(all);
+            foreach (var (name, ms) in trace.Milliseconds)
+            {
+                if (!samples.TryGetValue(name, out List<double>? list))
+                {
+                    samples[name] = list = [];
+                }
+
+                list.Add(ms);
+            }
+        }
+
+        Console.WriteLine($"line 32x{width}, degree {degree}, median of {repeat}:");
+        foreach (var (name, list) in samples)
+        {
+            Console.WriteLine($"  {name,-8} {Median(list),8:F2} ms");
+        }
+
+        Console.WriteLine($"  {"total",-8} {Median(total),8:F2} ms");
+        return 0;
     }
 
     private static int RandomModel(Dictionary<string, string> o)

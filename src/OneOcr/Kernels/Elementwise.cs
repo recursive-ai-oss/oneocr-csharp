@@ -1,6 +1,3 @@
-using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
-
 namespace OneOcr.Kernels;
 
 /// <summary>LSTM cell update and softmax normalizer, scalar and AVX2, bit-identical.</summary>
@@ -27,20 +24,13 @@ internal static unsafe class Elementwise
 
         fixed (float* pz = z, pc = c, ph = h)
         {
-            int j = 0;
-            if (path == KernelPath.Avx2)
+            int j = path switch
             {
-                for (; j + 8 <= hidden; j += 8)
-                {
-                    Vector256<float> i = FastMathAvx2.Sigmoid(Avx.LoadVector256(pz + j));
-                    Vector256<float> f = FastMathAvx2.Sigmoid(Avx.LoadVector256(pz + hidden + j));
-                    Vector256<float> g = FastMathAvx2.Tanh(Avx.LoadVector256(pz + 2 * hidden + j));
-                    Vector256<float> o = FastMathAvx2.Sigmoid(Avx.LoadVector256(pz + 3 * hidden + j));
-                    Vector256<float> cNew = Fma.MultiplyAdd(f, Avx.LoadVector256(pc + j), Avx.Multiply(i, g));
-                    Avx.Store(pc + j, cNew);
-                    Avx.Store(ph + j, Avx.Multiply(o, FastMathAvx2.Tanh(cNew)));
-                }
-            }
+                KernelPath.Avx512 => ElementwiseV512.LstmCell(pz, pc, ph, hidden),
+                KernelPath.Avx2 => ElementwiseV256.LstmCell(pz, pc, ph, hidden),
+                KernelPath.Vector128 => ElementwiseV128.LstmCell(pz, pc, ph, hidden),
+                _ => 0,
+            };
 
             for (; j < hidden; j++)
             {
@@ -76,29 +66,20 @@ internal static unsafe class Elementwise
         fixed (float* px = x)
         {
             int n = x.Length;
-            int k = 0;
-            if (path == KernelPath.Avx2)
+            int k = path switch
             {
-                Vector256<float> acc0 = Vector256<float>.Zero;
-                Vector256<float> acc1 = Vector256<float>.Zero;
-                Vector256<float> s = Vector256.Create(shift);
-                for (; k + 16 <= n; k += 16)
-                {
-                    acc0 = Avx.Add(acc0, FastMathAvx2.Exp(Avx.Subtract(Avx.LoadVector256(px + k), s)));
-                    acc1 = Avx.Add(acc1, FastMathAvx2.Exp(Avx.Subtract(Avx.LoadVector256(px + k + 8), s)));
-                }
+                KernelPath.Avx512 => ElementwiseV512.SumExpBlocks(px, n, shift, p),
+                KernelPath.Avx2 => ElementwiseV256.SumExpBlocks(px, n, shift, p),
+                KernelPath.Vector128 => ElementwiseV128.SumExpBlocks(px, n, shift, p),
+                _ => 0,
+            };
 
-                Avx.Store(p, acc0);
-                Avx.Store(p + 8, acc1);
-            }
-            else
+            // Scalar path, and the elements after the last whole block of 16 on every path.
+            for (; k + 16 <= n && path == KernelPath.Scalar; k += 16)
             {
-                for (; k + 16 <= n; k += 16)
+                for (int q = 0; q < 16; q++)
                 {
-                    for (int q = 0; q < 16; q++)
-                    {
-                        p[q] += FastMath.Exp(px[k + q] - shift);
-                    }
+                    p[q] += FastMath.Exp(px[k + q] - shift);
                 }
             }
 
@@ -133,16 +114,15 @@ internal static unsafe class Elementwise
 
         Dispatch.Require(path);
         int k = 0;
-        if (path == KernelPath.Avx2)
+        fixed (float* px = x, py = y)
         {
-            fixed (float* px = x, py = y)
+            k = path switch
             {
-                for (; k + 8 <= x.Length; k += 8)
-                {
-                    Vector256<float> v = Avx.LoadVector256(px + k);
-                    Avx.Store(py + k, function switch { 0 => FastMathAvx2.Exp(v), 1 => FastMathAvx2.Sigmoid(v), _ => FastMathAvx2.Tanh(v) });
-                }
-            }
+                KernelPath.Avx512 => ElementwiseV512.Apply(function, px, py, x.Length),
+                KernelPath.Avx2 => ElementwiseV256.Apply(function, px, py, x.Length),
+                KernelPath.Vector128 => ElementwiseV128.Apply(function, px, py, x.Length),
+                _ => 0,
+            };
         }
 
         for (; k < x.Length; k++)

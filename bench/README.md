@@ -81,5 +81,6 @@ uv run python -m oneocr_bench score --hyp OUT
 ```
 
 `OneOcr.Bench lines --pages PAGES --truth TRUTH` checks line finding against lines derived from the truth word boxes
-(precision and recall at IoU 0.5) and times grayscale conversion, line finding and line cropping. `OneOcr.Bench randommodel --out F`
+(precision and recall at IoU 0.5) and times grayscale conversion, line finding and line cropping. `OneOcr.Bench kernels --model F --width 1000 --degree 1` prints the time of each stage (convolution blocks, LSTM layers,
+classifier) for one line. `OneOcr.Bench randommodel --out F`
 writes a random-weight model for pipeline checks.

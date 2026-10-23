@@ -4,7 +4,8 @@ namespace OneOcr.Tests;
 
 public class KernelTests
 {
-    private static bool Avx2 => Dispatch.Avx2Available;
+    // Every vector path this machine has, to be compared with scalar.
+    private static KernelPath[] Vectors => Dispatch.Available().Where(p => p != KernelPath.Scalar).ToArray();
 
     private static float[] Random(Random rng, int n, double scale = 1)
     {
@@ -51,9 +52,9 @@ public class KernelTests
             float expected = (l4[0] + l4[2]) + (l4[1] + l4[3]);
             Assert.Equal(BitConverter.SingleToInt32Bits(expected), BitConverter.SingleToInt32Bits(scalar));
 
-            if (Avx2)
+            foreach (KernelPath path in Vectors)
             {
-                float v = Gemm.Dot(KernelPath.Avx2, a, b);
+                float v = Gemm.Dot(path, a, b);
                 Assert.Equal(BitConverter.SingleToInt32Bits(scalar), BitConverter.SingleToInt32Bits(v));
             }
 
@@ -70,28 +71,30 @@ public class KernelTests
     [Fact]
     public void GemmPathsAgreeOnOddShapesStridesAndBias()
     {
-        if (!Avx2)
-        {
-            return;
-        }
-
         var rng = new Random(2);
-        foreach (int k in new[] { 1, 5, 15, 16, 17, 31, 32, 33, 100, 576 })
+        foreach (int k in new[] { 1, 5, 15, 16, 17, 31, 32, 33, 48, 100, 192, 576 })
         {
-            foreach (int m in new[] { 1, 2, 7 })
+            foreach (int m in new[] { 1, 2, 3, 4, 5, 7, 8, 9, 33 })
             {
-                foreach (int n in new[] { 1, 3, 4, 5, 8, 13 })
+                foreach (int n in new[] { 1, 2, 3, 4, 5, 8, 13, 16, 31 })
                 {
                     int lda = k + 3, ldb = k + 1;
                     float[] a = Random(rng, m * lda), b = Random(rng, n * ldb), bias = Random(rng, n);
                     foreach (bool useBias in new[] { false, true })
                     {
-                        var c1 = new float[m * n * 2 + 5];
-                        var c2 = new float[c1.Length];
-                        // Transposed, strided output.
-                        Gemm.NT(KernelPath.Scalar, a, lda, b, ldb, m, n, k, useBias ? bias : default, c1, 1, m + 1);
-                        Gemm.NT(KernelPath.Avx2, a, lda, b, ldb, m, n, k, useBias ? bias : default, c2, 1, m + 1);
-                        AssertBitEqual(c1, c2, $"gemm m={m} n={n} k={k} bias={useBias}");
+                        foreach (bool transposed in new[] { false, true })
+                        {
+                            // Transposed, strided output, or plain row-major.
+                            long ldcRow = transposed ? 1 : n, ldcCol = transposed ? m + 1 : 1;
+                            var c1 = new float[(m * n * 2) + 5];
+                            Gemm.NT(KernelPath.Scalar, a, lda, b, ldb, m, n, k, useBias ? bias : default, c1, ldcRow, ldcCol);
+                            foreach (KernelPath path in Vectors)
+                            {
+                                var c2 = new float[c1.Length];
+                                Gemm.NT(path, a, lda, b, ldb, m, n, k, useBias ? bias : default, c2, ldcRow, ldcCol);
+                                AssertBitEqual(c1, c2, $"{path} gemm m={m} n={n} k={k} bias={useBias} transposed={transposed}");
+                            }
+                        }
                     }
                 }
             }
@@ -128,11 +131,11 @@ public class KernelTests
         {
             var s = new float[x.Length];
             Elementwise.Apply(KernelPath.Scalar, function, x, s);
-            if (Avx2)
+            foreach (KernelPath path in Vectors)
             {
                 var v = new float[x.Length];
-                Elementwise.Apply(KernelPath.Avx2, function, x, v);
-                AssertBitEqual(s, v, $"function {function}");
+                Elementwise.Apply(path, function, x, v);
+                AssertBitEqual(s, v, $"{path} function {function}");
             }
 
             double maxRel = 0, maxAbs = 0;
@@ -168,32 +171,146 @@ public class KernelTests
     [Fact]
     public void LstmCellAndSumExpAgreeAcrossPaths()
     {
-        if (!Avx2)
-        {
-            return;
-        }
-
         var rng = new Random(4);
-        foreach (int hidden in new[] { 1, 7, 8, 9, 24, 33, 256 })
+        foreach (int hidden in new[] { 1, 7, 8, 9, 16, 17, 24, 33, 192, 256 })
         {
             float[] z = Random(rng, 4 * hidden, 6);
             float[] c0 = Random(rng, hidden, 2);
-            float[] c1 = (float[])c0.Clone();
             var h0 = new float[hidden];
-            var h1 = new float[hidden];
-            Elementwise.LstmCell(KernelPath.Scalar, z, c0, h0);
-            Elementwise.LstmCell(KernelPath.Avx2, z, c1, h1);
-            AssertBitEqual(c0, c1, "cell state");
-            AssertBitEqual(h0, h1, "hidden state");
+            float[] cs = (float[])c0.Clone();
+            Elementwise.LstmCell(KernelPath.Scalar, z, cs, h0);
+            foreach (KernelPath path in Vectors)
+            {
+                float[] c1 = (float[])c0.Clone();
+                var h1 = new float[hidden];
+                Elementwise.LstmCell(path, z, c1, h1);
+                AssertBitEqual(cs, c1, $"{path} cell state");
+                AssertBitEqual(h0, h1, $"{path} hidden state");
+            }
         }
 
-        foreach (int n in new[] { 1, 2, 15, 16, 17, 100, 700, 701 })
+        foreach (int n in new[] { 1, 2, 15, 16, 17, 31, 32, 100, 622, 701 })
         {
             float[] x = Random(rng, n, 20);
             float max = x.Max();
             float a = Elementwise.SumExp(KernelPath.Scalar, x, max);
-            float b = Elementwise.SumExp(KernelPath.Avx2, x, max);
-            Assert.Equal(BitConverter.SingleToInt32Bits(a), BitConverter.SingleToInt32Bits(b));
+            foreach (KernelPath path in Vectors)
+            {
+                float b = Elementwise.SumExp(path, x, max);
+                Assert.Equal(BitConverter.SingleToInt32Bits(a), BitConverter.SingleToInt32Bits(b));
+            }
         }
+    }
+
+    [Fact]
+    public void DirectConvolutionMatchesDotsOverCopiedWindows()
+    {
+        var rng = new Random(7);
+        foreach (int c in new[] { 16, 32, 48 })
+        {
+            foreach (var (kh, kw) in new[] { (3, 3), (1, 3), (3, 1), (2, 5) })
+            {
+                foreach (int oc in new[] { 1, 3, 4, 5, 16, 33 })
+                {
+                    foreach (int n in new[] { 1, 2, 3, 4, 5, 7, 96 })
+                    {
+                        int wp = 120, hp = kh + 3, y = 2, x0 = 5;
+                        float[] input = Random(rng, hp * wp * c);
+                        int k = kh * kw * c;
+                        float[] weights = Random(rng, oc * k, 0.3);
+                        float[] bias = Random(rng, oc);
+                        // Reference: copy each window into a row, one dot product per output.
+                        var windows = new float[n * k];
+                        for (int i = 0; i < n; i++)
+                        {
+                            for (int ky = 0; ky < kh; ky++)
+                            {
+                                Array.Copy(input, (((y + ky) * wp) + x0 + i) * c, windows, (i * k) + (ky * kw * c), kw * c);
+                            }
+                        }
+
+                        var expected = new float[n * oc];
+                        Gemm.NT(KernelPath.Scalar, windows, k, weights, k, n, oc, k, bias, expected, oc, 1);
+                        foreach (KernelPath path in Vectors.Where(p => p is KernelPath.Avx2 or KernelPath.Avx512))
+                        {
+                            var got = new float[n * oc];
+                            Gemm.ConvDirect(path, input, wp, c, kh, kw, y, x0, n, weights, oc, bias, got);
+                            AssertBitEqual(expected, got, $"{path} direct conv c={c} k={kh}x{kw} oc={oc} n={n}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void SingleChannelConvolutionMatchesDotsOverCopiedWindows()
+    {
+        if (!Dispatch.Avx2Available)
+        {
+            return;
+        }
+
+        var rng = new Random(8);
+        foreach (var (kh, kw) in new[] { (3, 3), (1, 5), (4, 4), (1, 1), (2, 7) })
+        {
+            foreach (int oc in new[] { 8, 16, 40 })
+            {
+                foreach (int n in new[] { 1, 3, 96 })
+                {
+                    int wp = 130, hp = kh + 2, y = 1, x0 = 3, taps = kh * kw;
+                    float[] input = Random(rng, hp * wp);
+                    float[] weights = Random(rng, oc * taps, 0.5);
+                    float[] bias = Random(rng, oc);
+                    var weightsT = new float[taps * oc];
+                    var padded = new float[oc * 16];
+                    for (int o = 0; o < oc; o++)
+                    {
+                        for (int t = 0; t < taps; t++)
+                        {
+                            weightsT[(t * oc) + o] = weights[(o * taps) + t];
+                            padded[(o * 16) + t] = weights[(o * taps) + t];
+                        }
+                    }
+
+                    var windows = new float[n * 16];
+                    for (int i = 0; i < n; i++)
+                    {
+                        for (int ky = 0; ky < kh; ky++)
+                        {
+                            Array.Copy(input, ((y + ky) * wp) + x0 + i, windows, (i * 16) + (ky * kw), kw);
+                        }
+                    }
+
+                    var expected = new float[n * oc];
+                    Gemm.NT(KernelPath.Scalar, windows, 16, padded, 16, n, oc, 16, bias, expected, oc, 1);
+                    var got = new float[n * oc];
+                    Gemm.ConvSingleChannel(input, wp, kh, kw, y, x0, n, weightsT, oc, bias, got);
+                    AssertBitEqual(expected, got, $"single channel {kh}x{kw} oc={oc} n={n}");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void ConvolutionKernelsRejectBuffersThatAreTooSmall()
+    {
+        if (Dispatch.Best is not (KernelPath.Avx2 or KernelPath.Avx512))
+        {
+            return;
+        }
+
+        KernelPath path = Dispatch.Best;
+        var input = new float[3 * 20 * 16];
+        var weights = new float[4 * 3 * 3 * 16];
+        var bias = new float[4];
+        var output = new float[10 * 4];
+        // A window that runs past the input.
+        Assert.Throws<ArgumentException>(() => Gemm.ConvDirect(path, input, 20, 16, 3, 3, 1, 5, 10, weights, 4, bias, output));
+        // Output too small.
+        Assert.Throws<ArgumentException>(() => Gemm.ConvDirect(path, input, 20, 16, 3, 3, 0, 0, 10, weights, 4, bias, new float[39]));
+        // Row length not a multiple of 16.
+        Assert.Throws<ArgumentOutOfRangeException>(() => Gemm.ConvDirect(path, input, 20, 5, 3, 3, 0, 0, 4, weights, 4, bias, output));
+        Assert.Throws<ArgumentException>(() => Gemm.ConvSingleChannel(new float[10], 20, 3, 3, 0, 0, 4, new float[72], 8, new float[8], new float[32]));
     }
 }
