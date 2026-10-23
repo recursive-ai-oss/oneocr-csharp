@@ -10,8 +10,12 @@ namespace OneOcr.Tests;
 /// Compares the recognizer, layer by layer, with reference outputs computed by PyTorch in fp32 from the same fp16 weights.
 /// Layout of the directory: <c>model.onm</c>, <c>fixtures.json</c> (lines with <c>id</c>, <c>png</c>, <c>text</c> and a list of
 /// <c>{name, shape, file}</c> layer entries) and the raw little-endian float32 files those entries name.
-/// Tolerance per layer is twice the one used against the float64 reference: PyTorch's own fp32 error is of the same size as
-/// ours, and the two errors can add.
+/// Our result and PyTorch's both carry float32 rounding error against the exact (float64) answer, and the two add. Per layer the
+/// allowed difference is <c>Atol + 2 * Floor + Rtol * |reference|</c>: <c>Atol</c> and <c>Rtol</c> are twice the tolerances used
+/// against the float64 reference (our own error budget), and <c>Floor</c> is PyTorch's measured fp32-vs-float64 maximum absolute
+/// error for that layer over the same lines, recorded in <c>fixtures.json</c> (<c>fp32_vs_fp64_floor</c>). The floor grows with the
+/// activation magnitudes and with saturated LSTM gates of a trained model, which a random-weight model does not show. Without a
+/// recorded floor the term is zero. Also, our greedy decoding of our own logits must equal the fixture's <c>decoded</c> text.
 /// </summary>
 internal static class ParityFixtures
 {
@@ -28,6 +32,16 @@ internal static class ParityFixtures
         var container = ModelContainer.Load(Path.Combine(dir, "model.onm"));
         var recognizer = new LineRecognizer(CrnnModel.FromContainer(container, OcrLimits.Default), OcrLimits.Default, path);
         using JsonDocument doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(dir, "fixtures.json")));
+        var floors = new Dictionary<string, double>();
+        if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("fp32_vs_fp64_floor", out JsonElement floorElement))
+        {
+            foreach (JsonProperty f in floorElement.EnumerateObject())
+            {
+                floors[f.Name] = f.Value.GetProperty("max_abs").GetDouble();
+            }
+        }
+
+        var worstByLayer = new Dictionary<string, double>();
         JsonElement lines = doc.RootElement.ValueKind == JsonValueKind.Array ? doc.RootElement : doc.RootElement.GetProperty("lines");
         Assert.True(lines.GetArrayLength() > 0, "fixtures.json lists no lines.");
         foreach (JsonElement line in lines.EnumerateArray())
@@ -56,13 +70,23 @@ internal static class ParityFixtures
                 Assert.Equal(shape, gotShape);
                 string kind = name.StartsWith("conv", StringComparison.Ordinal) ? "conv" : name.StartsWith("lstm", StringComparison.Ordinal) ? "lstm" : name;
                 var (atol, rtol) = Tolerance[kind];
-                double worst = 0;
+                double floor = floors.GetValueOrDefault(name);
+                double worst = 0, maxAbs = 0;
                 for (int i = 0; i < got.Length; i++)
                 {
-                    worst = Math.Max(worst, Math.Abs(got[i] - expected[i]) / (atol + (rtol * Math.Abs(expected[i]))));
+                    double diff = Math.Abs(got[i] - expected[i]);
+                    maxAbs = Math.Max(maxAbs, diff);
+                    worst = Math.Max(worst, diff / (atol + (2 * floor) + (rtol * Math.Abs(expected[i]))));
                 }
 
-                Assert.True(worst <= 1, $"{id}/{name}: error is {worst:F2}x the tolerance (atol {atol}, rtol {rtol}).");
+                worstByLayer[name] = Math.Max(worstByLayer.GetValueOrDefault(name), maxAbs);
+
+                Assert.True(worst <= 1, $"{id}/{name}: error is {worst:F2}x the tolerance (atol {atol}, floor {floor}, rtol {rtol}).");
+            }
+
+            if (line.TryGetProperty("decoded", out JsonElement decoded))
+            {
+                Assert.Equal(decoded.GetString(), recognizer.Decode(logits, steps).Text);
             }
 
             // The decoded text of our logits must equal the greedy decoding of the reference logits when they are given.
@@ -73,6 +97,14 @@ internal static class ParityFixtures
                 var reference = new float[raw.Length / 4];
                 Buffer.BlockCopy(raw, 0, reference, 0, raw.Length);
                 Assert.Equal(recognizer.Decode(reference, steps).Text, recognizer.Decode(logits, steps).Text);
+            }
+        }
+
+        if (Environment.GetEnvironmentVariable("ONEOCR_PARITY_REPORT") is "1")
+        {
+            foreach (var (layer, abs) in worstByLayer)
+            {
+                Console.Error.WriteLine($"PARITY {layer}: max abs difference {abs:E2} (PyTorch floor {floors.GetValueOrDefault(layer):E2})");
             }
         }
     }

@@ -27,5 +27,39 @@ catch (OcrModelException)
 {
 }
 
+// A page of four text-like lines through the whole pipeline: line finding, scaling, recognition, and the default engine.
+var pageShape = new TestModels.Shape(32, [(8, 2, 2), (16, 2, 2), (16, 2, 1), (32, 2, 1), (32, 2, 1)], 24, 2, 41);
+OcrEngine engine = OcrEngine.Load(new System.IO.MemoryStream(TestModels.RandomContainer(pageShape, 3)));
+var pixels = new OneImage.Gray8[600 * 300];
+Array.Fill(pixels, new OneImage.Gray8(255));
+foreach (int top in new[] { 40, 110, 180 })
+{
+    for (int y = top; y < top + 30; y++)
+    {
+        for (int x = 60; x < 500; x++)
+        {
+            if ((x / 7) % 3 != 0)
+            {
+                pixels[(y * 600) + x] = new OneImage.Gray8(10);
+            }
+        }
+    }
+}
+
+OneImage.Image page = OneImage.Image.FromPixels<OneImage.Gray8>(pixels, 600, 300);
+string t1 = engine.ToText(page, 1), t4 = page.ToText(engine);
+if (t1 != t4 || t1.Split('\n').Length != 3)
+{
+    Console.Error.WriteLine("ToText disagrees or found the wrong number of lines");
+    return 1;
+}
+
+OneOcr.OneOcr.Configure(engine);
+if (page.ToText() != t1)
+{
+    Console.Error.WriteLine("default engine disagrees");
+    return 1;
+}
+
 Console.WriteLine($"ok: {a.Text.Length} characters, confidence {a.Confidence:F3}");
 return 0;

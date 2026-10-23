@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>$(LibName).Bench</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.IO" />
+    <Using Include="System.Linq" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
+    <!-- The test-only container writer makes a random-weight model for pipeline checks. -->
+    <Compile Include="../../tests/OneOcr.Tests/TestModels.cs" Link="TestModels.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,129 @@
+using System.Text;
+using OneImage;
+using OneOcr.Kernels;
+using OneOcr.Layout;
+using OneOcr.Model;
+using OneOcr.Recognition;
+
+namespace OneOcr;
+
+/// <summary>
+/// Reads text from images with a loaded recognition model. Immutable and thread-safe; create one and share it.
+/// Output is bit-identical on every supported CPU path and at every degree of parallelism.
+/// </summary>
+public sealed class OcrEngine
+{
+    private readonly LineRecognizer _recognizer;
+    private readonly OcrLimits _limits;
+
+    private OcrEngine(LineRecognizer recognizer, OcrLimits limits)
+    {
+        _recognizer = recognizer;
+        _limits = limits;
+    }
+
+    /// <summary>Loads a recognition model from a container file.</summary>
+    /// <param name="modelPath">A model container (architecture <c>crnn-v0</c>).</param>
+    /// <param name="limits">Bounds to enforce; <see cref="OcrLimits.Default"/> when null.</param>
+    /// <returns>The engine.</returns>
+    /// <exception cref="OcrModelException">The file is malformed or describes another architecture.</exception>
+    /// <exception cref="OcrLimitException">The model exceeds <paramref name="limits"/>.</exception>
+    public static OcrEngine Load(string modelPath, OcrLimits? limits = null) =>
+        Create(ModelContainer.Load(modelPath, limits), limits, Dispatch.Best);
+
+    /// <summary>Loads a recognition model from a stream, reading at most <see cref="OcrLimits.MaxModelFileBytes"/> bytes.</summary>
+    /// <param name="model">A stream positioned at the start of a model container.</param>
+    /// <param name="limits">Bounds to enforce; <see cref="OcrLimits.Default"/> when null.</param>
+    /// <returns>The engine.</returns>
+    /// <exception cref="OcrModelException">The data is malformed or describes another architecture.</exception>
+    /// <exception cref="OcrLimitException">The model exceeds <paramref name="limits"/>.</exception>
+    public static OcrEngine Load(Stream model, OcrLimits? limits = null) =>
+        Create(ModelContainer.Load(model, limits), limits, Dispatch.Best);
+
+    internal static OcrEngine Create(ModelContainer container, OcrLimits? limits, KernelPath path)
+    {
+        limits ??= OcrLimits.Default;
+        return new OcrEngine(new LineRecognizer(CrnnModel.FromContainer(container, limits), limits, path), limits);
+    }
+
+    /// <summary>
+    /// Reads the text of a clean, upright, single-column page: finds the text lines, reads each, and joins the non-empty results
+    /// top to bottom with <c>\n</c>. Within a line, spaces are whatever the recognizer produced.
+    /// Images are converted to 8-bit grayscale first (transparency is not composited; flatten such images yourself).
+    /// </summary>
+    /// <param name="image">The page.</param>
+    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores). The text does not depend on it.</param>
+    /// <param name="cancellationToken">Cancels between lines.</param>
+    /// <returns>The text; empty when no text lines were found.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="image"/> is null.</exception>
+    /// <exception cref="OcrLimitException">The image, the number of lines or a line's width exceeds the limits.</exception>
+    public string ToText(Image image, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        long pixels = (long)image.Width * image.Height;
+        if (pixels > _limits.MaxImagePixels)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxImagePixels), _limits.MaxImagePixels, pixels);
+        }
+
+        int degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Math.Min(4, Environment.ProcessorCount);
+        int width = image.Width, height = image.Height;
+        Gray8[] grayPixels = image.ConvertTo(PixelFormat.Gray8).ToArray<Gray8>(degree, cancellationToken);
+        var gray = new byte[grayPixels.Length];
+        for (int i = 0; i < gray.Length; i++)
+        {
+            gray[i] = grayPixels[i].V;
+        }
+
+        List<LineBox> lines = LineFinder.Find(gray, width, height, _limits.MaxLinesPerPage);
+        if (lines.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        // Crops are cut from an in-memory copy of the page so no line triggers a second decode.
+        Image page = Image.FromPixels<Gray8>(grayPixels, width, height);
+        int typical = LinePreprocessor.TypicalHeight(lines);
+        int modelHeight = _recognizer.InputHeight;
+        var texts = new string[lines.Count];
+
+        void Read(int index)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            LineBox box = LinePreprocessor.CropBox(lines[index], typical, width, height);
+            byte[] crop = LinePreprocessor.Prepare(page, box, modelHeight, out int cropWidth);
+            // Lines are the unit of parallelism, so each is recognized on one thread.
+            texts[index] = _recognizer.Recognize(crop, cropWidth, 1, cancellationToken).Text;
+        }
+
+        if (degree > 1 && lines.Count > 1)
+        {
+            Parallel.For(0, lines.Count, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = cancellationToken }, Read);
+        }
+        else
+        {
+            for (int i = 0; i < lines.Count; i++)
+            {
+                Read(i);
+            }
+        }
+
+        var result = new StringBuilder();
+        foreach (string text in texts)
+        {
+            if (text.Length == 0)
+            {
+                continue;
+            }
+
+            if (result.Length > 0)
+            {
+                result.Append('\n');
+            }
+
+            result.Append(text);
+        }
+
+        return result.ToString();
+    }
+}

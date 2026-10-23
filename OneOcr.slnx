@@ -7,6 +7,9 @@
     <Project Path="tests/OneOcr.Tests/OneOcr.Tests.csproj" />
     <Project Path="tests/OneOcr.AotSmoke/OneOcr.AotSmoke.csproj" />
   </Folder>
+  <Folder Name="/bench/">
+    <Project Path="bench/OneOcr.Bench/OneOcr.Bench.csproj" />
+  </Folder>
   <Folder Name="/fuzz/">
     <Project Path="fuzz/OneOcr.Fuzz/OneOcr.Fuzz.csproj" />
   </Folder>

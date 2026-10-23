@@ -276,7 +276,7 @@ public class RecognizerTests
         }
     }
 
-    /// <summary>Reads the fixture directory produced by the PyTorch side, when ONEOCR_PARITY_DIR points at one.</summary>
+    /// <summary>Reads the fixture directories produced by the PyTorch side, when ONEOCR_PARITY_DIR names them (separated like PATH entries).</summary>
     [Fact]
     public void MatchesPyTorchFixturesWhenAvailable()
     {
@@ -286,6 +286,9 @@ public class RecognizerTests
             Assert.Skip("ONEOCR_PARITY_DIR is not set.");
         }
 
-        ParityFixtures.Run(dir, Dispatch.Best);
+        foreach (string d in dir.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            ParityFixtures.Run(d, Dispatch.Best);
+        }
     }
 }
