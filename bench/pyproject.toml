@@ -1,0 +1,21 @@
+[project]
+name = "oneocr-bench"
+version = "0.1.0"
+description = "Clean-page evaluation set with exact truth, an order-free OCR scorer and Tesseract baselines"
+requires-python = ">=3.13,<3.14"
+license = "MIT OR Apache-2.0"
+dependencies = [
+    "playwright==1.55.0",
+    "pillow>=11",
+    "rapidfuzz>=3.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["oneocr_bench"]
+
+[dependency-groups]
+dev = ["ruff"]
