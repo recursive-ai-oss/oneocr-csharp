@@ -21,6 +21,8 @@ internal static class Program
         return name switch
         {
             "container" => ContainerTarget.Run,
+            "charlm" => CharLmTarget.Run,
+            "lexicon" => LexiconTarget.Run,
             _ => throw new ArgumentException($"Unknown target '{name}'."),
         };
     }
@@ -113,7 +115,7 @@ internal static class Program
 
             target(input);
             runs++;
-            if (runs % 64 == 0 && input.Length >= 1000)
+            if (runs % 64 == 0 && input.Length >= 16)
             {
                 if (corpus.Count < 256)
                 {
@@ -126,13 +128,29 @@ internal static class Program
             }
         }
 
-        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer), no findings");
+        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer), no findings");
         return 0;
     }
 
     private static void WriteSeeds(string dir)
     {
         Directory.CreateDirectory(dir);
+        string target = Environment.GetEnvironmentVariable("ONEOCR_FUZZ_TARGET") ?? "container";
+        if (target == "charlm")
+        {
+            string[] alphabet = ["a", "b", "c", "d", "o", "\u00e9"];
+            File.WriteAllBytes(Path.Combine(dir, "order3.seed"), TestLm.Build("latin", alphabet, ["cab", "cab", "dab", "cod", "b\u00e9"], 3));
+            File.WriteAllBytes(Path.Combine(dir, "order2.seed"), TestLm.Build("latin", alphabet, ["cab", "dab", "cod"], 2));
+            File.WriteAllBytes(Path.Combine(dir, "two-scripts.seed"), TestLm.Assemble([("latin", alphabet, ["cab", "dab"]), ("other", ["x", "y"], ["xy", "yx"])], 3));
+            return;
+        }
+
+        if (target == "lexicon")
+        {
+            File.WriteAllText(Path.Combine(dir, "words.seed"), "alpha\nbeta\r\n\ngamma  \nINV-0042\nZo\u00eb\n");
+            return;
+        }
+
         var variants = new (string Name, TestModels.Shape Shape)[]
         {
             ("tiny", new TestModels.Shape(8, [(4, 2, 2), (4, 2, 2), (8, 2, 1)], 8, 1, 12)),

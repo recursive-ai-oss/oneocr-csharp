@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using OneOcr;
 using OneOcr.Model;
 using OneOcr.Recognition;
@@ -51,6 +52,23 @@ string t1 = engine.ToText(page, 1), t4 = page.ToText(engine);
 if (t1 != t4 || t1.Split('\n').Length != 3)
 {
     Console.Error.WriteLine("ToText disagrees or found the wrong number of lines");
+    return 1;
+}
+
+// Beam search with a language model and a lexicon: same text at every degree of parallelism, and a model that fits the charset.
+string[] charset = TestModels.Charset(41);
+string[] alphabet = [.. charset.Skip(2).Take(12)];
+var beam = new OneOcr.Decoding.DecodeOptions
+{
+    Mode = OneOcr.Decoding.CtcDecoding.Beam,
+    BeamWidth = 4,
+    LanguageModel = OneOcr.Decoding.CharLanguageModel.Parse(TestLm.Build("smoke", alphabet, [string.Concat(alphabet.Take(4)), string.Concat(alphabet.Skip(2).Take(5))], 3)),
+    Lexicon = OneOcr.Decoding.Lexicon.FromWords([string.Concat(alphabet.Take(3)), "x1"]),
+};
+string b1 = engine.ToText(page, beam, 1), b4 = engine.WithDecoding(beam).ToText(page, 4);
+if (b1 != b4 || b1.Split('\n').Length != 3)
+{
+    Console.Error.WriteLine("beam decoding disagrees across degrees");
     return 1;
 }
 

@@ -43,6 +43,7 @@ internal static class Program
             "lines" => Lines(options),
             "randommodel" => RandomModel(options),
             "kernels" => Kernels(options),
+            "decode" => DecodeBench.Run(options),
             _ => 2,
         };
     }

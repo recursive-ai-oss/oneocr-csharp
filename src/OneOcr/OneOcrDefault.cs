@@ -39,13 +39,13 @@ public static class OneOcr
 /// <summary>OCR as extension methods on images.</summary>
 public static class OcrImageExtensions
 {
-    /// <summary>Reads the text of a page with <see cref="OneOcr.Default"/>. See <see cref="OcrEngine.ToText"/>.</summary>
+    /// <summary>Reads the text of a page with <see cref="OneOcr.Default"/>. See <see cref="OcrEngine.ToText(Image, int, CancellationToken)"/>.</summary>
     /// <param name="image">The page.</param>
     /// <returns>The text, lines joined with <c>\n</c>.</returns>
     /// <exception cref="OcrModelException">No default engine is configured.</exception>
     public static string ToText(this Image image) => OneOcr.Default.ToText(image);
 
-    /// <summary>Reads the text of a page with the given engine. See <see cref="OcrEngine.ToText"/>.</summary>
+    /// <summary>Reads the text of a page with the given engine. See <see cref="OcrEngine.ToText(Image, int, CancellationToken)"/>.</summary>
     /// <param name="image">The page.</param>
     /// <param name="engine">The engine to use.</param>
     /// <returns>The text, lines joined with <c>\n</c>.</returns>
