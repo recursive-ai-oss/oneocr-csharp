@@ -1,0 +1,251 @@
+# Font manifest. `file` is relative to the font root (env ONEOCR_FONT_ROOT, default /usr/share/fonts/truetype).
+# `split: heldout` families are used only for evaluation sets, never for training.
+# Licences are read from the font package copyright files (which carry the full licence text);
+# sha256 is filled in by `oneocr-fonts --write` and checked by `oneocr-fonts`.
+fonts:
+  - family: Noto Sans
+    file: noto/NotoSans-Regular.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "89c3c497f618fdaa0b2d1e98fef93582f28c71debd2c4a8cdf41f190ced2909d"
+  - family: Noto Sans
+    file: noto/NotoSans-Bold.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "e83493c945848ecd4a9ad0f6d19164541a0d3e23a9c952304a00a46e00272ac5"
+  - family: Noto Sans
+    file: noto/NotoSans-Italic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "5d7618dda819443fd07301c84adcee9fe8960c873ea5e5e1f0f59db384b78082"
+  - family: Noto Sans
+    file: noto/NotoSans-BoldItalic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "4315b26e5afb62f70f5ffe0edaa3363e57765ff2af2beda12b6fef197e3e5f5a"
+  - family: Noto Serif
+    file: noto/NotoSerif-Regular.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "9d7583b7dc9e812afd32a14280c5cac3160012efe50c8d08938f4fea266ff67f"
+  - family: Noto Serif
+    file: noto/NotoSerif-Bold.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "0af0ff2be8f84910fb21ec5fe1b6b7395e3073250502a334baf6ca2f860c88fe"
+  - family: Noto Serif
+    file: noto/NotoSerif-Italic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "bc25600aa27cd409e1e5b3d86340df3a329bb860fcfbe57a03a95070b229e1b0"
+  - family: Noto Serif
+    file: noto/NotoSerif-BoldItalic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "78a6d685e5690b7dcda0f336b689193afc03b6bab5cf18fc1a9ecc3aa0600059"
+  - family: Noto Sans Display
+    file: noto/NotoSansDisplay-Regular.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "3dd456595e9226472ab8adaf9408400c671b97dbba241d883d05e2ab70ceadac"
+  - family: Noto Sans Display
+    file: noto/NotoSansDisplay-Bold.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "1640ba8acb852d9e00406e166d1fc0cedd62a4c20342fd92f1f6dbc7baa61de2"
+  - family: Noto Sans Display
+    file: noto/NotoSansDisplay-Italic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "4562c3241e077cd612b2d5f0bf1717767545cfeff79dcb704e78114a083aecb0"
+  - family: Noto Sans Display
+    file: noto/NotoSansDisplay-BoldItalic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "8f0fd329ff81a2469b95b95ee3b3c2b069e7cdec633f41b77174bf23a144ac81"
+  - family: Noto Sans Mono
+    file: noto/NotoSansMono-Regular.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-mono 20201225-2
+    sha256: "6b692c4b6d15ccf59f1c1fe8d11cb8a92f51960f3e9f1f523781755a3af7e29f"
+  - family: Noto Sans Mono
+    file: noto/NotoSansMono-Bold.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-noto-mono 20201225-2
+    sha256: "b22563d5f03b345a62115e78d8789c9ed99c2cfa8059fad6e7a5c4ced288e21e"
+  - family: Liberation Sans
+    file: liberation/LiberationSans-Regular.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "4659bc0c58c5028dd488ec928d41d9265db43d9b669fc14ca8b0832daca7b144"
+  - family: Liberation Sans
+    file: liberation/LiberationSans-Bold.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "3973aa5054fb467dd5627245d3dc82e37bf16fe075756156a570455871351582"
+  - family: Liberation Sans
+    file: liberation/LiberationSans-Italic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "830c5fa600505fb4c1a271b4271c53c44bae43f492b2a240d0e98a3a7a380121"
+  - family: Liberation Sans
+    file: liberation/LiberationSans-BoldItalic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "c80fa7f2ffa0e01d4d8dcd6a6d1e43eda665222d1b4db597dde1174c456006cf"
+  - family: Liberation Mono
+    file: liberation/LiberationMono-Regular.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "395fa5ab8d40c8eba390ced528744ea75a7f69aabf3e68b6f925ca0e39a27370"
+  - family: Liberation Mono
+    file: liberation/LiberationMono-Bold.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "626655e94dd82f3f42549daf995c921b0915fa8ab1f4b839559e8892ea41d240"
+  - family: Liberation Mono
+    file: liberation/LiberationMono-Italic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "a71b2c25c89da05cf0e7c4dbba8d473fdead0b181ae56165217747d2c1f39215"
+  - family: Liberation Mono
+    file: liberation/LiberationMono-BoldItalic.ttf
+    split: train
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "15eb161953e3ecc7fc05a3fec8a59e0f4e0a54a4e375736adf8e98d65981f813"
+  - family: Liberation Serif
+    file: liberation/LiberationSerif-Regular.ttf
+    split: heldout
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "705903ae1382f0150f115d6f10a30f5b2f3d6ade649c474afe6366c39174fb65"
+  - family: Liberation Serif
+    file: liberation/LiberationSerif-Bold.ttf
+    split: heldout
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "9e66c25e20868756bf12eb24a520a4552727c9cd108f577f7ae33e3c0110e39c"
+  - family: Liberation Serif
+    file: liberation/LiberationSerif-Italic.ttf
+    split: heldout
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "eaeaf7f2b12544ecde64290c1fa7ec403ff70fd58b313637b265400b20249242"
+  - family: Liberation Serif
+    file: liberation/LiberationSerif-BoldItalic.ttf
+    split: heldout
+    license: OFL-1.1
+    package: fonts-liberation 1:2.1.5-3
+    sha256: "379010e87421a883f7bbfa7936d23dfe0257a54ce850819b74556e9f2c615a8a"
+  - family: Noto Serif Display
+    file: noto/NotoSerifDisplay-Regular.ttf
+    split: heldout
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "bcdc596729c24044e28c54815ecbe6004f83b10169a49a51160b22f59116249f"
+  - family: Noto Serif Display
+    file: noto/NotoSerifDisplay-Bold.ttf
+    split: heldout
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "8666c2488e681a31670f9fc0b5d59fa4f21f2a0664a76876fe49ebd832f673c7"
+  - family: Noto Serif Display
+    file: noto/NotoSerifDisplay-Italic.ttf
+    split: heldout
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "96ad3a5588b1d6e564589d236b8fa1839e8169a6b87a055340c36b87904e93e0"
+  - family: Noto Serif Display
+    file: noto/NotoSerifDisplay-BoldItalic.ttf
+    split: heldout
+    license: OFL-1.1
+    package: fonts-noto-core 20201225-2
+    sha256: "d3c055380d05e41732096c337226afe96640e7eaeaf7d1294556545b95ccc123"
+  - family: Noto Mono
+    file: noto/NotoMono-Regular.ttf
+    split: heldout
+    license: OFL-1.1
+    package: fonts-noto-mono 20201225-2
+    sha256: "41fd7ccc82375e2a1e47f0cc2c941c14d7c99ba2f57cf69c9f738d07fb257686"
+  - family: Ubuntu
+    file: ubuntu/Ubuntu-R.ttf
+    split: train
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "28c4c189a44803b1986fd16074187034dc6d94ad35f5e87de13dd0e786b70b73"
+  - family: Ubuntu
+    file: ubuntu/Ubuntu-B.ttf
+    split: train
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "28c4c189a44803b1986fd16074187034dc6d94ad35f5e87de13dd0e786b70b73"
+  - family: Ubuntu
+    file: ubuntu/Ubuntu-RI.ttf
+    split: train
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "f5689f6ae7f16f7ede2012702abd605ac1afa03c950713523b9953d600937975"
+  - family: Ubuntu
+    file: ubuntu/Ubuntu-BI.ttf
+    split: train
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "f5689f6ae7f16f7ede2012702abd605ac1afa03c950713523b9953d600937975"
+  - family: Ubuntu
+    file: ubuntu/Ubuntu-L.ttf
+    split: train
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "28c4c189a44803b1986fd16074187034dc6d94ad35f5e87de13dd0e786b70b73"
+  - family: Ubuntu
+    file: ubuntu/Ubuntu-M.ttf
+    split: train
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "28c4c189a44803b1986fd16074187034dc6d94ad35f5e87de13dd0e786b70b73"
+  - family: Ubuntu Mono
+    file: ubuntu/UbuntuMono-R.ttf
+    split: heldout
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "fbf1e748836994f730e602f7dcf2525564d6d78aa336080cbb73af909d0e08ee"
+  - family: Ubuntu Mono
+    file: ubuntu/UbuntuMono-B.ttf
+    split: heldout
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "fbf1e748836994f730e602f7dcf2525564d6d78aa336080cbb73af909d0e08ee"
+  - family: Ubuntu Mono
+    file: ubuntu/UbuntuMono-RI.ttf
+    split: heldout
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "4148a3a8e6a702da461992047bcc07179f1eed12a3020384be754d015240678a"
+  - family: Ubuntu Mono
+    file: ubuntu/UbuntuMono-BI.ttf
+    split: heldout
+    license: UFL-1.0
+    package: fonts-ubuntu 0.869+git20240321-0ubuntu1
+    sha256: "4148a3a8e6a702da461992047bcc07179f1eed12a3020384be754d015240678a"

@@ -1,0 +1,7 @@
+.venv/
+out/
+runs/
+data/cache/
+*.onm
+*.pt
+*.png

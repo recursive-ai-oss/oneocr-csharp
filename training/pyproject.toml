@@ -1,0 +1,36 @@
+[project]
+name = "oneocr-training"
+version = "0.1.0"
+description = "Training pipeline for the oneocr models: synthetic data, training, export, parity fixtures"
+license = "MIT OR Apache-2.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "torch>=2.8",
+    "numpy>=2.1",
+    "pillow>=11",
+    "fonttools>=4.55",
+    "pyyaml>=6",
+]
+
+[dependency-groups]
+dev = ["ruff>=0.8"]
+
+[tool.uv]
+# Stages are run as modules from this directory: uv run python -m gen.plan ...
+package = false
+
+# PyTorch comes from the CUDA 12.8 wheel index (Linux); everything else from PyPI.
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+
+[tool.ruff]
+line-length = 140
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

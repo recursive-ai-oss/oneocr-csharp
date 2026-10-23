@@ -1,0 +1,13 @@
+<Project>
+  <!-- The generator is a standalone tool: it does not take build rules, output paths or package versions from a parent directory. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)out/dotnet</ArtifactsPath>
+  </PropertyGroup>
+</Project>
