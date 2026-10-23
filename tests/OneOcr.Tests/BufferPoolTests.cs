@@ -29,6 +29,15 @@ public class BufferPoolTests
         int big = pool.Rent((1 << 20) + 1).Length;
         Assert.Equal(0, big % (1 << 16));
         Assert.True(big >= (1 << 20) + 1);
+
+        // Sizes round up to a quarter-octave class: never more than a quarter too large, and equal for requests of one class.
+        foreach (int n in new[] { 70_000, 100_000, 300_001, 1_000_000, 8_700_000, 30_000_000 })
+        {
+            int size = pool.Rent(n).Length;
+            Assert.InRange(size, n, n + (n / 4) + 1);
+        }
+
+        Assert.Equal(pool.Rent(8_400_001).Length, pool.Rent(9_000_000).Length);
     }
 
     [Fact]

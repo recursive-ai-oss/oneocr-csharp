@@ -10,7 +10,7 @@ namespace OneOcr;
 internal sealed class BufferPool<T>
     where T : struct
 {
-    // Requests up to this many elements round up to a power of two; larger ones to a multiple of it.
+    // Requests up to this many elements round up to a power of two; larger ones to a quarter-octave class.
     private const int Grid = 1 << 16;
 
     private readonly object _gate = new();
@@ -55,7 +55,9 @@ internal sealed class BufferPool<T>
             }
         }
 
-        return new T[Round(needed)];
+        int rounded = Round(needed);
+        // The contents are unspecified by contract, so large arrays skip the zeroing; the pages past what a request uses are never touched.
+        return rounded >= Grid ? GC.AllocateUninitializedArray<T>(rounded) : new T[rounded];
     }
 
     /// <summary>Gives an array back; it is kept only while the pool stays within its byte budget.</summary>
@@ -84,7 +86,10 @@ internal sealed class BufferPool<T>
             return (int)Math.Min(int.MaxValue, System.Numerics.BitOperations.RoundUpToPowerOf2((uint)Math.Max(length, 16)));
         }
 
-        long rounded = ((long)length + Grid - 1) / Grid * Grid;
+        // Four size classes per doubling (at most 25% slack): lines of different widths ask for different sizes, and with classes
+        // this coarse a returned array fits the next request of its class instead of leaving a near miss behind as garbage.
+        long step = System.Numerics.BitOperations.RoundUpToPowerOf2((uint)length) / 8;
+        long rounded = ((long)length + step - 1) / step * step;
         return (int)Math.Min(rounded, Array.MaxLength);
     }
 }

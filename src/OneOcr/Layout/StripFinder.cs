@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Numerics;
 using OneImage;
 using OneOcr.Kernels;
 
@@ -23,8 +25,7 @@ internal static class StripFinder
     private const double BlockGapLines = 0.5;
     private const double MinRegionLines = 2.5;
 
-    private const byte Ink = 1;
-    private const byte Rule = 2;
+    private const byte Ink = PageMask.Ink;
 
     private readonly record struct Rect(int X, int Y, int W, int H);
 
@@ -34,49 +35,53 @@ internal static class StripFinder
     /// <param name="height">Page height.</param>
     /// <param name="maxLines">Most lines to return; more throws <see cref="OcrLimitException"/>.</param>
     /// <param name="masks">Scratch for the ink mask.</param>
+    /// <param name="degree">Most threads to use for the binarization and the mask; the result does not depend on it.</param>
     /// <param name="usedRegions">True when the page was cut into regions; false when the single-column finder alone was used.</param>
     /// <param name="threshold">The page's binarization threshold (negative when the page has no contrast).</param>
     /// <param name="inkIsBright">Whether ink is the bright side of the threshold.</param>
     /// <returns>The lines, leaf by leaf.</returns>
     public static List<StripLine> Find(
-        Gray8[] gray, int width, int height, int maxLines, BufferPool<byte> masks, out bool usedRegions, out int threshold, out bool inkIsBright)
+        Gray8[] gray, int width, int height, int maxLines, BufferPool<byte> masks, int degree, out bool usedRegions, out int threshold, out bool inkIsBright)
     {
         usedRegions = false;
         int count = checked(width * height);
         var result = new List<StripLine>();
-        (threshold, inkIsBright) = LineFinder.Binarize(PixelSpans.AsBytes(gray.AsSpan(0, count)));
+        (threshold, inkIsBright) = LineFinder.Binarize(gray, count, degree);
         if (threshold < 0)
         {
             return result;
         }
 
-        byte[] mask = masks.Rent(count);
+        byte[] storage = masks.Rent(PageMask.BytesFor(width, height));
         try
         {
-            bool rules = BuildMask(PixelSpans.AsBytes(gray.AsSpan(0, count)), width, height, threshold, inkIsBright, mask);
-            int lineHeight = TypicalHeight(mask, width, height);
+            var mask = new PageMask(storage, width, height);
+            bool rules = BuildMask(gray, width, height, threshold, inkIsBright, mask, degree);
+            int lineHeight = TypicalHeight(mask, degree);
             bool cut = false;
-            List<Rect> leaves = lineHeight == 0 ? [] : CutIntoLeaves(mask, width, height, lineHeight, maxLines, out cut);
+            List<Rect> leaves = lineHeight == 0 ? [] : CutIntoLeaves(mask, lineHeight, maxLines, out cut);
             if (!rules && !cut)
             {
-                foreach (LineBox box in LineFinder.Find(PixelSpans.AsBytes(gray.AsSpan(0, count)), width, height, maxLines, threshold, inkIsBright))
+                // Without rules the mask holds exactly the pixels on the ink side of the threshold, so its rows give the profiles
+                // LineFinder.Find would compute from the page.
+                foreach (LineBox box in LineFinder.FindInMask(mask, new LineBox(0, 0, width, height), maxLines))
                 {
                     result.Add(new StripLine(box, 0));
                 }
 
-                return result;
+                    return result;
             }
 
             usedRegions = true;
             if (rules)
             {
-                EraseRules(gray, mask, width, height, inkIsBright);
+                EraseRules(gray, mask, inkIsBright);
             }
 
             for (int leaf = 0; leaf < leaves.Count; leaf++)
             {
                 Rect r = leaves[leaf];
-                foreach (LineBox box in LineFinder.FindInMask(mask, width, new LineBox(r.X, r.Y, r.W, r.H), maxLines))
+                foreach (LineBox box in LineFinder.FindInMask(mask, new LineBox(r.X, r.Y, r.W, r.H), maxLines))
                 {
                     if (result.Count >= maxLines)
                     {
@@ -91,152 +96,324 @@ internal static class StripFinder
         }
         finally
         {
-            masks.Return(mask);
+            masks.Return(storage);
         }
     }
 
     // Ink where the gray value is on the ink side of the threshold, except ruling lines: runs of ink at least `min(width, height) / 16`
     // pixels (at least 48) long along a row or a column. Those pixels are marked Rule. Returns whether there were any.
-    private static bool BuildMask(ReadOnlySpan<byte> gray, int width, int height, int threshold, bool inkIsBright, byte[] mask)
+    // The page is cut into bands of rows that are filled in parallel. A horizontal run lies in one row. A vertical run that crosses
+    // a band edge is found when the bands are joined, which gives the marks a sequential scan would make.
+    internal static bool BuildMask(Gray8[] gray, int width, int height, int threshold, bool inkIsBright, PageMask mask, int degree)
     {
         int longRun = Math.Max(48, Math.Min(width, height) / 16);
-        var vertical = new int[width];
-        bool rules = false;
-        for (int y = 0; y < height; y++)
+        int bandCount = degree <= 1 ? 1 : Math.Clamp(height / 64, 1, degree * 2);
+        int bandRows = (height + bandCount - 1) / bandCount;
+        bandCount = (height + bandRows - 1) / bandRows;
+        var bands = new Band[bandCount];
+        ParallelRun.For(bandCount, degree, i =>
         {
-            ReadOnlySpan<byte> row = gray.Slice(y * width, width);
-            int rowBase = y * width;
-            int runStart = -1;
-            for (int x = 0; x < row.Length; x++)
-            {
-                bool ink = inkIsBright ? row[x] > threshold : row[x] <= threshold;
-                mask[rowBase + x] = ink ? Ink : (byte)0;
-                if (ink)
-                {
-                    if (runStart < 0)
-                    {
-                        runStart = x;
-                    }
+            int y0 = i * bandRows;
+            bands[i] = FillBand(gray, width, y0, Math.Min(height, y0 + bandRows), threshold, inkIsBright, mask, longRun);
+        }, CancellationToken.None);
 
-                    vertical[x]++;
+        bool rules = false;
+        int[] carry = ArrayPool<int>.Shared.Rent(width);
+        Array.Clear(carry, 0, width);
+        for (int i = 0; i < bandCount; i++)
+        {
+            Band band = bands[i];
+            rules |= band.Rules;
+            int top = i * bandRows, rows = Math.Min(height, top + bandRows) - top;
+            for (int x = 0; x < width; x++)
+            {
+                int first = band.FirstRun[x];
+                if (first == rows)
+                {
+                    // Ink all the way down this band: the run goes on.
+                    carry[x] += rows;
                     continue;
                 }
 
-                if (runStart >= 0)
+                if (carry[x] > 0 || first > 0)
                 {
-                    if (x - runStart >= longRun)
+                    int length = carry[x] + first;
+                    if (length >= longRun)
                     {
-                        mask.AsSpan(rowBase + runStart, x - runStart).Fill(Rule);
+                        MarkColumn(mask, x, top + first - length, top + first);
                         rules = true;
                     }
-
-                    runStart = -1;
                 }
 
-                if (vertical[x] > 0)
-                {
-                    if (vertical[x] >= longRun)
-                    {
-                        MarkColumn(mask, width, x, y - vertical[x], y);
-                        rules = true;
-                    }
-
-                    vertical[x] = 0;
-                }
-            }
-
-            if (runStart >= 0 && width - runStart >= longRun)
-            {
-                mask.AsSpan(rowBase + runStart, width - runStart).Fill(Rule);
-                rules = true;
+                carry[x] = band.LastRun[x];
             }
         }
 
         for (int x = 0; x < width; x++)
         {
-            if (vertical[x] >= longRun)
+            if (carry[x] >= longRun)
             {
-                MarkColumn(mask, width, x, height - vertical[x], height);
+                MarkColumn(mask, x, height - carry[x], height);
                 rules = true;
             }
+        }
+
+        ArrayPool<int>.Shared.Return(carry);
+        foreach (Band band in bands)
+        {
+            ArrayPool<int>.Shared.Return(band.FirstRun);
+            ArrayPool<int>.Shared.Return(band.LastRun);
         }
 
         return rules;
     }
 
-    private static void MarkColumn(byte[] mask, int width, int x, int fromRow, int toRowExclusive)
+    // What a band tells its neighbours: the length of the vertical ink run at its top and at its bottom for each column (the whole
+    // band's height for a column that is ink throughout), and whether it holds a ruling line.
+    private sealed record Band(int[] FirstRun, int[] LastRun, bool Rules);
+
+    private static Band FillBand(Gray8[] gray, int width, int y0, int y1, int threshold, bool inkIsBright, PageMask mask, int longRun)
+    {
+        ReadOnlySpan<byte> pixels = PixelSpans.AsBytes(gray.AsSpan(y0 * width, (y1 - y0) * width));
+        int[] first = ArrayPool<int>.Shared.Rent(width);
+        int[] last = ArrayPool<int>.Shared.Rent(width);
+        int[] vertical = ArrayPool<int>.Shared.Rent(width);
+        Array.Clear(first, 0, width);
+        Array.Clear(last, 0, width);
+        Array.Clear(vertical, 0, width);
+        // Ink runs of the row just done and of the row being done, as start/end pairs.
+        int[] previous = ArrayPool<int>.Shared.Rent(width + 2);
+        int[] current = ArrayPool<int>.Shared.Rent(width + 2);
+        int previousRuns = 0;
+        byte[] ink = ArrayPool<byte>.Shared.Rent(width);
+        bool rules = false;
+        try
+        {
+            for (int y = y0; y < y1; y++)
+            {
+                MarkInk(pixels.Slice((y - y0) * width, width), threshold, inkIsBright, ink);
+                ReadOnlySpan<byte> inkRow = ink.AsSpan(0, width);
+                mask.StoreInkRow(y, inkRow);
+
+                // The ink runs of this row.
+                int runs = 0;
+                for (int x = 0; x < width;)
+                {
+                    int s = inkRow[x..].IndexOf((byte)1);
+                    if (s < 0)
+                    {
+                        break;
+                    }
+
+                    s += x;
+                    int length = inkRow[s..].IndexOfAnyExcept((byte)1);
+                    int e = length < 0 ? width : s + length;
+                    current[2 * runs] = s;
+                    current[(2 * runs) + 1] = e;
+                    runs++;
+                    x = e;
+                }
+
+                // Columns that had ink in the last row and have none now end a vertical run.
+                for (int r = 0; r < previousRuns; r++)
+                {
+                    for (int x = previous[2 * r]; x < previous[(2 * r) + 1]; x++)
+                    {
+                        if (inkRow[x] != 0)
+                        {
+                            continue;
+                        }
+
+                        int v = vertical[x];
+                        if (y - v == y0)
+                        {
+                            first[x] = v;
+                        }
+                        else if (v >= longRun)
+                        {
+                            MarkColumn(mask, x, y - v, y);
+                            rules = true;
+                        }
+
+                        vertical[x] = 0;
+                    }
+                }
+
+                for (int r = 0; r < runs; r++)
+                {
+                    int s = current[2 * r], e = current[(2 * r) + 1];
+                    for (int x = s; x < e; x++)
+                    {
+                        vertical[x]++;
+                    }
+
+                    if (e - s >= longRun)
+                    {
+                        mask.SetRun(y, s, e, PageMask.Rule);
+                        rules = true;
+                    }
+                }
+
+                (previous, current) = (current, previous);
+                previousRuns = runs;
+            }
+
+            int rows = y1 - y0;
+            for (int r = 0; r < previousRuns; r++)
+            {
+                for (int x = previous[2 * r]; x < previous[(2 * r) + 1]; x++)
+                {
+                    int v = vertical[x];
+                    if (v == rows)
+                    {
+                        first[x] = rows;
+                    }
+
+                    last[x] = v;
+                }
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(ink);
+            ArrayPool<int>.Shared.Return(previous);
+            ArrayPool<int>.Shared.Return(current);
+            ArrayPool<int>.Shared.Return(vertical);
+        }
+
+        return new Band(first, last, rules);
+    }
+
+    // ink[x] = 1 where the pixel is on the ink side of the threshold, else 0.
+    private static void MarkInk(ReadOnlySpan<byte> row, int threshold, bool inkIsBright, byte[] ink)
+    {
+        int x = 0;
+        if (Vector.IsHardwareAccelerated)
+        {
+            var limit = new Vector<byte>((byte)threshold);
+            for (; x + Vector<byte>.Count <= row.Length; x += Vector<byte>.Count)
+            {
+                var v = new Vector<byte>(row[x..]);
+                Vector<byte> hit = inkIsBright ? Vector.GreaterThan(v, limit) : Vector.LessThanOrEqual(v, limit);
+                (hit & Vector<byte>.One).CopyTo(ink.AsSpan(x));
+            }
+        }
+
+        for (; x < row.Length; x++)
+        {
+            ink[x] = (byte)((inkIsBright ? row[x] > threshold : row[x] <= threshold) ? 1 : 0);
+        }
+    }
+
+    private static void MarkColumn(PageMask mask, int x, int fromRow, int toRowExclusive)
     {
         for (int y = fromRow; y < toRowExclusive; y++)
         {
-            mask[(y * width) + x] = Rule;
+            mask.Set(x, y, PageMask.Rule);
         }
     }
 
     // Rule pixels and their direct neighbours (the anti-aliased edge of a thin line) become background, except pixels of text ink.
-    private static void EraseRules(Gray8[] gray, byte[] mask, int width, int height, bool inkIsBright)
+    private static void EraseRules(Gray8[] gray, PageMask mask, bool inkIsBright)
     {
+        int width = mask.Width, height = mask.Height;
         var background = new Gray8(inkIsBright ? (byte)0 : (byte)255);
-        for (int y = 0; y < height; y++)
+        byte[] buffer = ArrayPool<byte>.Shared.Rent(width * 3);
+        try
         {
-            int rowBase = y * width;
-            for (int x = 0; x < width; x++)
+            Span<byte> above = buffer.AsSpan(0, width), here = buffer.AsSpan(width, width), below = buffer.AsSpan(2 * width, width);
+            for (int y = 0; y < height; y++)
             {
-                if (mask[rowBase + x] != Rule)
+                if (y > 0)
                 {
-                    continue;
+                    mask.ReadRow(y - 1, 0, width, above);
                 }
 
-                gray[rowBase + x] = background;
-                if (x > 0 && mask[rowBase + x - 1] != Ink)
+                mask.ReadRow(y, 0, width, here);
+                if (y + 1 < height)
                 {
-                    gray[rowBase + x - 1] = background;
+                    mask.ReadRow(y + 1, 0, width, below);
                 }
 
-                if (x + 1 < width && mask[rowBase + x + 1] != Ink)
+                int rowBase = y * width;
+                for (int x = 0; x < width; x++)
                 {
-                    gray[rowBase + x + 1] = background;
-                }
+                    if (here[x] != PageMask.Rule)
+                    {
+                        continue;
+                    }
 
-                if (y > 0 && mask[rowBase - width + x] != Ink)
-                {
-                    gray[rowBase - width + x] = background;
-                }
+                    gray[rowBase + x] = background;
+                    if (x > 0 && here[x - 1] != PageMask.Ink)
+                    {
+                        gray[rowBase + x - 1] = background;
+                    }
 
-                if (y + 1 < height && mask[rowBase + width + x] != Ink)
-                {
-                    gray[rowBase + width + x] = background;
+                    if (x + 1 < width && here[x + 1] != PageMask.Ink)
+                    {
+                        gray[rowBase + x + 1] = background;
+                    }
+
+                    if (y > 0 && above[x] != PageMask.Ink)
+                    {
+                        gray[rowBase - width + x] = background;
+                    }
+
+                    if (y + 1 < height && below[x] != PageMask.Ink)
+                    {
+                        gray[rowBase + width + x] = background;
+                    }
                 }
             }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
     // The page's typical line height: the median height of the lines found in vertical bands a quarter of the page wide, so that
     // staggered columns do not run into each other. 0 when no line is found.
-    private static int TypicalHeight(byte[] mask, int width, int height)
+    private static int TypicalHeight(PageMask mask, int degree)
     {
+        int width = mask.Width, height = mask.Height;
         int bandWidth = Math.Max(64, width / 4);
         int step = Math.Max(1, bandWidth / 2);
-        var heights = new List<int>();
+        var starts = new List<int>();
         for (int x = 0; x < width; x += step)
         {
-            int w = Math.Min(bandWidth, width - x);
-            if (w < Math.Min(32, width))
+            if (Math.Min(bandWidth, width - x) < Math.Min(32, width))
             {
                 break;
             }
 
-            foreach (LineBox line in LineFinder.FindInMask(mask, width, new LineBox(x, 0, w, height), int.MaxValue))
-            {
-                if (line.Height >= 4)
-                {
-                    heights.Add(line.Height);
-                }
-            }
-
+            starts.Add(x);
             if (x + bandWidth >= width)
             {
                 break;
             }
+        }
+
+        var found = new List<int>[starts.Count];
+        ParallelRun.For(starts.Count, degree, i =>
+        {
+            int x = starts[i];
+            var list = new List<int>();
+            foreach (LineBox line in LineFinder.FindInMask(mask, new LineBox(x, 0, Math.Min(bandWidth, width - x), height), int.MaxValue))
+            {
+                if (line.Height >= 4)
+                {
+                    list.Add(line.Height);
+                }
+            }
+
+            found[i] = list;
+        }, CancellationToken.None);
+
+        var heights = new List<int>();
+        foreach (List<int> list in found)
+        {
+            heights.AddRange(list);
         }
 
         if (heights.Count == 0)
@@ -248,23 +425,24 @@ internal static class StripFinder
         return heights[heights.Count / 2];
     }
 
-    private static List<Rect> CutIntoLeaves(byte[] mask, int width, int height, int line, int maxLeaves, out bool cut)
+    private static List<Rect> CutIntoLeaves(PageMask mask, int line, int maxLeaves, out bool cut)
     {
+        int width = mask.Width, height = mask.Height;
         cut = false;
         var leaves = new List<Rect>();
         int gutter = Math.Max(3, (int)Math.Ceiling(GutterLines * line));
         int blockGap = Math.Max(2, (int)(BlockGapLines * line));
         int minRows = (int)(MinRegionLines * line);
-        var rows = new int[height];
-        var cols = new int[width];
-        var colsScratch = new int[width];
+        int[] rows = ArrayPool<int>.Shared.Rent(height);
+        int[] cols = ArrayPool<int>.Shared.Rent(width);
+        int[] colsScratch = ArrayPool<int>.Shared.Rent(width);
         var parts = new List<(int Start, int End)>();
         var stack = new Stack<Rect>();
         stack.Push(new Rect(0, 0, width, height));
         while (stack.Count > 0)
         {
             Rect r = stack.Pop();
-            Profile(mask, width, r, rows, cols);
+            Profile(mask, r, rows, cols);
             if (!Trim(r, rows, cols, out Rect t))
             {
                 continue;
@@ -303,7 +481,7 @@ internal static class StripFinder
             var inkTo = new int[slices.Length];
             for (int i = 0; i < slices.Length; i++)
             {
-                (gutters[i], empties[i], inkFrom[i], inkTo[i]) = Gutters(mask, width, new Rect(t.X, r.Y + slices[i].Start, t.W, slices[i].End - slices[i].Start + 1), colsScratch, gutter, minRows);
+                (gutters[i], empties[i], inkFrom[i], inkTo[i]) = Gutters(mask, new Rect(t.X, r.Y + slices[i].Start, t.W, slices[i].End - slices[i].Start + 1), colsScratch, gutter, minRows);
             }
 
             int pendingStart = -1, pendingEnd = -1;
@@ -371,6 +549,9 @@ internal static class StripFinder
             }
         }
 
+        ArrayPool<int>.Shared.Return(rows);
+        ArrayPool<int>.Shared.Return(cols);
+        ArrayPool<int>.Shared.Return(colsScratch);
         return leaves;
 
         void AddLeaf(Rect leaf)
@@ -384,24 +565,35 @@ internal static class StripFinder
         }
     }
 
-    private static void Profile(byte[] mask, int stride, Rect r, int[] rows, int[] cols)
+    private static void Profile(PageMask mask, Rect r, int[] rows, int[] cols)
     {
         Array.Clear(rows, 0, r.H);
         Array.Clear(cols, 0, r.W);
-        for (int y = 0; y < r.H; y++)
+        byte[] scratch = ArrayPool<byte>.Shared.Rent(r.W);
+        try
         {
-            ReadOnlySpan<byte> row = mask.AsSpan(((r.Y + y) * stride) + r.X, r.W);
-            int n = 0;
-            for (int x = 0; x < row.Length; x++)
+            for (int y = 0; y < r.H; y++)
             {
-                if (row[x] == Ink)
+                mask.ReadRow(r.Y + y, r.X, r.W, scratch);
+                int n = scratch.AsSpan(0, r.W).Count(Ink);
+                rows[y] = n;
+                if (n == 0)
                 {
-                    n++;
-                    cols[x]++;
+                    continue;
+                }
+
+                for (int x = 0; x < r.W; x++)
+                {
+                    if (scratch[x] == Ink)
+                    {
+                        cols[x]++;
+                    }
                 }
             }
-
-            rows[y] = n;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(scratch);
         }
     }
 
@@ -466,21 +658,34 @@ internal static class StripFinder
     // The empty vertical stripes, at least `gutter` wide, of a region (x ranges in page coordinates): `Between` those between its ink
     // columns, `Free` also those at its sides. `Between` is empty when the region is shorter than `minRows`.
     private static (List<(int Start, int End)> Between, List<(int Start, int End)> Free, int FirstInk, int LastInk) Gutters(
-        byte[] mask, int stride, Rect slice, int[] cols, int gutter, int minRows)
+        PageMask mask, Rect slice, int[] cols, int gutter, int minRows)
     {
         var between = new List<(int, int)>();
         var free = new List<(int, int)>();
         Array.Clear(cols, 0, slice.W);
-        for (int y = 0; y < slice.H; y++)
+        byte[] scratch = ArrayPool<byte>.Shared.Rent(slice.W);
+        try
         {
-            ReadOnlySpan<byte> row = mask.AsSpan(((slice.Y + y) * stride) + slice.X, slice.W);
-            for (int x = 0; x < row.Length; x++)
+            for (int y = 0; y < slice.H; y++)
             {
-                if (row[x] == Ink)
+                mask.ReadRow(slice.Y + y, slice.X, slice.W, scratch);
+                if (!scratch.AsSpan(0, slice.W).Contains(Ink))
                 {
-                    cols[x]++;
+                    continue;
+                }
+
+                for (int x = 0; x < slice.W; x++)
+                {
+                    if (scratch[x] == Ink)
+                    {
+                        cols[x]++;
+                    }
                 }
             }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(scratch);
         }
 
         int noise = Math.Max(1, slice.H / 1000);

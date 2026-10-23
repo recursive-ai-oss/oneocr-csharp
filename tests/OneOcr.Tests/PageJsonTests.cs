@@ -261,7 +261,7 @@ public class PageJsonTests
         var gray = new Gray8[two.Width * two.Height];
         two.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, two.Width, two.Height), 1);
         var masks = new BufferPool<byte>(1L << 26, 1);
-        var strips = StripFinder.Find(gray, two.Width, two.Height, 4096, masks, out bool cut, out _, out _);
+        var strips = StripFinder.Find(gray, two.Width, two.Height, 4096, masks, 1, out bool cut, out _, out _);
         Assert.True(cut);
         Assert.Equal(expected, strips.Count);
         Assert.True(strips.Select(s => s.Leaf).Distinct().Count() >= 2);
@@ -270,7 +270,7 @@ public class PageJsonTests
         var (px, _) = EngineTests.SyntheticPage(900, 420, [60, 130, 200, 270], 14, 8);
         List<LineBox> plain = LineFinder.Find(px, 900, 420, 4096);
         Gray8[] pg = px.Select(b => new Gray8(b)).ToArray();
-        var fromStrips = StripFinder.Find(pg, 900, 420, 4096, masks, out bool usedRegions, out _, out _).Select(s => s.Box).ToList();
+        var fromStrips = StripFinder.Find(pg, 900, 420, 4096, masks, 1, out bool usedRegions, out _, out _).Select(s => s.Box).ToList();
         Assert.False(usedRegions);
         Assert.Equal(plain, fromStrips);
     }

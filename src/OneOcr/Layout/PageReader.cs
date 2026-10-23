@@ -19,7 +19,7 @@ internal static class PageReader
         int pageIndex, double? dpi, int degree, bool includeChars, CancellationToken cancellationToken)
     {
         int count = checked(width * height);
-        List<StripLine> strips = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, out _, out int threshold, out bool inkIsBright);
+        List<StripLine> strips = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int threshold, out bool inkIsBright);
         var diagnostics = new List<string>();
         if (!recognizer.HasCalibration)
         {
@@ -79,7 +79,7 @@ internal static class PageReader
                 LineWords line;
                 try
                 {
-                    line = recognizer.RecognizeWords(PixelSpans.AsBytes(cropPixels.AsSpan(0, cropWidth * modelHeight)), cropWidth, 1, cancellationToken);
+                    line = recognizer.RecognizeWords(PixelSpans.AsBytes(cropPixels.AsSpan(0, cropWidth * modelHeight)), cropWidth, 1, cancellationToken, includeChars);
                 }
                 catch (OcrLimitException ex) when (ex.LimitName == nameof(OcrLimits.MaxLineWidth))
                 {

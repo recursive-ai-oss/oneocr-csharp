@@ -162,8 +162,16 @@ public sealed class LineRecognizer
 
     internal RecognizedLine Decode(float[] logits, int steps)
     {
-        var runs = new List<CharRun>();
+        var runs = new List<CharRun>(RunCapacity(steps));
         CollectRuns(logits, steps, runs);
+        return Decode(runs);
+    }
+
+    // Characters are about two steps apiece; sizing the list to that keeps it from doubling its way up as garbage.
+    private static int RunCapacity(int steps) => Math.Max(4, (steps / 2) + 1);
+
+    private RecognizedLine Decode(List<CharRun> runs)
+    {
         var text = new StringBuilder();
         float total = 0f;
         foreach (CharRun run in runs)
@@ -176,12 +184,12 @@ public sealed class LineRecognizer
     }
 
     /// <summary>Reads a line and splits it into words with boxes (in pixels of the line image) and calibrated confidences. Greedy decoding.</summary>
-    internal LineWords RecognizeWords(ReadOnlySpan<byte> gray, int width, int maxDegreeOfParallelism, CancellationToken cancellationToken)
+    internal LineWords RecognizeWords(ReadOnlySpan<byte> gray, int width, int maxDegreeOfParallelism, CancellationToken cancellationToken, bool withChars = true)
     {
         float[] logits = Forward(gray, width, maxDegreeOfParallelism, null, cancellationToken, out int steps);
         try
         {
-            return SplitWords(logits, steps, width);
+            return SplitWords(logits, steps, width, withChars);
         }
         finally
         {
@@ -192,11 +200,11 @@ public sealed class LineRecognizer
         }
     }
 
-    internal LineWords SplitWords(float[] logits, int steps, int width)
+    internal LineWords SplitWords(float[] logits, int steps, int width, bool withChars = true)
     {
-        var runs = new List<CharRun>();
+        var runs = new List<CharRun>(RunCapacity(steps));
         CollectRuns(logits, steps, runs);
-        RecognizedLine line = Decode(logits, steps);
+        RecognizedLine line = Decode(runs);
         var words = new List<RecognizedWord>();
         var text = new StringBuilder();
         float total = 0f;
@@ -233,10 +241,17 @@ public sealed class LineRecognizer
             float raw = total / (last - first + 1);
             OcrScript script = ScriptDetector.Of(word);
             float calibrated = _model.Calibration is { } c ? c.Apply(script, raw) : raw;
-            var chars = new List<RecognizedChar>(last - first + 1);
-            for (int k = first; k <= last; k++)
+            // Callers that only want the text and the word boxes skip the per-character list.
+            IReadOnlyList<RecognizedChar> chars = [];
+            if (withChars)
             {
-                chars.Add(new RecognizedChar(_model.Charset[runs[k].Class], runs[k].First * stepWidth, (runs[k].Last + 1) * stepWidth, runs[k].MaxProbability));
+                var list = new List<RecognizedChar>(last - first + 1);
+                for (int k = first; k <= last; k++)
+                {
+                    list.Add(new RecognizedChar(_model.Charset[runs[k].Class], runs[k].First * stepWidth, (runs[k].Last + 1) * stepWidth, runs[k].MaxProbability));
+                }
+
+                chars = list;
             }
 
             words.Add(new RecognizedWord(word, (float)(left * stepWidth), (float)(right * stepWidth), calibrated, raw, script, last - first + 1, chars));
