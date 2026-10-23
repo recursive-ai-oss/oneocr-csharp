@@ -5,7 +5,7 @@ charset: data/charset-v1.txt
 data_dir: ${ONEOCR_HOME}/data/lines-v1
 run_dir: ${ONEOCR_HOME}/runs/crnn-v1
 train:
-  steps: 60000
+  steps: 70000
   batch: 128
   lr: 0.002
   warmup: 1000

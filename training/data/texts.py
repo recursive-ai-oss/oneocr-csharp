@@ -86,7 +86,8 @@ def paragraphs(text: str) -> list[str]:
         for pat, rep in _CLEAN:
             para = pat.sub(rep, para)
         para = " ".join(para.split())
-        if len(para) >= 40:
+        # drop rules, tables of contents and other non-prose runs: at least 60% of the characters must be letters
+        if len(para) >= 40 and sum(c.isalpha() for c in para) >= 0.6 * len(para):
             out.append(para)
     return out
 

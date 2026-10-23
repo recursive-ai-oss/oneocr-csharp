@@ -192,8 +192,8 @@ class Books:
         books = self.by_lang[lang]
         bid, paras = books[int(rng.integers(0, len(books)))]
         words = paras[int(rng.integers(0, len(paras)))]
-        # line length: a quarter short fragments, the rest page-like lines up to about 100 characters
-        target = int(rng.integers(1, 26)) if rng.random() < 0.25 else int(rng.integers(25, 101))
+        # line length: a quarter short fragments, the rest page-like lines (a justified line of narrow type holds 130 characters)
+        target = int(rng.integers(1, 26)) if rng.random() < 0.25 else int(rng.integers(25, 136))
         start = int(rng.integers(0, len(words)))
         out: list[str] = []
         n = -1
@@ -262,7 +262,7 @@ def _pick_font(rng, fams: dict[str, list[str]], need: set[str]) -> str | None:
 
 
 def plan_shard(job) -> list[dict]:
-    name, spec, set_index, shard, count = job
+    name, spec, set_index, shard, count, banned = job
     cfg, charset = _S["cfg"], _S["charset"]
     rng = np.random.default_rng([cfg["seed"], set_index, shard])
     deg = cfg["degrade"][spec["degrade"]]
@@ -291,7 +291,7 @@ def plan_shard(job) -> list[dict]:
             src = f"synthetic:{kind}"
         text = unicodedata.normalize("NFC", " ".join(text.split()))
         # every character must be a charset class that the chosen font can draw (generated strings use literal symbols like "№")
-        if not text or file is None or text in seen or not set(text) - {" "} <= cov.of(file):
+        if not text or file is None or text in seen or text in banned or not set(text) - {" "} <= cov.of(file):
             continue
         seen.add(text)
         delta = int(rng.integers(deg["contrast"][0], deg["contrast"][1] + 1))
@@ -338,9 +338,18 @@ def main() -> None:
         "sets": {},
     }
     with mp.get_context("fork").Pool(min(24, mp.cpu_count()), initializer=_init, initargs=(cfg, base)) as pool:
-        for i, (name, spec) in enumerate(cfg["sets"].items()):
-            shards = [(name, spec, i, s, min(SHARD, spec["n"] - s * SHARD)) for s in range((spec["n"] + SHARD - 1) // SHARD)]
+        # validation and eval sets are planned first; their texts of 20+ characters are then kept out of the training set
+        # (the same sentence can occur in two Project Gutenberg books, e.g. two editions of one work)
+        banned: frozenset[str] = frozenset()
+        order = sorted(enumerate(cfg["sets"].items()), key=lambda t: t[1][0] == "train")
+        for i, (name, spec) in order:
+            shards = [
+                (name, spec, i, s, min(SHARD, spec["n"] - s * SHARD), banned if name == "train" else frozenset())
+                for s in range((spec["n"] + SHARD - 1) // SHARD)
+            ]
             recs = [r for part in pool.map(plan_shard, shards) for r in part]
+            if name != "train":
+                banned |= {r["text"] for r in recs if len(r["text"]) >= 20}
             body = "".join(json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in recs)
             (out_dir / f"{name}.plan.jsonl").write_text(body, encoding="utf-8")
             srcs: dict[str, int] = {}
