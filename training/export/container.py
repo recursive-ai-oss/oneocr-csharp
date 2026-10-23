@@ -22,8 +22,9 @@ def _pad(n: int) -> int:
     return -n % ALIGN
 
 
-def write_container(path: str | Path, manifest: dict, tensors: dict[str, np.ndarray]) -> None:
-    """tensors: name -> array (any float dtype; stored as fp16 in the order given). `manifest` must not hold `tensors`."""
+def write_container(path: str | Path, manifest: dict, tensors: dict[str, np.ndarray], version: int = 0) -> None:
+    """tensors: name -> array (any float dtype; stored as fp16 in the order given). `manifest` must not hold `tensors`.
+    Version 1 has the same layout; its manifest must carry `calibration` (see eval/calibrate.py)."""
     entries = []
     blobs = []
     offset = 0
@@ -33,11 +34,13 @@ def write_container(path: str | Path, manifest: dict, tensors: dict[str, np.ndar
         blobs.append(h.tobytes())
         offset += h.size * 2 + _pad(h.size * 2)
     keys = ["architecture", "name", "version", "license", "input", "charset", "config"]
+    if version == 1:
+        keys.append("calibration")
     full = {k: manifest[k] for k in keys}
     full["tensors"] = entries
     full["provenance"] = manifest.get("provenance", {})
     body = json.dumps(full, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    out = bytearray(MAGIC + struct.pack("<II", VERSION, len(body)) + body)
+    out = bytearray(MAGIC + struct.pack("<II", version, len(body)) + body)
     out += bytes(_pad(len(out)))
     for blob in blobs:
         out += blob
@@ -52,11 +55,13 @@ def read_container(path: str | Path, max_manifest: int = 1 << 24) -> tuple[dict,
     if len(data) < 16 or data[:8] != MAGIC:
         raise ValueError("bad magic")
     version, mlen = struct.unpack_from("<II", data, 8)
-    if version != VERSION:
+    if version not in (0, 1):
         raise ValueError(f"unsupported version {version}")
     if mlen > max_manifest or 16 + mlen > len(data):
         raise ValueError("manifest length out of range")
     manifest = json.loads(data[16 : 16 + mlen].decode("utf-8"))
+    if version == 1 and manifest.get("calibration", {}).get("raw") != "word-mean-max-run":
+        raise ValueError("version 1 needs calibration.raw == word-mean-max-run")
     start = 16 + mlen
     start += _pad(start)
     spans = []
