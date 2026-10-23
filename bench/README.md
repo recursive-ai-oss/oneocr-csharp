@@ -67,3 +67,19 @@ Text is normalised the same way on both sides: Unicode NFC, typographic quotes a
   errors, so it is read together with WER: order error close to WER means the order is right.
 
 A missing hypothesis file scores as empty output.
+
+## Running the C# engine
+
+`bench/OneOcr.Bench` runs `OcrEngine.ToText` over a page directory and writes `<page-id>.txt` for the scorer, plus
+`timing.json` (one-time model load, per-page time, peak working set). One process per thread count, so peak memory is per
+configuration:
+
+```
+dotnet run -c Release --project OneOcr.Bench -- run --model model.onm --pages PAGES --out OUT --degree 1
+dotnet run -c Release --project OneOcr.Bench -- run --model model.onm --pages PAGES --out OUT --degree 0   # library default
+uv run python -m oneocr_bench score --hyp OUT
+```
+
+`OneOcr.Bench lines --pages PAGES --truth TRUTH` checks line finding against lines derived from the truth word boxes
+(precision and recall at IoU 0.5) and times grayscale conversion, line finding and line cropping. `OneOcr.Bench randommodel --out F`
+writes a random-weight model for pipeline checks.

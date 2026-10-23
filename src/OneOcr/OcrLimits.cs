@@ -56,4 +56,10 @@ public sealed class OcrLimits
 
     /// <summary>Most elements in any one activation buffer while recognizing a line. Default 2^27 (512 MiB of float32).</summary>
     public long MaxActivationElements { get; init; } = 1L << 27;
+
+    /// <summary>Most pixels (width times height) of an image that will be read for recognition. Default 2^27 (a 11585 x 11585 image).</summary>
+    public long MaxImagePixels { get; init; } = 1L << 27;
+
+    /// <summary>Most text lines recognized on one page. Default 4096.</summary>
+    public int MaxLinesPerPage { get; init; } = 4096;
 }

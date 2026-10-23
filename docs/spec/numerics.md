@@ -32,4 +32,12 @@ Measured accuracy: exp and sigmoid within 4e-7 relative error, tanh within 2e-7 
 
 ## Tolerance against PyTorch
 
-Agreement with a PyTorch fp32 computation from the same fp16 weights is a per-layer tolerance, not bit equality; the tolerances live beside the parity tests.
+Agreement with a PyTorch fp32 computation from the same fp16 weights is a per-layer tolerance, not bit equality. Both sides carry float32 rounding error against the exact answer, so the difference between them is bounded by the sum of the two errors. For layer *L* and every element:
+
+`|ours - pytorch| <= Atol(L) + 2 * Floor(L) + Rtol(L) * |pytorch|`
+
+- `Floor(L)` is PyTorch's own fp32-versus-float64 maximum absolute error for layer *L* over the fixture lines, measured by the fixture generator and stored in `fixtures.json` as `fp32_vs_fp64_floor`. It scales with the activation magnitudes of the model, so a trained model with large, saturating activations gets a proportionally larger allowance than a random-weight one. Our own float32 error is of the same size (both use float32 accumulation over the same number of terms), hence the factor 2.
+- `Atol` / `Rtol` are twice the tolerances our kernels must meet against a float64 reference of the same network on random-weight models (error measured on models of the intended size, 3-5x headroom): conv 4e-6 / 2e-5, LSTM 3e-6 / 2e-5, classifier 2e-6 / 2e-5; so 8e-6 / 4e-5, 6e-6 / 4e-5, 4e-6 / 4e-5 here. The input layer must match to 1e-6.
+- On top of the layer tolerances, our greedy decoding of our own logits must equal the fixture's `decoded` text for every line.
+
+Observed on the 50 held-out lines of a trained model: the largest difference per layer is 1.0-1.4x the PyTorch floor (conv.5 2.6e-6, lstm.l1 7.3e-5, fc 5.0e-5).
