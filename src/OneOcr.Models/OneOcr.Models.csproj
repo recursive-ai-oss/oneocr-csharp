@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Model weights for RecursiveAI.OneOcr. The weights files are added at release time, pinned by SHA-256.</Description>
+  </PropertyGroup>
+
+</Project>

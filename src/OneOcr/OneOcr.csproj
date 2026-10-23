@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Local, deterministic OCR for .NET with no dependencies beyond the base class library and RecursiveAI.OneImage.</Description>
+    <!-- Unsafe code is allowed for the assembly but lives only under Kernels/. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RecursiveAI.OneImage" Version="1.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="$(LibName).Tests" />
+    <InternalsVisibleTo Include="$(LibName).Benchmarks" />
+    <InternalsVisibleTo Include="$(LibName).Fuzz" />
+    <InternalsVisibleTo Include="$(LibName).AotSmoke" />
+  </ItemGroup>
+
+</Project>

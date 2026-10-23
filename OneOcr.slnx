@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OneOcr/OneOcr.csproj" />
+    <Project Path="src/OneOcr.Models/OneOcr.Models.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OneOcr.Tests/OneOcr.Tests.csproj" />
+    <Project Path="tests/OneOcr.AotSmoke/OneOcr.AotSmoke.csproj" />
+  </Folder>
+  <Folder Name="/fuzz/">
+    <Project Path="fuzz/OneOcr.Fuzz/OneOcr.Fuzz.csproj" />
+  </Folder>
+</Solution>

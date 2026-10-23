@@ -1,0 +1,39 @@
+<Project>
+
+  <!-- Shared by src/, tests/, fuzz/ and any other top-level project. Rules for shipped libraries live in src/Directory.Build.props.
+       A folder that wants none of this (training/) supplies its own Directory.Build.props that does not import this one. -->
+
+  <PropertyGroup Label="Name">
+    <LibName>OneOcr</LibName>
+    <!-- NuGet package IDs carry the publisher prefix; assembly and namespace names stay $(LibName). -->
+    <PackagePrefix>RecursiveAI.</PackagePrefix>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Output">
+    <!-- Build output stays outside the checkout. Set ONEOCR_ARTIFACTS to choose where; the default is a sibling directory of the checkout. -->
+    <ArtifactsPath Condition="'$(ONEOCR_ARTIFACTS)' != ''">$(ONEOCR_ARTIFACTS)</ArtifactsPath>
+    <ArtifactsPath Condition="'$(ONEOCR_ARTIFACTS)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)../$([System.IO.Path]::GetFileName($([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)').TrimEnd('/')))).artifacts'))</ArtifactsPath>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Language">
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package metadata">
+    <Authors>Recursive AI, LLC</Authors>
+    <Company>Recursive AI, LLC</Company>
+    <Copyright>Copyright (c) Recursive AI, LLC</Copyright>
+    <PackageLicenseExpression>MIT OR Apache-2.0</PackageLicenseExpression>
+    <Version>0.1.0</Version>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/recursive-ai-oss/oneocr-csharp</RepositoryUrl>
+    <PackageProjectUrl>$(RepositoryUrl)</PackageProjectUrl>
+  </PropertyGroup>
+
+</Project>

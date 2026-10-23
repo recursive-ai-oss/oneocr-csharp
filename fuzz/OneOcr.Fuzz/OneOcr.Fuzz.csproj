@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>$(LibName).Fuzz</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System" />
+    <Using Include="System.Collections.Generic" />
+    <Using Include="System.IO" />
+    <Using Include="System.Linq" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpFuzz" Version="2.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
+    <!-- The test-only container writer builds the seed corpus. -->
+    <Compile Include="../../tests/OneOcr.Tests/TestModels.cs" Link="TestModels.cs" />
+  </ItemGroup>
+
+</Project>
