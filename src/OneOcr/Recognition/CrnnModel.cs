@@ -56,13 +56,16 @@ internal sealed class LstmLayer
 }
 
 /// <summary>
-/// The validated, widened weights of a <c>crnn-v0</c> recognizer (docs/spec/model-container-v0.md): fp16 tensors become fp32
+/// The validated, widened weights of a <c>crnn-v0</c> recognizer (docs/spec/model-container-v1.md): fp16 tensors become fp32
 /// here, shapes are checked against the configuration, and the heights are checked to reduce to exactly one row.
 /// </summary>
 internal sealed class CrnnModel
 {
     public required ModelInput Input { get; init; }
     public required IReadOnlyList<string> Charset { get; init; }
+
+    /// <summary>The container's word calibration; null for a version 0 file.</summary>
+    public WordCalibration? Calibration { get; init; }
     public required ConvBlock[] Conv { get; init; }
     public required int Hidden { get; init; }
     public required LstmLayer[] Lstm { get; init; }
@@ -226,6 +229,7 @@ internal sealed class CrnnModel
         {
             Input = container.Input,
             Charset = container.Charset,
+            Calibration = container.Calibration,
             Conv = blocks,
             Hidden = hidden,
             Lstm = layers,

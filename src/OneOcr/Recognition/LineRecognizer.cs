@@ -24,6 +24,7 @@ public sealed class LineRecognizer
     private readonly KernelPath _path;
     private readonly OcrLimits _limits;
     private readonly BufferPool<float> _pool;
+    private readonly bool[] _isSpace;
 
     internal LineRecognizer(CrnnModel model, OcrLimits limits, KernelPath path)
     {
@@ -31,7 +32,28 @@ public sealed class LineRecognizer
         _limits = limits;
         _path = Dispatch.Require(path);
         _pool = new BufferPool<float>(limits.MaxPooledBufferBytes, sizeof(float));
+        _isSpace = new bool[model.Charset.Count];
+        for (int i = 1; i < _isSpace.Length; i++)
+        {
+            _isSpace[i] = IsWhitespaceEntry(model.Charset[i]);
+        }
     }
+
+    // A class whose text is only whitespace separates words.
+    private static bool IsWhitespaceEntry(string entry)
+    {
+        foreach (char ch in entry)
+        {
+            if (!char.IsWhiteSpace(ch))
+            {
+                return false;
+            }
+        }
+
+        return entry.Length > 0;
+    }
+
+    internal bool HasCalibration => _model.Calibration is not null;
 
     /// <summary>The height, in pixels, line images must have.</summary>
     public int InputHeight => _model.Input.Height;
@@ -140,16 +162,95 @@ public sealed class LineRecognizer
 
     internal RecognizedLine Decode(float[] logits, int steps)
     {
-        int classes = _model.Classes;
+        var runs = new List<CharRun>();
+        CollectRuns(logits, steps, runs);
         var text = new StringBuilder();
-        int last = 0;
-        float runMax = 0f;
         float total = 0f;
-        int count = 0;
+        foreach (CharRun run in runs)
+        {
+            text.Append(_model.Charset[run.Class]);
+            total += run.MaxProbability;
+        }
+
+        return new RecognizedLine(text.ToString(), runs.Count == 0 ? 0f : total / runs.Count);
+    }
+
+    /// <summary>Reads a line and splits it into words with boxes (in pixels of the line image) and calibrated confidences. Greedy decoding.</summary>
+    internal LineWords RecognizeWords(ReadOnlySpan<byte> gray, int width, int maxDegreeOfParallelism, CancellationToken cancellationToken)
+    {
+        float[] logits = Forward(gray, width, maxDegreeOfParallelism, null, cancellationToken, out int steps);
+        try
+        {
+            return SplitWords(logits, steps, width);
+        }
+        finally
+        {
+            if (logits.Length > 0)
+            {
+                _pool.Return(logits);
+            }
+        }
+    }
+
+    internal LineWords SplitWords(float[] logits, int steps, int width)
+    {
+        var runs = new List<CharRun>();
+        CollectRuns(logits, steps, runs);
+        RecognizedLine line = Decode(logits, steps);
+        var words = new List<RecognizedWord>();
+        var text = new StringBuilder();
+        float total = 0f;
+        double stepWidth = steps == 0 ? 0 : (double)width / steps;
+        int first = -1;
+        for (int i = 0; i <= runs.Count; i++)
+        {
+            bool boundary = i == runs.Count || _isSpace[runs[i].Class];
+            if (!boundary)
+            {
+                if (first < 0)
+                {
+                    first = i;
+                    text.Clear();
+                    total = 0f;
+                }
+
+                text.Append(_model.Charset[runs[i].Class]);
+                total += runs[i].MaxProbability;
+                continue;
+            }
+
+            if (first < 0)
+            {
+                continue;
+            }
+
+            int last = i - 1;
+            // A character is a run of steps; its box edge toward a neighbour is halfway across the gap between the two runs, so
+            // neighbouring words tile the line. The ends of the line stop at the first and last step that fired.
+            double left = first == 0 ? runs[first].First : (runs[first - 1].Last + 1 + runs[first].First) / 2.0;
+            double right = last == runs.Count - 1 ? runs[last].Last + 1 : (runs[last].Last + 1 + runs[last + 1].First) / 2.0;
+            string word = text.ToString();
+            float raw = total / (last - first + 1);
+            OcrScript script = ScriptDetector.Of(word);
+            float calibrated = _model.Calibration is { } c ? c.Apply(script, raw) : raw;
+            words.Add(new RecognizedWord(word, (float)(left * stepWidth), (float)(right * stepWidth), calibrated, raw, script, last - first + 1));
+            first = -1;
+        }
+
+        return new LineWords(line.Text, line.Confidence, words);
+    }
+
+    // Greedy CTC (Graves et al. 2006, sec. 3.1): arg-max per step (lowest index on ties), merge repeats, drop blanks. A run is
+    // the steps of one emitted character; its probability is the largest softmax probability of its class over the run.
+    private void CollectRuns(float[] logits, int steps, List<CharRun> runs)
+    {
+        int classes = _model.Classes;
+        int last = 0;
+        int runFirst = 0;
+        float runMax = 0f;
         for (int t = 0; t < steps; t++)
         {
             ReadOnlySpan<float> frame = logits.AsSpan(t * classes, classes);
-            // Greedy CTC (Graves et al. 2006, sec. 3.1): arg-max per step (lowest index on ties), merge repeats, drop blanks.
             int best = 0;
             float bestValue = frame[0];
             for (int j = 1; j < frame.Length; j++)
@@ -163,8 +264,7 @@ public sealed class LineRecognizer
 
             if (best != last && last != 0)
             {
-                total += runMax;
-                count++;
+                runs.Add(new CharRun(last, runFirst, t - 1, runMax));
             }
 
             if (best != 0)
@@ -173,7 +273,7 @@ public sealed class LineRecognizer
                 float p = 1f / Elementwise.SumExp(_path, frame, bestValue);
                 if (best != last)
                 {
-                    text.Append(_model.Charset[best]);
+                    runFirst = t;
                     runMax = p;
                 }
                 else if (p > runMax)
@@ -187,10 +287,16 @@ public sealed class LineRecognizer
 
         if (last != 0)
         {
-            total += runMax;
-            count++;
+            runs.Add(new CharRun(last, runFirst, steps - 1, runMax));
         }
-
-        return new RecognizedLine(text.ToString(), count == 0 ? 0f : total / count);
     }
 }
+
+/// <summary>One emitted character of a greedy decoding: its class, the first and last step of its run, and the run's largest probability.</summary>
+internal readonly record struct CharRun(int Class, int First, int Last, float MaxProbability);
+
+/// <summary>A word of a line: x edges in pixels of the line image, calibrated and raw confidence, script, and the number of characters it was built from.</summary>
+internal readonly record struct RecognizedWord(string Text, float X0, float X1, float Confidence, float RawConfidence, OcrScript Script, int Characters);
+
+/// <summary>A decoded line with its words. <c>RawConfidence</c> is the whole-line rule of <see cref="RecognizedLine"/>.</summary>
+internal sealed record LineWords(string Text, float RawConfidence, IReadOnlyList<RecognizedWord> Words);

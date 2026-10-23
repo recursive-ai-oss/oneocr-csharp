@@ -93,3 +93,7 @@ The candidate count (8), the 9.2 window and the −1 floor were chosen on held-o
 
 Before the search starts, `steps * BeamWidth * 9 + 1` (the most prefixes it can create) is compared with
 `OcrLimits.MaxBeamNodes` (default 2^22), and `BeamWidth` with `OcrLimits.MaxBeamWidth`.
+
+## Words and approximate boxes (greedy only)
+
+Words, their raw and calibrated confidences and their script are defined in [model-container-v1.md](model-container-v1.md#calibration-version-1). Boxes come from the greedy alignment: a character occupies the steps `[first, last]` of its run, and a step is `width / T` pixels of the line image (`width` the scaled line's width, `T` the number of steps). A word's left edge is the first step of its first run, or halfway across the gap to the previous run when there is one: `(prev.last + 1 + first) / 2`, in steps; its right edge is `last + 1` of its last run, or halfway to the next run, `(last + 1 + next.first) / 2`. Neighbouring words therefore tile the line, and the line's first and last word stop where the network first and last fired. Edges are computed in double precision, scaled by `width / T`, mapped back to page pixels by the crop's own ratio and rounded to float32. Vertical edges are those of the whole line's ink. These boxes are approximate and flagged so; beam search keeps no alignment, so words are always read greedily.

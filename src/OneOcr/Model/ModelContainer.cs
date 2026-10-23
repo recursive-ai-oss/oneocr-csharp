@@ -22,12 +22,14 @@ public sealed record TensorInfo(string Name, IReadOnlyList<int> Shape, long Elem
 }
 
 /// <summary>
-/// A parsed and fully validated model container (version 0, see <c>docs/spec/model-container-v0.md</c>). Parsing is
+/// A parsed and fully validated model container (versions 0 and 1, see <c>docs/spec/model-container-v1.md</c>). Parsing is
 /// strict: every length and offset is checked against the file and against <see cref="OcrLimits"/> before anything is
 /// allocated from it, and problems surface as <see cref="OcrModelException"/> or <see cref="OcrLimitException"/>.
 /// </summary>
 public sealed class ModelContainer
 {
+    internal const string NoCalibrationNote = "The model file is container version 0, which carries no calibration: calibrated confidence equals raw confidence.";
+
     private const int HeaderSize = 16;
     private const int Alignment = 64;
     private static ReadOnlySpan<byte> Magic => "ONEOCRM\0"u8;
@@ -37,7 +39,8 @@ public sealed class ModelContainer
     private readonly Dictionary<string, TensorInfo> _byName;
 
     private ModelContainer(
-        byte[] data, long dataStart, ManifestDto manifest, List<TensorInfo> tensors, Dictionary<string, TensorInfo> byName)
+        byte[] data, long dataStart, ManifestDto manifest, List<TensorInfo> tensors, Dictionary<string, TensorInfo> byName,
+        uint formatVersion, WordCalibration? calibration)
     {
         _data = data;
         _dataStart = dataStart;
@@ -50,6 +53,11 @@ public sealed class ModelContainer
         Charset = manifest.Charset;
         Tensors = tensors;
         ConfigElement = manifest.Config;
+        FormatVersion = formatVersion;
+        Calibration = calibration;
+        Diagnostics = calibration is null
+            ? [NoCalibrationNote]
+            : [];
     }
 
     /// <summary>The layer graph the weights belong to, for example <c>crnn-v0</c>.</summary>
@@ -69,6 +77,15 @@ public sealed class ModelContainer
 
     /// <summary>Output classes in order; index 0 is the CTC blank.</summary>
     public IReadOnlyList<string> Charset { get; }
+
+    /// <summary>The container format version of the file, 0 or 1.</summary>
+    public uint FormatVersion { get; }
+
+    /// <summary>The word-confidence calibration; null for a version 0 file.</summary>
+    public WordCalibration? Calibration { get; }
+
+    /// <summary>Notes about the file worth showing to a user, for example that a version 0 file has no calibration.</summary>
+    public IReadOnlyList<string> Diagnostics { get; }
 
     /// <summary>All tensors, in manifest order.</summary>
     public IReadOnlyList<TensorInfo> Tensors { get; }
@@ -176,9 +193,9 @@ public sealed class ModelContainer
         }
 
         uint version = BinaryPrimitives.ReadUInt32LittleEndian(data[8..]);
-        if (version != 0)
+        if (version > 1)
         {
-            throw new OcrModelException($"Unsupported container version {version}; this reader understands version 0.");
+            throw new OcrModelException($"Unsupported container version {version}; this reader understands versions 0 and 1.");
         }
 
         uint manifestLength = BinaryPrimitives.ReadUInt32LittleEndian(data[12..]);
@@ -205,9 +222,14 @@ public sealed class ModelContainer
         long dataLength = data.Length - dataStart;
         List<TensorInfo> tensors = ValidateManifest(manifest, limits, dataLength, out Dictionary<string, TensorInfo> byName);
         CheckLayout(data, dataStart, tensors);
+        WordCalibration? calibration = null;
+        if (version == 1)
+        {
+            calibration = ParseCalibration(manifest, limits);
+        }
 
         byte[] copy = owned ?? data.ToArray();
-        return new ModelContainer(copy, dataStart, manifest, tensors, byName);
+        return new ModelContainer(copy, dataStart, manifest, tensors, byName, version, calibration);
     }
 
     /// <summary>Whether the container has a tensor with this name.</summary>
@@ -282,6 +304,25 @@ public sealed class ModelContainer
         catch (JsonException ex)
         {
             throw new OcrModelException("The manifest is not valid: " + ex.Message, ex);
+        }
+    }
+
+    private static WordCalibration ParseCalibration(ManifestDto manifest, OcrLimits limits)
+    {
+        if (manifest.Calibration is not { ValueKind: JsonValueKind.Object } element)
+        {
+            throw new OcrModelException("A version 1 manifest needs a 'calibration' object.");
+        }
+
+        try
+        {
+            CalibrationDto dto = element.Deserialize(ManifestJsonContext.Default.CalibrationDto)
+                ?? throw new OcrModelException("The calibration is JSON null.");
+            return WordCalibration.FromDto(dto, limits);
+        }
+        catch (JsonException ex)
+        {
+            throw new OcrModelException("The calibration is not valid: " + ex.Message, ex);
         }
     }
 

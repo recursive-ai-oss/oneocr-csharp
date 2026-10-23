@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace OneOcr.Model;
 
-// Wire shapes of the container manifest (docs/spec/model-container-v0.md). Members the spec does not name are skipped,
+// Wire shapes of the container manifest (docs/spec/model-container-v1.md). Members the spec does not name are skipped,
 // including the free-form "provenance" record.
 
 internal sealed class ManifestDto
@@ -16,6 +16,9 @@ internal sealed class ManifestDto
     public required List<string> Charset { get; init; }
     public required JsonElement Config { get; init; }
     public required List<TensorDto> Tensors { get; init; }
+
+    // Read only from version 1 files; held raw so that a version 0 file never trips over it.
+    public JsonElement? Calibration { get; init; }
 }
 
 internal sealed class InputDto
@@ -59,6 +62,7 @@ internal sealed class LstmDto
 
 [JsonSerializable(typeof(ManifestDto))]
 [JsonSerializable(typeof(CrnnConfigDto))]
+[JsonSerializable(typeof(CalibrationDto))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, PropertyNameCaseInsensitive = false)]
 internal sealed partial class ManifestJsonContext : JsonSerializerContext
 {

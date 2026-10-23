@@ -44,6 +44,7 @@ internal static class ContainerTarget
             }
 
             _ = recognizer.Recognize(pixels, width, 1);
+            _ = recognizer.RecognizeWords(pixels, width, 1, System.Threading.CancellationToken.None);
         }
         catch (OcrModelException)
         {
