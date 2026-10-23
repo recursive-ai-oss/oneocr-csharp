@@ -15,11 +15,13 @@ public sealed class OcrEngine
 {
     private readonly LineRecognizer _recognizer;
     private readonly OcrLimits _limits;
+    private readonly BufferPool<Gray8> _pixels;
 
     private OcrEngine(LineRecognizer recognizer, OcrLimits limits)
     {
         _recognizer = recognizer;
         _limits = limits;
+        _pixels = new BufferPool<Gray8>(limits.MaxPooledBufferBytes, 1);
     }
 
     /// <summary>Loads a recognition model from a container file.</summary>
@@ -68,21 +70,29 @@ public sealed class OcrEngine
 
         int degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Math.Min(4, Environment.ProcessorCount);
         int width = image.Width, height = image.Height;
-        Gray8[] grayPixels = image.ConvertTo(PixelFormat.Gray8).ToArray<Gray8>(degree, cancellationToken);
-        var gray = new byte[grayPixels.Length];
-        for (int i = 0; i < gray.Length; i++)
+        // One pooled copy of the page as 8-bit gray; lines are cut from it, so no line triggers a second decode.
+        Gray8[] grayPixels = _pixels.Rent(pixels);
+        try
         {
-            gray[i] = grayPixels[i].V;
+            return ReadPage(image, grayPixels, width, height, degree, cancellationToken);
         }
+        finally
+        {
+            _pixels.Return(grayPixels);
+        }
+    }
 
-        List<LineBox> lines = LineFinder.Find(gray, width, height, _limits.MaxLinesPerPage);
+    private string ReadPage(Image image, Gray8[] grayPixels, int width, int height, int degree, CancellationToken cancellationToken)
+    {
+        int pixelCount = checked(width * height);
+        image.CopyPixelsTo<Gray8>(grayPixels.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+        ReadOnlySpan<byte> gray0 = PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount));
+        List<LineBox> lines = LineFinder.Find(gray0, width, height, _limits.MaxLinesPerPage);
         if (lines.Count == 0)
         {
             return string.Empty;
         }
 
-        // Crops are cut from an in-memory copy of the page so no line triggers a second decode.
-        Image page = Image.FromPixels<Gray8>(grayPixels, width, height);
         int typical = LinePreprocessor.TypicalHeight(lines);
         int modelHeight = _recognizer.InputHeight;
         var texts = new string[lines.Count];
@@ -91,9 +101,16 @@ public sealed class OcrEngine
         {
             cancellationToken.ThrowIfCancellationRequested();
             LineBox box = LinePreprocessor.CropBox(lines[index], typical, width, height);
-            byte[] crop = LinePreprocessor.Prepare(page, box, modelHeight, out int cropWidth);
-            // Lines are the unit of parallelism, so each is recognized on one thread.
-            texts[index] = _recognizer.Recognize(crop, cropWidth, 1, cancellationToken).Text;
+            Gray8[] crop = LinePreprocessor.Prepare(PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount)), width, box, modelHeight, _pixels, out int cropWidth);
+            try
+            {
+                // Lines are the unit of parallelism, so each is recognized on one thread.
+                texts[index] = _recognizer.Recognize(PixelSpans.AsBytes(crop.AsSpan(0, cropWidth * modelHeight)), cropWidth, 1, cancellationToken).Text;
+            }
+            finally
+            {
+                _pixels.Return(crop);
+            }
         }
 
         if (degree > 1 && lines.Count > 1)

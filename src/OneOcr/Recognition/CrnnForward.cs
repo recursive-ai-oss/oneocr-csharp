@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using OneOcr.Kernels;
@@ -31,6 +30,14 @@ internal static class CrnnForward
     /// <summary>Normalizes 8-bit grayscale pixels with the model's input parameters (a 256-entry table).</summary>
     public static float[] Normalize(ReadOnlySpan<byte> gray, ModelInputView input)
     {
+        var result = new float[gray.Length];
+        NormalizeInto(gray, input, result);
+        return result;
+    }
+
+    /// <summary>Normalizes into the start of <paramref name="result"/>, which must hold at least <c>gray.Length</c> values.</summary>
+    public static void NormalizeInto(ReadOnlySpan<byte> gray, ModelInputView input, float[] result)
+    {
         var table = new float[256];
         for (int p = 0; p < 256; p++)
         {
@@ -43,41 +50,38 @@ internal static class CrnnForward
             table[p] = (x - input.Mean) / input.Std;
         }
 
-        var result = new float[gray.Length];
-        for (int i = 0; i < result.Length; i++)
+        for (int i = 0; i < gray.Length; i++)
         {
             result[i] = table[gray[i]];
         }
-
-        return result;
     }
 
-    private static float[] Rent(long elements)
+    private static float[] Rent(BufferPool<float> pool, long elements)
     {
-        var array = ArrayPool<float>.Shared.Rent(checked((int)elements));
+        float[] array = pool.Rent(elements);
         Array.Clear(array, 0, (int)elements);
         return array;
     }
 
-    private static void Return(ref float[]? array)
+    private static void Return(BufferPool<float> pool, ref float[]? array)
     {
         if (array is not null)
         {
-            ArrayPool<float>.Shared.Return(array);
+            pool.Return(array);
             array = null;
         }
     }
 
     /// <summary>
     /// Runs the network on a normalized <c>[1, H, W]</c> image; returns logits <c>[T, classes]</c> in a pooled array that is at
-    /// least that long (the caller may give it back to <see cref="ArrayPool{T}.Shared"/>), and T (0 when the line is too narrow).
+    /// least that long (the caller may give it back to <paramref name="pool"/>), and T (0 when the line is too narrow).
     /// </summary>
     public static float[] Run(
-        CrnnModel model, KernelPath path, int degree, float[] input, int width, OcrLimits limits, ForwardTrace? trace,
+        CrnnModel model, KernelPath path, int degree, BufferPool<float> pool, float[] input, int width, OcrLimits limits, ForwardTrace? trace,
         out int steps, CancellationToken cancellationToken)
     {
         int height = model.Input.Height;
-        trace?.Add("input", input, 1, height, width);
+        trace?.Add("input", input.AsSpan(0, height * width), 1, height, width);
 
         // Check every buffer size before allocating anything for the line.
         int h = height, w = width;
@@ -130,7 +134,7 @@ internal static class CrnnForward
             w = width;
             {
                 int hp = h + (2 * first.PadH), wp = w + (2 * first.PadW);
-                current = Rent((long)hp * wp);
+                current = Rent(pool, (long)hp * wp);
                 for (int y = 0; y < h; y++)
                 {
                     input.AsSpan(y * w, w).CopyTo(current.AsSpan(((y + first.PadH) * wp) + first.PadW, w));
@@ -147,18 +151,18 @@ internal static class CrnnForward
                 int nextPadH = i + 1 < model.Conv.Length ? model.Conv[i + 1].PadH : 0;
                 int nextPadW = i + 1 < model.Conv.Length ? model.Conv[i + 1].PadW : 0;
                 int nextWp = ow + (2 * nextPadW);
-                float[] next = Rent((long)(oh + (2 * nextPadH)) * nextWp * b.Out);
+                float[] next = Rent(pool, (long)(oh + (2 * nextPadH)) * nextWp * b.Out);
                 try
                 {
-                    ConvReluPool(b, path, degree, current!, wp, oh, ow, next, nextPadH, nextPadW, nextWp);
+                    ConvReluPool(b, path, degree, pool, current!, wp, oh, ow, next, nextPadH, nextPadW, nextWp);
                 }
                 catch
                 {
-                    ArrayPool<float>.Shared.Return(next);
+                    pool.Return(next);
                     throw;
                 }
 
-                Return(ref current);
+                Return(pool, ref current);
                 current = next;
                 h = oh;
                 w = ow;
@@ -192,8 +196,8 @@ internal static class CrnnForward
             for (int l = 0; l < model.Lstm.Length; l++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                lstmOut = BiLstm(model.Lstm[l], path, degree, lstmIn!, t, hidden);
-                Return(ref lstmIn);
+                lstmOut = BiLstm(model.Lstm[l], path, degree, pool, lstmIn!, t, hidden);
+                Return(pool, ref lstmIn);
                 lstmIn = lstmOut;
                 lstmOut = null;
                 Lap($"lstm.l{l}");
@@ -204,7 +208,7 @@ internal static class CrnnForward
                 }
             }
 
-            float[] logits = ArrayPool<float>.Shared.Rent(checked(t * model.Classes));
+            float[] logits = pool.Rent(checked(t * model.Classes));
             float[] layerIn = lstmIn!;
             ParallelRows(t, degree, 1, (start, count) => Gemm.NT(
                 path, layerIn.AsSpan(start * 2 * hidden), 2 * hidden, model.FcWeight, 2 * hidden, count, model.Classes, 2 * hidden,
@@ -216,9 +220,9 @@ internal static class CrnnForward
         }
         finally
         {
-            Return(ref current);
-            Return(ref lstmIn);
-            Return(ref lstmOut);
+            Return(pool, ref current);
+            Return(pool, ref lstmIn);
+            Return(pool, ref lstmOut);
         }
     }
 
@@ -235,7 +239,7 @@ internal static class CrnnForward
     // is zeroed, with its border). Starting the maximum at 0 applies the ReLU; a NaN never wins a comparison. The band stays in cache
     // and no full-size convolution output exists. Each output is still one dot product, so the order is unchanged.
     private static void ConvReluPool(
-        ConvBlock b, KernelPath path, int degree, float[] input, int wp, int oh, int ow, float[] dst, int padH, int padW, int dstWidth)
+        ConvBlock b, KernelPath path, int degree, BufferPool<float> pool, float[] input, int wp, int oh, int ow, float[] dst, int padH, int padW, int dstWidth)
     {
         int pooledChunk = Math.Max(1, PositionChunk / b.PoolW);
         int chunksPerRow = (ow + pooledChunk - 1) / pooledChunk;
@@ -252,8 +256,8 @@ internal static class CrnnForward
             int m = Math.Min(pooledChunk, ow - px0);
             int n = m * b.PoolW;
             int x0 = px0 * b.PoolW;
-            float[] band = ArrayPool<float>.Shared.Rent(b.PoolH * n * b.Out);
-            float[]? col = inPlace || singleChannel ? null : ArrayPool<float>.Shared.Rent(n * b.KPadded);
+            float[] band = pool.Rent(b.PoolH * n * b.Out);
+            float[]? col = inPlace || singleChannel ? null : pool.Rent(n * b.KPadded);
             try
             {
                 for (int dy = 0; dy < b.PoolH; dy++)
@@ -299,10 +303,10 @@ internal static class CrnnForward
             }
             finally
             {
-                ArrayPool<float>.Shared.Return(band);
+                pool.Return(band);
                 if (col is not null)
                 {
-                    ArrayPool<float>.Shared.Return(col);
+                    pool.Return(col);
                 }
             }
         }
@@ -342,14 +346,14 @@ internal static class CrnnForward
 
     // One bidirectional layer: input projections for all steps at once, then the two directions' recurrences.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static float[] BiLstm(LstmLayer layer, KernelPath path, int degree, float[] x, int t, int hidden)
+    private static float[] BiLstm(LstmLayer layer, KernelPath path, int degree, BufferPool<float> pool, float[] x, int t, int hidden)
     {
-        float[] output = ArrayPool<float>.Shared.Rent(checked(t * 2 * hidden));
+        float[] output = pool.Rent(checked(t * 2 * hidden));
         [MethodImpl(MethodImplOptions.AggressiveOptimization)]
         void Direction(LstmDirection d, bool reverse)
         {
             int gates = 4 * hidden;
-            float[] proj = ArrayPool<float>.Shared.Rent(checked(t * gates));
+            float[] proj = pool.Rent(checked(t * gates));
             float[] z = new float[gates];
             float[] cell = new float[hidden];
             float[] zeros = new float[hidden];
@@ -370,7 +374,7 @@ internal static class CrnnForward
             }
             finally
             {
-                ArrayPool<float>.Shared.Return(proj);
+                pool.Return(proj);
             }
         }
 
@@ -388,7 +392,7 @@ internal static class CrnnForward
         }
         catch
         {
-            ArrayPool<float>.Shared.Return(output);
+            pool.Return(output);
             throw;
         }
 

@@ -271,11 +271,11 @@ internal static class Program
                 found = LineFinder.Find(gray, w, h, 100000);
                 f.Add(clock.Elapsed.TotalMilliseconds);
                 clock.Restart();
-                Image page = Image.FromPixels<Gray8>(px, w, h);
+                var padPool = new OneOcr.BufferPool<Gray8>(1L << 28, 1);
                 int typical = LinePreprocessor.TypicalHeight(found);
                 foreach (LineBox line in found)
                 {
-                    _ = LinePreprocessor.Prepare(page, LinePreprocessor.CropBox(line, typical, w, h), 32, out _);
+                    padPool.Return(LinePreprocessor.Prepare(gray, w, LinePreprocessor.CropBox(line, typical, w, h), 32, padPool, out _));
                 }
 
                 p.Add(clock.Elapsed.TotalMilliseconds);

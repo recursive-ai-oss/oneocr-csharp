@@ -22,12 +22,14 @@ public sealed class LineRecognizer
     private readonly CrnnModel _model;
     private readonly KernelPath _path;
     private readonly OcrLimits _limits;
+    private readonly BufferPool<float> _pool;
 
     internal LineRecognizer(CrnnModel model, OcrLimits limits, KernelPath path)
     {
         _model = model;
         _limits = limits;
         _path = Dispatch.Require(path);
+        _pool = new BufferPool<float>(limits.MaxPooledBufferBytes, sizeof(float));
     }
 
     /// <summary>The height, in pixels, line images must have.</summary>
@@ -73,7 +75,7 @@ public sealed class LineRecognizer
         {
             if (logits.Length > 0)
             {
-                System.Buffers.ArrayPool<float>.Shared.Return(logits);
+                _pool.Return(logits);
             }
         }
     }
@@ -97,8 +99,16 @@ public sealed class LineRecognizer
         }
 
         int degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Math.Min(4, Environment.ProcessorCount);
-        float[] input = CrnnForward.Normalize(gray, new ModelInputView(_model.Input.Mean, _model.Input.Std, _model.Input.Invert));
-        return CrnnForward.Run(_model, _path, degree, input, width, _limits, trace, out steps, cancellationToken);
+        float[] input = _pool.Rent(gray.Length);
+        try
+        {
+            CrnnForward.NormalizeInto(gray, new ModelInputView(_model.Input.Mean, _model.Input.Std, _model.Input.Invert), input);
+            return CrnnForward.Run(_model, _path, degree, _pool, input, width, _limits, trace, out steps, cancellationToken);
+        }
+        finally
+        {
+            _pool.Return(input);
+        }
     }
 
     internal RecognizedLine Decode(float[] logits, int steps)
