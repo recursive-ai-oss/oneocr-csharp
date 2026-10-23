@@ -1,0 +1,149 @@
+"""The evaluation sets: registry, one `gen` entry point, and the box overlay.
+
+    python -m oneocr_bench gen --set degraded-v1 [--check]
+    python -m oneocr_bench draw --set degraded-v1 p001
+"""
+
+from __future__ import annotations
+
+import json
+import random
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import PIL
+from PIL import Image, ImageDraw
+
+from . import degrade, gen, layouts, receipts, screens
+from .paths import MANIFESTS, data_dir
+
+
+@dataclass(frozen=True)
+class SetSpec:
+    name: str
+    category: str
+    seed: int
+    count: int
+    note: str
+
+
+SETS = {s.name: s for s in [
+    SetSpec("clean300-v1", "clean 300 DPI print", 20261023, 30, "one-column A4 pages, 300 DPI"),
+    SetSpec("degraded-v1", "degraded scans", 20261101, 40, "A4 pages at 150/200 DPI with skew, faint ink, noise, JPEG"),
+    SetSpec("screenshot-v1", "screenshots and UI", 20261102, 40, "UI and web screens at 1x and 2x, light/dark themes"),
+    SetSpec("layout-v1", "complex layout", 20261103, 40, "columns, tables and forms with a documented reading order"),
+    SetSpec("phone-v1", "phone photos", 20261104, 40, "simulated camera capture of pages: perspective, light, blur, noise"),
+    SetSpec("receipts-v1", "receipts", 0, 100, "CORD v2 test split, truth from its annotations"),
+]}
+
+
+def set_dir(name: str) -> Path:
+    return data_dir() / name
+
+
+def page_images(name: str) -> list[Path]:
+    return sorted(p for p in (set_dir(name) / "pages").iterdir() if p.suffix in (".png", ".jpg"))
+
+
+def _post_degraded(set_name, seed):
+    def post(img, words, i, rng):
+        r = random.Random(f"{set_name}:{seed}:{i}:degrade")
+        n = np.random.default_rng([seed, i])
+        return degrade.degrade_scan(img, words, r, n)
+    return post
+
+
+def _post_phone(set_name, seed):
+    def post(img, words, i, rng):
+        for attempt in range(40):
+            r = random.Random(f"{set_name}:{seed}:{i}:phone:{attempt}")
+            n = np.random.default_rng([seed, i, attempt])
+            try:
+                data, w, params = degrade.phone_capture(img, words, r, n)
+            except ValueError:
+                continue
+            params["attempt"] = attempt
+            return data, w, params
+        raise RuntimeError(f"page {i}: no placement fit the canvas")
+    return post
+
+
+def render(name: str, count: int, out: Path) -> dict:
+    spec = SETS[name]
+    seed = spec.seed
+    versions = {"pillow": PIL.__version__, "numpy": np.__version__}
+    if name == "receipts-v1":
+        pages = receipts.render(out, name)
+        return {"set": name, "count": len(pages), **versions, "pages": pages}
+    if name == "clean300-v1":
+        m = gen.render_set(count, seed, out)
+    elif name in ("degraded-v1", "phone-v1"):
+        post = (_post_degraded if name == "degraded-v1" else _post_phone)(name, seed)
+        m = gen.render_set(count, seed, out, name, post)
+    elif name == "screenshot-v1":
+        paras = gen.load_paragraphs()
+        pages, chromium = screens.render(count, seed, out, name, paras)
+        m = {"set": name, "seed": seed, "count": count, "chromium": chromium, "pages": pages}
+    elif name == "layout-v1":
+        pages, chromium = layouts.render(count, seed, out, name)
+        m = {"set": name, "seed": seed, "count": count, "chromium": chromium, "pages": pages}
+    else:
+        raise SystemExit(f"unknown set {name}")
+    if name != "clean300-v1":
+        m.update(versions)
+    return m
+
+
+def sanity(name: str) -> None:
+    """Every truth word has text and a box inside its image; the text file is the words in order."""
+    for f in sorted((set_dir(name) / "truth").glob("*.json")):
+        t = json.loads(f.read_text())
+        w, h = t["image"]["width"], t["image"]["height"]
+        for k in t["words"]:
+            x0, y0, x1, y1 = k["box"]
+            if not (k["text"] and -2 <= x0 < x1 <= w + 2 and -2 <= y0 < y1 <= h + 2):
+                raise SystemExit(f"{name}/{f.stem}: bad word {k}")
+        if t["text"].split() != " ".join(k["text"] for k in t["words"]).split():
+            raise SystemExit(f"{name}/{f.stem}: text does not match the word list")
+
+
+def run_gen(name: str, count: int | None, check: bool) -> None:
+    spec = SETS[name]
+    n = count or spec.count
+    out = set_dir(name)
+    manifest = render(name, n, out)
+    sanity(name)
+    path = MANIFESTS / f"{name}.json"
+    if check:
+        pinned = json.loads(path.read_text())
+        bad = [a["id"] for a, b in zip(manifest["pages"], pinned["pages"], strict=True) if a != b]
+        if bad or len(manifest["pages"]) != len(pinned["pages"]):
+            raise SystemExit(f"{name}: hash mismatch on {bad}")
+        print(f"{name}: {len(manifest['pages'])} pages reproduce the manifest hashes")
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(manifest, indent=1) + "\n")
+    print(f"{name}: wrote {len(manifest['pages'])} pages to {out}; manifest {path}")
+
+
+def draw(name: str, pid: str) -> None:
+    out = set_dir(name)
+    truth = json.loads((out / "truth" / f"{pid}.json").read_text())
+    src = next((out / "pages").glob(f"{pid}.*"))
+    img = Image.open(src).convert("RGB")
+    d = ImageDraw.Draw(img)
+    lw = max(1, round(img.size[0] / 800))
+    for w in truth["words"]:
+        d.rectangle(w["box"], outline=(0, 140, 255), width=lw)
+        if "quad" in w:
+            q = w["quad"]
+            d.polygon([(q[0], q[1]), (q[2], q[3]), (q[4], q[5]), (q[6], q[7])], outline=(220, 0, 0), width=lw)
+    dest = data_dir() / "samples" / f"{name}-{pid}-boxes.png"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    big = max(img.size)
+    if big > 1800:
+        f = 1800 / big
+        img = img.resize((round(img.size[0] * f), round(img.size[1] * f)))
+    img.save(dest)
+    print(dest)

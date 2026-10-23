@@ -3,9 +3,7 @@
 Every word box is the browser's own layout rectangle for a DOM Range over that word,
 so truth never depends on OCR. Reading order is document order. One column, Latin only.
 
-    python -m oneocr_bench gen [--count 30] [--seed 20261023]
-    python -m oneocr_bench gen --check        # regenerate and compare hashes with the manifest
-    python -m oneocr_bench draw p001          # truth boxes over the page, for eyeballing
+Also the page renderer the derived sets (degraded, phone) build on; see sets.py for the commands.
 """
 
 from __future__ import annotations
@@ -18,10 +16,10 @@ import re
 import unicodedata
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from .assets import FAMILIES, WORKS, font_path, gutenberg_body, sha256
-from .paths import MANIFESTS, data_dir
+from .paths import data_dir
 
 SET_NAME = "clean300-v1"
 DPI = 300
@@ -102,7 +100,7 @@ def figures(rng: random.Random) -> str:
 
 def make_blocks(rng: random.Random, paras: list[list[str]]) -> list[tuple[str, list[str]]]:
     """(kind, lines of text); a list block has one entry per item, numbered inside the text."""
-    h = lambda: rng.choice(HEAD_TEMPLATES).format(a=rng.choice(NOUNS), b=rng.choice(NOUNS))  # noqa: E731
+    h = lambda: rng.choice(HEAD_TEMPLATES).format(a=rng.choice(NOUNS), b=rng.choice(NOUNS))
     blocks = [("h1", [h()]), ("p", [prose(rng, paras, 300, 700)]), ("p", [prose(rng, paras, 250, 600)]), ("h2", [h()]),
               ("p", [figures(rng)]), ("p", [prose(rng, paras, 300, 650)])]
     n = rng.randint(3, 5)
@@ -170,7 +168,8 @@ WORDS_JS = """() => {
 }"""
 
 
-def render_set(count: int, seed: int, out: Path) -> dict:
+def render_set(count: int, seed: int, out: Path, set_name: str = SET_NAME, post=None) -> dict:
+    """`post(img, words, i, rng)` turns the rendered page into (image bytes, extension, words, params) for derived sets."""
     from playwright.sync_api import sync_playwright
 
     paras = load_paragraphs()
@@ -183,7 +182,7 @@ def render_set(count: int, seed: int, out: Path) -> dict:
         ctx = browser.new_context(viewport={"width": W_CSS, "height": H_CSS}, device_scale_factor=SCALE)
         for i in range(count):
             pid = f"p{i + 1:03d}"
-            rng = random.Random(f"{SET_NAME}:{seed}:{i}")
+            rng = random.Random(f"{set_name}:{seed}:{i}")
             family = fams[i % len(fams)]
             size_pt = rng.choice([10, 10.5, 11, 11.5, 12])
             lh = rng.choice([1.3, 1.4, 1.5])
@@ -213,6 +212,7 @@ def render_set(count: int, seed: int, out: Path) -> dict:
             buf = io.BytesIO()
             img.save(buf, "PNG", compress_level=6)
             png_bytes = buf.getvalue()
+            ext, params = "png", None
 
             lines_out: list[str] = []
             cur = None
@@ -222,49 +222,29 @@ def render_set(count: int, seed: int, out: Path) -> dict:
                     cur = w["b"]
                 lines_out[-1].append(w["t"])
             text = "\n".join(" ".join(ws) for ws in lines_out) + "\n"
+            tw = [{"text": w["t"], "box": [round(w[k] * SCALE, 1) for k in ("x0", "y0", "x1", "y1")], "block": w["b"]}
+                  for w in words]
+            image = {"width": W_PX, "height": H_PX, "dpi": DPI}
+            if post:
+                png_bytes, tw, params = post(img, tw, i, rng)
+                ext = "jpg"
+                with Image.open(io.BytesIO(png_bytes)) as im2:
+                    image = {"width": im2.size[0], "height": im2.size[1]}
             truth = {
-                "id": pid, "set": SET_NAME, "seed": seed, "page_index": i, "font": family, "size_pt": size_pt,
+                "id": pid, "set": set_name, "seed": seed, "page_index": i, "font": family, "size_pt": size_pt,
                 "line_height": lh, "margin_mm": margin, "justify": justify, "blocks": n,
-                "image": {"width": W_PX, "height": H_PX, "dpi": DPI},
-                "words": [{"text": w["t"], "box": [round(w[k] * SCALE, 1) for k in ("x0", "y0", "x1", "y1")], "block": w["b"]}
-                          for w in words],
+                "image": image,
+                "words": tw,
                 "text": text,
             }
+            if params:
+                truth["degradation"] = params
             truth_bytes = (json.dumps(truth, ensure_ascii=False, indent=1) + "\n").encode()
-            (out / "pages" / f"{pid}.png").write_bytes(png_bytes)
+            (out / "pages" / f"{pid}.{ext}").write_bytes(png_bytes)
             (out / "truth" / f"{pid}.json").write_bytes(truth_bytes)
             (out / "truth" / f"{pid}.txt").write_text(text, encoding="utf-8")
-            entries.append({"id": pid, "font": family, "words": len(words), "png_sha256": sha256(png_bytes),
+            entries.append({"id": pid, "font": family, "words": len(words), "png_sha256" if ext == "png" else "image_sha256": sha256(png_bytes),
                             "truth_sha256": sha256(truth_bytes)})
         version = browser.version
         browser.close()
     return {"set": SET_NAME, "seed": seed, "count": count, "dpi": DPI, "chromium": version, "pages": entries}
-
-
-def gen(count: int, seed: int, check: bool) -> None:
-    out = data_dir() / SET_NAME
-    manifest = render_set(count, seed, out)
-    path = MANIFESTS / f"{SET_NAME}.json"
-    if check:
-        pinned = json.loads(path.read_text())
-        bad = [a["id"] for a, b in zip(manifest["pages"], pinned["pages"], strict=True) if a != b]
-        if bad:
-            raise SystemExit(f"hash mismatch on {bad}")
-        print(f"{count} pages reproduce manifest hashes")
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(manifest, indent=1) + "\n")
-    print(f"wrote {count} pages to {out}; manifest {path}")
-
-
-def draw(pid: str) -> None:
-    out = data_dir() / SET_NAME
-    truth = json.loads((out / "truth" / f"{pid}.json").read_text())
-    img = Image.open(out / "pages" / f"{pid}.png").convert("RGB")
-    d = ImageDraw.Draw(img)
-    for w in truth["words"]:
-        d.rectangle(w["box"], outline=(220, 0, 0), width=3)
-    dest = data_dir() / "samples" / f"{pid}-boxes.png"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    img.resize((W_PX // 2, H_PX // 2)).save(dest)
-    print(dest)
