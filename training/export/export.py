@@ -1,10 +1,10 @@
 """Exports a crnn-v0 checkpoint (or a seeded random-init model) to model container v0.
 
 Usage:
-  uv run python -m export.export --checkpoint final.pt --out model.onm [--version 0.1.0] [--eval-data DIR]
+  uv run python -m export.export --checkpoint final.pt --out model.onm [--version 0.1.0] [--eval-data LABEL=DIR ...]
   uv run python -m export.export --random-seed 7 --out model.onm
 
-BN is folded into the conv weights in fp64 then rounded once to fp16. With --eval-data the fp16-rounded model is
+BN is folded into the conv weights in fp64 then rounded once to fp16. With --eval-data (repeatable) the fp16-rounded model is
 evaluated next to the fp32 checkpoint, and single-thread CPU latency is reported (a proxy for the C# kernels).
 """
 
@@ -79,7 +79,7 @@ def main() -> None:
     ap.add_argument("--charset", default="data/charset-v1.txt")
     ap.add_argument("--out", required=True)
     ap.add_argument("--version", default="0.1.0")
-    ap.add_argument("--eval-data", help="directory with eval/ val/ sets (labels.jsonl + images/)")
+    ap.add_argument("--eval-data", action="append", default=[], help="LABEL=DIR of a line set (labels.jsonl + images/); repeatable")
     a = ap.parse_args()
 
     out = Path(a.out)
@@ -121,10 +121,11 @@ def main() -> None:
         t = {k: torch.from_numpy(v) for k, v in tensors.items()}
         folded = load_folded(model.config, t).cuda()
         fp32 = model.cuda().eval()
-        for split in ("val", "eval"):
-            ds = LineSet(Path(a.eval_data) / split, charset)
-            report[f"{split}_fp32"] = evaluate(fp32, ds, charset)
-            report[f"{split}_fp16_folded"] = evaluate(folded, ds, charset)
+        for item in a.eval_data:
+            label, _, d = item.partition("=")
+            ds = LineSet(Path(d), charset)
+            report[f"{label}_fp32"] = evaluate(fp32, ds, charset)
+            report[f"{label}_fp16_folded"] = evaluate(folded, ds, charset)
     # reference forward on random input, as a sanity check that fixtures will be producible
     FoldedReference(model.config, {k: torch.from_numpy(v) for k, v in tensors.items()}).forward(torch.randn(1, 1, 32, 100))
     Path(str(out) + ".json").write_text(json.dumps(report, indent=1), encoding="utf-8")
