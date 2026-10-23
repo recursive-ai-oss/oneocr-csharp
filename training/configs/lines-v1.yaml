@@ -1,0 +1,31 @@
+# Line set for the first real recognizer. Seeds, mixes and degradation ranges are part of the dataset definition.
+name: lines-v1
+seed: 20261024
+charset: data/charset-v1.txt
+fonts: data/fonts.yaml
+sets:
+  train: { n: 700000, fonts: train, books: train, degrade: train }
+  val: { n: 3000, fonts: train, books: heldout, degrade: train }        # training fonts and ranges, unseen books
+  eval: { n: 5000, fonts: heldout, books: heldout, degrade: heldout }   # unseen font families, books and degradation ranges
+  diag_fonts: { n: 2000, fonts: heldout, books: heldout, degrade: train }
+  diag_degrade: { n: 2000, fonts: train, books: heldout, degrade: heldout }
+# share of each text kind
+mix: { book: 0.80, numbers: 0.07, codes: 0.05, rare: 0.03, pseudo: 0.05 }
+degrade:
+  # em: font size in px before the crop is scaled to the model height (list of [lo, hi] ranges, chosen uniformly; repeats weight a range)
+  # blur: Gaussian sigma in source pixels; noise: additive Gaussian sigma in gray levels
+  # jpeg_*: probability and quality range of a JPEG round trip; contrast: ink/paper gray difference
+  train:
+    em: [[18, 30], [30, 55], [30, 55], [55, 80], [55, 80], [80, 100]]
+    blur: [0.0, 0.9]
+    noise: [0.0, 7.0]
+    jpeg_prob: 0.35
+    jpeg_q: [45, 95]
+    contrast: [75, 255]
+  heldout:
+    em: [[14, 18], [100, 118]]
+    blur: [0.9, 1.3]
+    noise: [7.0, 10.0]
+    jpeg_prob: 0.5
+    jpeg_q: [30, 45]
+    contrast: [55, 75]

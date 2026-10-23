@@ -1,0 +1,94 @@
+# Open font families used to render training and evaluation lines.
+# `name` is the directory name in the Google Fonts repository at the pinned commit; `split` says whether the
+# family may be used for training or only for held-out line evaluation. `oneocr-fonts build` turns this list
+# into fonts.yaml (file URLs, SHA-256s, licence text hashes).
+# The page evaluation set is rendered in other families (listed in `never`); they must not appear here.
+repo: google/fonts
+commit: e7db6ca603fd4862010383ff17ffd6cc4ffac1c0
+max_files_per_family: 8
+never: [gelasio, carlito, caladea, sourceserif4, sourcesans3, ibmplexserif, ibmplexsans]
+families:
+  train:
+    # sans
+    - opensans
+    - notosans
+    - firasans
+    - ptsans
+    - ubuntu
+    - roboto
+    - robotocondensed
+    - rubik
+    - montserrat
+    - worksans
+    - oswald
+    - exo2
+    - manrope
+    - jost
+    - inter
+    - istokweb
+    - cuprum
+    - scada
+    - play
+    - arimo
+    - ubuntucondensed
+    - comfortaa
+    - lato
+    - tenorsans
+    - didactgothic
+    # serif
+    - ptserif
+    - merriweather
+    - lora
+    - playfairdisplay
+    - ebgaramond
+    - cormorantgaramond
+    - librebaskerville
+    - crimsontext
+    - bitter
+    - alegreya
+    - literata
+    - oldstandardtt
+    - ledger
+    - neuton
+    - notoserif
+    - tinos
+    - cardo
+    - arvo
+    - zillaslab
+    - robotoslab
+    - philosopher
+    - crimsonpro
+    # mono
+    - ptmono
+    - firamono
+    - inconsolata
+    - sourcecodepro
+    - cousine
+    - anonymouspro
+    - courierprime
+    - cutivemono
+    - sharetechmono
+    - notosansmono
+    - spacemono
+    # display, script, typewriter
+    - pacifico
+    - lobster
+    - russoone
+    - anton
+    - specialelite
+    - amaticsc
+    - ruslandisplay
+    - bangers
+  heldout:
+    - spectral
+    - domine
+    - cabin
+    - karla
+    - alegreyasans
+    - ptsansnarrow
+    - vollkorn
+    - jetbrainsmono
+    - robotomono
+    - ubuntumono
+    - abrilfatface
+    - yanonekaffeesatz

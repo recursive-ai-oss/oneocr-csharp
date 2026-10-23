@@ -20,7 +20,7 @@ import torch
 
 from data import charset as cs
 from export.container import read_container, write_container
-from models.crnn import CRNN, DEFAULT_CONFIG, FoldedReference, fold_batch_norm, load_folded
+from models.crnn import CRNN, DEFAULT_CONFIG, FoldedReference, fold_batch_norm, load_folded, macs_per_column
 
 BASE = Path(__file__).resolve().parents[1]
 INPUT = {"height": 32, "channels": 1, "mean": 0.5, "std": 0.5, "invert": False}
@@ -110,6 +110,7 @@ def main() -> None:
         "bytes": out.stat().st_size,
         "train_parameters": params,
         "container_parameters": folded_params,
+        "macs_per_column": macs_per_column(model.config),
         "fp16_tensor_mb": round(folded_params * 2 / 1e6, 2),
         "cpu_ms_per_line_w320_1thread": round(single_thread_latency(model), 2),
     }

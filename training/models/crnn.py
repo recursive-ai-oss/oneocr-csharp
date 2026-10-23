@@ -177,3 +177,27 @@ def load_folded(config: dict, tensors: dict[str, torch.Tensor]) -> CRNN:
     sd["fc.weight"], sd["fc.bias"] = tensors["fc.weight"], tensors["fc.bias"]
     m.load_state_dict(sd)
     return m.eval()
+
+
+def macs_per_column(config: dict) -> dict:
+    """Multiply-accumulates per output column (one LSTM time step = 4 input columns), by part."""
+    cin, h = 1, INPUT_HEIGHT
+    cols = 1.0  # input columns of the current layer per output column
+    for c in config["conv"]:
+        if c["pool"]:
+            cols *= c["pool"][1]
+    conv = 0.0
+    for c in config["conv"]:
+        kh, kw = c["kernel"]
+        conv += c["out"] * cin * kh * kw * h * cols  # padding keeps the conv output the size of its input
+        cin = c["out"]
+        if c["pool"]:
+            h //= c["pool"][0]
+            cols /= c["pool"][1]
+    hid = config["lstm"]["hidden"]
+    lstm, feat = 0, cin
+    for _ in range(config["lstm"]["layers"]):
+        lstm += 2 * 4 * hid * (feat + hid)
+        feat = 2 * hid
+    fc = 2 * hid * config["classes"]
+    return {"conv": int(conv), "lstm": lstm, "fc": fc, "total": int(conv) + lstm + fc}

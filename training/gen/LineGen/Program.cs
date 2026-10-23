@@ -1,12 +1,18 @@
-// Renders planned text lines to model-height grayscale PNG crops with OneImage's text drawing.
+// Renders text lines to model-height grayscale PNG crops with OneImage's text drawing.
 //
-// Input: a plan (JSONL, one line spec each: text, font file, size, colours, padding, degradation, seed).
-// Output: <out>/images/<id>.png (8-bit gray, 32 px high) and <out>/labels.jsonl (id, text, size, PNG SHA-256).
-// Rendering is deterministic: the same plan and font files give byte-identical PNGs.
+//   LineGen --plan plan.jsonl --out dir [--font-root dir] [--height 32]
+//       Renders planned synthetic lines. Output: dir/images/<id>.png (8-bit gray) and dir/labels.jsonl.
+//   LineGen --page-lines lines.jsonl --out dir [--height 32]
+//       Cuts evaluation crops from page images. Each input line is {id, text, page, box:[x0,y0,x1,y1]} (truth box).
+//       Output: dir/finder (crops cut the way the library's line finder does) and dir/box (the truth box itself).
 //
-// Pipeline per line: draw at the planned pixel size on a paper-coloured canvas, crop around the layout box
-// with the planned padding, degrade at source resolution (blur, noise, JPEG), then scale to the model input
-// height with Image.Resize(height: 32), the call the library's own preprocessing uses.
+// Rendering is deterministic: the same plan and fonts give byte-identical PNGs.
+//
+// Crop convention (shared by the synthetic lines and the page crops, so training sees what inference sees): the ink box of
+// the line (ascender top to descender bottom) has height H; when H is below 0.85 x the page's median line height, H is raised
+// to that (lines without descenders, digit-only lines). The crop is centred on the ink box, extends H/4 above and below it
+// (1.5 H tall) and H/2 left and right of the ink, then is scaled to the model height with Image.Resize(height: 32).
+// Synthetic lines jitter these margins (plan fields vm, hm) so the model tolerates a finder that is a little off.
 
 using System.Numerics;
 using System.Security.Cryptography;
@@ -15,68 +21,133 @@ using System.Text.Json;
 using OneImage;
 using OneImage.Text;
 
-string? planPath = null, outDir = null, fontRoot = Environment.GetEnvironmentVariable("ONEOCR_FONT_ROOT") ?? "/usr/share/fonts/truetype";
+string? planPath = null, pageLinesPath = null, outDir = null, coverageList = null, charsetPath = null;
+string fontRoot = Environment.GetEnvironmentVariable("ONEOCR_FONT_ROOT") ?? "fonts-cache";
 int height = 32;
 for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
     {
         case "--plan": planPath = args[++i]; break;
+        case "--page-lines": pageLinesPath = args[++i]; break;
         case "--out": outDir = args[++i]; break;
+        case "--coverage": coverageList = args[++i]; break;
+        case "--charset": charsetPath = args[++i]; break;
         case "--font-root": fontRoot = args[++i]; break;
         case "--height": height = int.Parse(args[++i]); break;
         default: Console.Error.WriteLine($"unknown argument {args[i]}"); return 2;
     }
 }
 
-if (planPath is null || outDir is null)
+if (coverageList is not null && outDir is not null && charsetPath is not null)
 {
-    Console.Error.WriteLine("usage: LineGen --plan plan.jsonl --out dir [--font-root dir] [--height 32]");
+    return RunCoverage(coverageList, charsetPath, outDir, fontRoot);
+}
+
+if (outDir is null || (planPath is null) == (pageLinesPath is null))
+{
+    Console.Error.WriteLine("usage: LineGen (--plan plan.jsonl | --page-lines lines.jsonl) --out dir [--font-root dir] [--height 32]");
+    Console.Error.WriteLine("       LineGen --coverage fonts.txt --charset charset.txt --out coverage.json [--font-root dir]");
     return 2;
 }
 
-Directory.CreateDirectory(Path.Combine(outDir, "images"));
-var plan = File.ReadLines(planPath).Where(l => l.Length > 0).Select(l => JsonSerializer.Deserialize<PlanLine>(l, PlanJson.Options)!).ToArray();
-var fontCache = new System.Collections.Concurrent.ConcurrentDictionary<string, FontFamily>();
-var results = new string[plan.Length];
+var po = new ParallelOptions { MaxDegreeOfParallelism = Math.Min(24, Environment.ProcessorCount) };
+return planPath is not null ? RunPlan(planPath, outDir, fontRoot, height, po) : RunPageLines(pageLinesPath!, outDir, height, po);
 
-Parallel.For(0, plan.Length, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(16, Environment.ProcessorCount) }, idx =>
+// For every font file in the list, the charset entries the renderer can actually draw (a cmap entry can still point at an empty glyph).
+static int RunCoverage(string listPath, string charsetPath, string outFile, string fontRoot)
 {
-    var p = plan[idx];
-    FontFamily family = fontCache.GetOrAdd(p.Font, f => new FontCollection().Add(Path.Combine(fontRoot, f)));
-    Image img = Render(p, family, height);
-    string file = Path.Combine(outDir, "images", p.Id + ".png");
+    string[] chars = File.ReadAllLines(charsetPath).Skip(1).ToArray();
+    string[] files = File.ReadAllLines(listPath).Where(l => l.Length > 0).ToArray();
+    var result = new SortedDictionary<string, string>(StringComparer.Ordinal);
+    foreach (string f in files)
+    {
+        Font font = new FontCollection().Add(Path.Combine(fontRoot, f)).CreateFont(32);
+        result[f] = string.Concat(chars.Where(c => font.HasGlyph(char.ConvertToUtf32(c, 0))));
+    }
+
+    File.WriteAllText(outFile, JsonSerializer.Serialize(result, PlanJson.Options), new UTF8Encoding(false));
+    Console.WriteLine($"{files.Length} fonts -> {outFile}");
+    return 0;
+}
+
+static int RunPlan(string planPath, string outDir, string fontRoot, int height, ParallelOptions po)
+{
+    Directory.CreateDirectory(Path.Combine(outDir, "images"));
+    var plan = File.ReadLines(planPath).Where(l => l.Length > 0).Select(l => JsonSerializer.Deserialize<PlanLine>(l, PlanJson.Options)!).ToArray();
+    var fontCache = new System.Collections.Concurrent.ConcurrentDictionary<string, FontFamily>();
+    var results = new string[plan.Length];
+    Parallel.For(0, plan.Length, po, idx =>
+    {
+        var p = plan[idx];
+        FontFamily family = fontCache.GetOrAdd(p.Font, f => new FontCollection().Add(Path.Combine(fontRoot, f)));
+        Image img = RenderSynthetic(p, family, height);
+        results[idx] = Save(img, outDir, "images", p.Id, p.Text, p.Font);
+    });
+    File.WriteAllLines(Path.Combine(outDir, "labels.jsonl"), results, new UTF8Encoding(false));
+    Console.WriteLine($"{plan.Length} lines -> {outDir}");
+    return 0;
+}
+
+static string Save(Image img, string outDir, string sub, string id, string text, string font)
+{
+    string file = Path.Combine(outDir, sub, id + ".png");
     img.Save(file);
     string sha = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file))).ToLowerInvariant();
-    results[idx] = JsonSerializer.Serialize(new LabelLine(p.Id, p.Text, img.Width, img.Height, p.Font, sha), PlanJson.Options);
-});
+    return JsonSerializer.Serialize(new LabelLine(id, text, img.Width, img.Height, font, sha), PlanJson.Options);
+}
 
-File.WriteAllLines(Path.Combine(outDir, "labels.jsonl"), results, new UTF8Encoding(false));
-Console.WriteLine($"{plan.Length} lines -> {outDir}");
-return 0;
-
-static Image Render(PlanLine p, FontFamily family, int height)
+static Image RenderSynthetic(PlanLine p, FontFamily family, int height)
 {
     float em = (float)p.Em;
     Font font = family.CreateFont(em);
-    var measure = new TextOptions(font);
-    float advance = TextMeasurer.Measure(p.Text, measure).Advance.Width;
+    var options = new TextOptions(font);
+    float advance = TextMeasurer.Measure(p.Text, options).Advance.Width;
 
-    // Canvas big enough for the largest padding the plan can ask for.
-    float ox = 0.95f * em + 2, oy = 0.4f * em + 2;
+    // Reference height: ink extent of a string with ascenders and descenders, standing in for the page's median line.
+    float refH = RefInkHeight(font);
+
+    // The canvas leaves room for the largest margins the plan can ask for.
+    float ox = 1.8f * em + 2, oy = 1.4f * em + 2;
     int w = (int)MathF.Ceiling(advance + 2 * ox), h = (int)MathF.Ceiling(em + 2 * oy);
     var bg = new Rgba32((byte)p.Bg, (byte)p.Bg, (byte)p.Bg, 255);
     var pixels = new Rgba32[w * h];
     Array.Fill(pixels, bg);
-    var options = new TextOptions(font) { Origin = new Vector2(ox, oy) };
-    Image canvas = Image.FromPixels<Rgba32>(pixels, w, h)
-        .DrawText(p.Text, options, new Rgba32((byte)p.Fg, (byte)p.Fg, (byte)p.Fg, 255));
+    options.Origin = new Vector2(ox, oy);
+    Image canvas = Image.FromPixels<Rgba32>(pixels, w, h).DrawText(p.Text, options, new Rgba32((byte)p.Fg, (byte)p.Fg, (byte)p.Fg, 255));
+    Image gray = canvas.ConvertTo(PixelFormat.Gray8);
+    Gray8[] px = gray.ToArray<Gray8>();
 
-    int x0 = Math.Max(0, (int)MathF.Floor(ox - (float)p.Pad[0] * em));
-    int x1 = Math.Min(w, (int)MathF.Ceiling(ox + advance + (float)p.Pad[1] * em));
-    int y0 = Math.Max(0, (int)MathF.Floor(oy - (float)p.Pad[2] * em));
-    int y1 = Math.Min(h, (int)MathF.Ceiling(oy + em + (float)p.Pad[3] * em));
-    Image crop = canvas.ConvertTo(PixelFormat.Gray8).Crop(x0, y0, Math.Max(1, x1 - x0), Math.Max(1, y1 - y0));
+    int thr = Math.Max(1, (int)(0.4 * Math.Abs(p.Fg - p.Bg)));
+    int ix0 = w, iy0 = h, ix1 = -1, iy1 = -1;
+    for (int y = 0; y < h; y++)
+    {
+        for (int x = 0; x < w; x++)
+        {
+            if (Math.Abs(px[y * w + x].V - p.Bg) >= thr)
+            {
+                if (x < ix0) ix0 = x;
+                if (x > ix1) ix1 = x;
+                if (y < iy0) iy0 = y;
+                if (y > iy1) iy1 = y;
+            }
+        }
+    }
+
+    if (ix1 < 0)
+    {
+        ix0 = (int)ox; ix1 = (int)(ox + Math.Max(1, advance)); iy0 = (int)oy; iy1 = (int)(oy + em);
+    }
+
+    ix1++; iy1++;
+    float inkH = iy1 - iy0;
+    float hh = MathF.Max(inkH, 0.85f * (float)p.Ref * refH);
+    float cy = (iy0 + iy1) / 2f;
+    int x0 = Math.Max(0, (int)MathF.Floor(ix0 - (float)p.Hm[0] * hh));
+    int x1 = Math.Min(w, (int)MathF.Ceiling(ix1 + (float)p.Hm[1] * hh));
+    int y0 = Math.Max(0, (int)MathF.Floor(cy - hh / 2 - (float)p.Vm[0] * hh));
+    int y1 = Math.Min(h, (int)MathF.Ceiling(cy + hh / 2 + (float)p.Vm[1] * hh));
+    Image crop = gray.Crop(x0, y0, Math.Max(1, x1 - x0), Math.Max(1, y1 - y0));
 
     if (p.Blur > 0.05)
     {
@@ -98,6 +169,79 @@ static Image Render(PlanLine p, FontFamily family, int height)
 
     // The model input scaling: width follows the aspect ratio (rounded half up, at least 1).
     return crop.Resize(height: height);
+}
+
+static float RefInkHeight(Font font)
+{
+    var o = new TextOptions(font);
+    float top = float.MaxValue, bottom = float.MinValue;
+    foreach (var g in TextMeasurer.GetCharacterBounds("dlgpy", o))
+    {
+        if (g.Ink.Height <= 0) continue;
+        top = MathF.Min(top, g.Ink.Top);
+        bottom = MathF.Max(bottom, g.Ink.Bottom);
+    }
+
+    return bottom > top ? bottom - top : font.Size;
+}
+
+static int RunPageLines(string path, string outDir, int height, ParallelOptions po)
+{
+    foreach (var sub in new[] { "finder", "box" })
+    {
+        Directory.CreateDirectory(Path.Combine(outDir, sub, "images"));
+    }
+
+    var lines = File.ReadLines(path).Where(l => l.Length > 0).Select(l => JsonSerializer.Deserialize<PageLine>(l, PlanJson.Options)!).ToArray();
+    var pages = new Dictionary<string, (Image Img, Gray8[] Px, int W, int H)>();
+    foreach (string pg in lines.Select(l => l.Page).Distinct())
+    {
+        Image im = Image.Load(pg).ConvertTo(PixelFormat.Gray8);
+        pages[pg] = (im, im.ToArray<Gray8>(), im.Width, im.Height);
+    }
+
+    // Ink box of each line inside its truth box: pixels darker than the mid level between the darkest and lightest pixel.
+    var ink = new (int X0, int Y0, int X1, int Y1)[lines.Length];
+    Parallel.For(0, lines.Length, po, i =>
+    {
+        var l = lines[i];
+        var (_, px, w, h) = pages[l.Page];
+        int bx0 = Math.Clamp((int)Math.Floor(l.Box[0]), 0, w - 1), bx1 = Math.Clamp((int)Math.Ceiling(l.Box[2]), 1, w);
+        int by0 = Math.Clamp((int)Math.Floor(l.Box[1]), 0, h - 1), by1 = Math.Clamp((int)Math.Ceiling(l.Box[3]), 1, h);
+        int lo = 255, hi = 0;
+        for (int y = by0; y < by1; y++)
+            for (int x = bx0; x < bx1; x++) { int v = px[y * w + x].V; lo = Math.Min(lo, v); hi = Math.Max(hi, v); }
+        int thr = (lo + hi) / 2;
+        int x0 = int.MaxValue, y0 = int.MaxValue, x1 = -1, y1 = -1;
+        for (int y = by0; y < by1; y++)
+            for (int x = bx0; x < bx1; x++)
+                if (px[y * w + x].V < thr) { x0 = Math.Min(x0, x); x1 = Math.Max(x1, x); y0 = Math.Min(y0, y); y1 = Math.Max(y1, y); }
+        ink[i] = x1 < 0 ? (bx0, by0, bx1, by1) : (x0, y0, x1 + 1, y1 + 1);
+    });
+
+    var medianH = lines.Select((l, i) => (l.Page, H: ink[i].Y1 - ink[i].Y0)).GroupBy(t => t.Page)
+        .ToDictionary(g => g.Key, g => { var s = g.Select(t => t.H).OrderBy(v => v).ToArray(); return s[s.Length / 2]; });
+
+    var finder = new string[lines.Length];
+    var box = new string[lines.Length];
+    Parallel.For(0, lines.Length, po, i =>
+    {
+        var l = lines[i];
+        var (img, _, w, h) = pages[l.Page];
+        var b = ink[i];
+        double hh = Math.Max(b.Y1 - b.Y0, 0.85 * medianH[l.Page]);
+        double cy = (b.Y0 + b.Y1) / 2.0;
+        int x0 = Math.Max(0, (int)Math.Floor(b.X0 - hh / 2)), x1 = Math.Min(w, (int)Math.Ceiling(b.X1 + hh / 2));
+        int y0 = Math.Max(0, (int)Math.Floor(cy - hh * 0.75)), y1 = Math.Min(h, (int)Math.Ceiling(cy + hh * 0.75));
+        finder[i] = Save(img.Crop(x0, y0, x1 - x0, y1 - y0).Resize(height: height), Path.Combine(outDir, "finder"), "images", l.Id, l.Text, "page");
+        int tx0 = Math.Clamp((int)Math.Floor(l.Box[0]), 0, w - 1), tx1 = Math.Clamp((int)Math.Ceiling(l.Box[2]), tx0 + 1, w);
+        int ty0 = Math.Clamp((int)Math.Floor(l.Box[1]), 0, h - 1), ty1 = Math.Clamp((int)Math.Ceiling(l.Box[3]), ty0 + 1, h);
+        box[i] = Save(img.Crop(tx0, ty0, tx1 - tx0, ty1 - ty0).Resize(height: height), Path.Combine(outDir, "box"), "images", l.Id, l.Text, "page");
+    });
+    File.WriteAllLines(Path.Combine(outDir, "finder", "labels.jsonl"), finder, new UTF8Encoding(false));
+    File.WriteAllLines(Path.Combine(outDir, "box", "labels.jsonl"), box, new UTF8Encoding(false));
+    Console.WriteLine($"{lines.Length} page lines -> {outDir}");
+    return 0;
 }
 
 static Image AddNoise(Image img, double sigma, ulong seed)
@@ -123,7 +267,9 @@ static uint Next(ref ulong s)
     return (uint)((z ^ (z >> 31)) >> 32);
 }
 
-record PlanLine(string Id, string Text, string Font, double Em, int Fg, int Bg, double[] Pad, double Blur, double Noise, int Jpeg, long Seed);
+record PlanLine(string Id, string Text, string Font, double Em, int Fg, int Bg, double Ref, double[] Vm, double[] Hm, double Blur, double Noise, int Jpeg, long Seed);
+
+record PageLine(string Id, string Text, string Page, double[] Box);
 
 record LabelLine(string Id, string Text, int W, int H, string Font, string Sha256);
 
