@@ -25,6 +25,12 @@ public static partial class OcrPageJson
             throw new OcrFormatException("The document starts with a byte order mark.");
         }
 
+        // JsonDocument leaves the bytes of a string unchecked until the string is read, and then fails with a plain InvalidOperationException.
+        if (!System.Text.Unicode.Utf8.IsValid(json))
+        {
+            throw new OcrFormatException("The document is not valid UTF-8.");
+        }
+
         JsonDocument doc;
         try
         {
@@ -449,7 +455,15 @@ public static partial class OcrPageJson
                 throw new OcrFormatException($"{path} must be a string.");
             }
 
-            return e.GetString() ?? throw new OcrFormatException($"{path} must be a string.");
+            try
+            {
+                return e.GetString() ?? throw new OcrFormatException($"{path} must be a string.");
+            }
+            catch (InvalidOperationException)
+            {
+                // An escape such as \uDE00 that is half of a surrogate pair: JSON text, but not text.
+                throw new OcrFormatException($"{path} holds an unpaired surrogate escape.");
+            }
         }
 
         private string Text(JsonElement e, string path)

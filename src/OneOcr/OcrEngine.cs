@@ -18,10 +18,12 @@ public sealed class OcrEngine
     private readonly OcrLimits _limits;
     private readonly BufferPool<Gray8> _pixels;
     private readonly BufferPool<byte> _masks;
+    private readonly ResizerPool _resizers;
     private readonly DecodeOptions _decoding;
 
-    private OcrEngine(LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixels, BufferPool<byte> masks, DecodeOptions decoding)
+    private OcrEngine(LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixels, BufferPool<byte> masks, ResizerPool resizers, DecodeOptions decoding)
     {
+        _resizers = resizers;
         _masks = masks;
         _recognizer = recognizer;
         _limits = limits;
@@ -42,7 +44,7 @@ public sealed class OcrEngine
     {
         ArgumentNullException.ThrowIfNull(decoding);
         decoding.Validate(_limits);
-        return new OcrEngine(_recognizer, _limits, _pixels, _masks, decoding);
+        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, decoding);
     }
 
     /// <summary>Loads a recognition model from a container file.</summary>
@@ -68,7 +70,7 @@ public sealed class OcrEngine
         limits ??= OcrLimits.Default;
         return new OcrEngine(
             new LineRecognizer(CrnnModel.FromContainer(container, limits), limits, path), limits,
-            new BufferPool<Gray8>(limits.MaxPooledBufferBytes, 1), new BufferPool<byte>(limits.MaxPooledBufferBytes, 1), DecodeOptions.Greedy);
+            new BufferPool<Gray8>(limits.MaxPooledBufferBytes, 1), new BufferPool<byte>(limits.MaxPooledBufferBytes, 1), new ResizerPool(), DecodeOptions.Greedy);
     }
 
     /// <summary>
@@ -172,7 +174,7 @@ public sealed class OcrEngine
             int pixelCount = checked(width * height);
             image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
             return PageReader.Read(
-                _recognizer, _limits, _pixels, _masks, gray, width, height, pageIndex, dpi, degree, includeChars, cancellationToken);
+                _recognizer, _limits, _pixels, _masks, _resizers, gray, width, height, pageIndex, dpi, degree, includeChars, cancellationToken);
         }
         finally
         {
@@ -215,7 +217,7 @@ public sealed class OcrEngine
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 LineBox box = LinePreprocessor.CropBox(lines[index], typical, width, height);
-                Gray8[] crop = LinePreprocessor.Prepare(PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount)), width, box, modelHeight, _pixels, out int cropWidth);
+                Gray8[] crop = LinePreprocessor.Prepare(PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount)), width, box, modelHeight, _pixels, _resizers, out int cropWidth);
                 try
                 {
                     visit(index, lines[index], box, PixelSpans.AsBytes(crop.AsSpan(0, cropWidth * modelHeight)), cropWidth);

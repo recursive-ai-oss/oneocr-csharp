@@ -341,10 +341,11 @@ internal static class Program
                 f.Add(clock.Elapsed.TotalMilliseconds);
                 clock.Restart();
                 var padPool = new OneOcr.BufferPool<Gray8>(1L << 28, 1);
+                var resizers = new OneOcr.Layout.ResizerPool();
                 int typical = LinePreprocessor.TypicalHeight(found);
                 foreach (LineBox line in found)
                 {
-                    padPool.Return(LinePreprocessor.Prepare(gray, w, LinePreprocessor.CropBox(line, typical, w, h), 32, padPool, out _));
+                    padPool.Return(LinePreprocessor.Prepare(gray, w, LinePreprocessor.CropBox(line, typical, w, h), 32, padPool, resizers, out _));
                 }
 
                 p.Add(clock.Elapsed.TotalMilliseconds);

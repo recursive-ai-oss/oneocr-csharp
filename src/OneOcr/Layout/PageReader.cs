@@ -15,7 +15,7 @@ internal static class PageReader
     private static readonly double[] CommonResolutions = [72, 96, 150, 200, 300, 400, 600];
 
     public static OcrPage Read(
-        LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, BufferPool<byte> masks, Gray8[] gray, int width, int height,
+        LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, BufferPool<byte> masks, ResizerPool resizers, Gray8[] gray, int width, int height,
         int pageIndex, double? dpi, int degree, bool includeChars, CancellationToken cancellationToken)
     {
         int count = checked(width * height);
@@ -72,7 +72,7 @@ internal static class PageReader
             }
 
             ReadOnlySpan<byte> page = PixelSpans.AsBytes(gray.AsSpan(0, count));
-            Gray8[] cropPixels = LinePreprocessor.Prepare(page, width, crop, modelHeight, pixelPool, out int cropWidth);
+            Gray8[] cropPixels = LinePreprocessor.Prepare(page, width, crop, modelHeight, pixelPool, resizers, out int cropWidth);
             try
             {
                 // Lines are the unit of parallelism, so each is recognized on one thread.
