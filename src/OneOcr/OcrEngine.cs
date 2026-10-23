@@ -1,5 +1,6 @@
 using System.Text;
 using OneImage;
+using OneOcr.Decoding;
 using OneOcr.Kernels;
 using OneOcr.Layout;
 using OneOcr.Model;
@@ -16,12 +17,30 @@ public sealed class OcrEngine
     private readonly LineRecognizer _recognizer;
     private readonly OcrLimits _limits;
     private readonly BufferPool<Gray8> _pixels;
+    private readonly DecodeOptions _decoding;
 
-    private OcrEngine(LineRecognizer recognizer, OcrLimits limits)
+    private OcrEngine(LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixels, DecodeOptions decoding)
     {
         _recognizer = recognizer;
         _limits = limits;
-        _pixels = new BufferPool<Gray8>(limits.MaxPooledBufferBytes, 1);
+        _pixels = pixels;
+        _decoding = decoding;
+    }
+
+    /// <summary>The decoding this engine uses unless a call passes its own. Greedy unless <see cref="WithDecoding"/> changed it.</summary>
+    public DecodeOptions Decoding => _decoding;
+
+    /// <summary>An engine that shares this one's loaded model but decodes with <paramref name="decoding"/> by default.</summary>
+    /// <param name="decoding">The decoding to use when a call does not pass one.</param>
+    /// <returns>The new engine; this one is unchanged.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="decoding"/> is null.</exception>
+    /// <exception cref="ArgumentException">A decoding setting is out of range.</exception>
+    /// <exception cref="OcrLimitException">The beam is wider than <see cref="OcrLimits.MaxBeamWidth"/>.</exception>
+    public OcrEngine WithDecoding(DecodeOptions decoding)
+    {
+        ArgumentNullException.ThrowIfNull(decoding);
+        decoding.Validate(_limits);
+        return new OcrEngine(_recognizer, _limits, _pixels, decoding);
     }
 
     /// <summary>Loads a recognition model from a container file.</summary>
@@ -45,7 +64,9 @@ public sealed class OcrEngine
     internal static OcrEngine Create(ModelContainer container, OcrLimits? limits, KernelPath path)
     {
         limits ??= OcrLimits.Default;
-        return new OcrEngine(new LineRecognizer(CrnnModel.FromContainer(container, limits), limits, path), limits);
+        return new OcrEngine(
+            new LineRecognizer(CrnnModel.FromContainer(container, limits), limits, path), limits,
+            new BufferPool<Gray8>(limits.MaxPooledBufferBytes, 1), DecodeOptions.Greedy);
     }
 
     /// <summary>
@@ -59,9 +80,25 @@ public sealed class OcrEngine
     /// <returns>The text; empty when no text lines were found.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="image"/> is null.</exception>
     /// <exception cref="OcrLimitException">The image, the number of lines or a line's width exceeds the limits.</exception>
-    public string ToText(Image image, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
+    public string ToText(Image image, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
+        ToText(image, _decoding, maxDegreeOfParallelism, cancellationToken);
+
+    /// <summary>
+    /// Like <see cref="ToText(Image, int, CancellationToken)"/> with the given decoding for this call instead of the engine's.
+    /// </summary>
+    /// <param name="image">The page.</param>
+    /// <param name="decoding">How each line's network output becomes text.</param>
+    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores). The text does not depend on it.</param>
+    /// <param name="cancellationToken">Cancels between lines.</param>
+    /// <returns>The text; empty when no text lines were found.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="image"/> or <paramref name="decoding"/> is null.</exception>
+    /// <exception cref="ArgumentException">A decoding setting is out of range.</exception>
+    /// <exception cref="OcrLimitException">The image, the number of lines, a line's width or the beam search exceed the limits.</exception>
+    public string ToText(Image image, DecodeOptions decoding, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(decoding);
+        decoding.Validate(_limits);
         long pixels = (long)image.Width * image.Height;
         if (pixels > _limits.MaxImagePixels)
         {
@@ -74,7 +111,7 @@ public sealed class OcrEngine
         Gray8[] grayPixels = _pixels.Rent(pixels);
         try
         {
-            return ReadPage(image, grayPixels, width, height, degree, cancellationToken);
+            return ReadPage(image, grayPixels, width, height, degree, decoding, cancellationToken);
         }
         finally
         {
@@ -82,7 +119,7 @@ public sealed class OcrEngine
         }
     }
 
-    private string ReadPage(Image image, Gray8[] grayPixels, int width, int height, int degree, CancellationToken cancellationToken)
+    private string ReadPage(Image image, Gray8[] grayPixels, int width, int height, int degree, DecodeOptions decoding, CancellationToken cancellationToken)
     {
         int pixelCount = checked(width * height);
         image.CopyPixelsTo<Gray8>(grayPixels.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
@@ -105,7 +142,7 @@ public sealed class OcrEngine
             try
             {
                 // Lines are the unit of parallelism, so each is recognized on one thread.
-                texts[index] = _recognizer.Recognize(PixelSpans.AsBytes(crop.AsSpan(0, cropWidth * modelHeight)), cropWidth, 1, cancellationToken).Text;
+                texts[index] = _recognizer.Recognize(PixelSpans.AsBytes(crop.AsSpan(0, cropWidth * modelHeight)), cropWidth, decoding, 1, cancellationToken).Text;
             }
             finally
             {

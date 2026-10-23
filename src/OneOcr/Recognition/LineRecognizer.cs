@@ -1,4 +1,5 @@
 using System.Text;
+using OneOcr.Decoding;
 using OneOcr.Kernels;
 using OneOcr.Model;
 
@@ -64,12 +65,27 @@ public sealed class LineRecognizer
     /// <returns>The text and its confidence. A line too narrow for the network (fewer columns than its receptive field) reads as empty.</returns>
     /// <exception cref="ArgumentException">The pixel count is not height times width, or the width is not positive.</exception>
     /// <exception cref="OcrLimitException">The width or the activations it implies exceed the limits.</exception>
-    public RecognizedLine Recognize(ReadOnlySpan<byte> gray, int width, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
+    public RecognizedLine Recognize(ReadOnlySpan<byte> gray, int width, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
+        Recognize(gray, width, null, maxDegreeOfParallelism, cancellationToken);
+
+    /// <summary>Reads one line with the given decoding.</summary>
+    /// <param name="gray">8-bit grayscale pixels, row-major, <see cref="InputHeight"/> rows of <paramref name="width"/> pixels.</param>
+    /// <param name="width">Width in pixels, at most <see cref="OcrLimits.MaxLineWidth"/>.</param>
+    /// <param name="decoding">How to turn the network output into text; null or <see cref="DecodeOptions.Greedy"/> for greedy decoding.</param>
+    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores). The result does not depend on it.</param>
+    /// <param name="cancellationToken">Cancels between layers.</param>
+    /// <returns>The text and its confidence. With beam search the confidence is the per-character geometric mean of the probability of the text summed over alignments.</returns>
+    /// <exception cref="ArgumentException">The pixel count is not height times width, or the width is not positive.</exception>
+    /// <exception cref="ArgumentException">A decoding setting is out of range.</exception>
+    /// <exception cref="OcrLimitException">The width, the activations it implies or the beam search exceed the limits.</exception>
+    public RecognizedLine Recognize(
+        ReadOnlySpan<byte> gray, int width, DecodeOptions? decoding, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
     {
+        decoding?.Validate(_limits);
         float[] logits = Forward(gray, width, maxDegreeOfParallelism, null, cancellationToken, out int steps);
         try
         {
-            return Decode(logits, steps);
+            return decoding is { Mode: CtcDecoding.Beam } ? DecodeBeam(logits, steps, decoding) : Decode(logits, steps);
         }
         finally
         {
@@ -109,6 +125,17 @@ public sealed class LineRecognizer
         {
             _pool.Return(input);
         }
+    }
+
+    internal RecognizedLine DecodeBeam(float[] logits, int steps, DecodeOptions options)
+    {
+        long nodes = BeamDecoder.MaxNodes(options, steps);
+        if (nodes > _limits.MaxBeamNodes)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxBeamNodes), _limits.MaxBeamNodes, nodes);
+        }
+
+        return BeamDecoder.Decode(options, options.Prepare(_model.Charset), logits, steps, _model.Classes, _path, Decode(logits, steps));
     }
 
     internal RecognizedLine Decode(float[] logits, int steps)

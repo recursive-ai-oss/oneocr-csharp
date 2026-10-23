@@ -8,7 +8,7 @@ using OneOcr.Layout;
 
 // Runs the OCR engine over a directory of page images for the scorer in bench/oneocr_bench, and checks line finding.
 //
-//   OneOcr.Bench run   --model FILE --pages DIR --out DIR [--degree N] [--repeat K]
+//   OneOcr.Bench run   --model FILE --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]]
 //       writes <page-id>.txt for every <page-id>.png and timing.json: the one-time model load, per page the image
 //       decode time and the median-of-K recognition time, and the process's peak working set. --degree 0 is the library default.
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
@@ -43,6 +43,7 @@ internal static class Program
             "lines" => Lines(options),
             "randommodel" => RandomModel(options),
             "kernels" => Kernels(options),
+            "decode" => DecodeBench.Run(options),
             _ => 2,
         };
     }
@@ -113,6 +114,16 @@ internal static class Program
 
         var clock = Stopwatch.StartNew();
         OcrEngine engine = OcrEngine.Load(Need(o, "model"));
+        if (o.TryGetValue("beam", out string? beamWidth))
+        {
+            // --beam W [--lm FILE]: beam search of width W, with the character model when one is named.
+            engine = engine.WithDecoding(new OneOcr.Decoding.DecodeOptions
+            {
+                Mode = OneOcr.Decoding.CtcDecoding.Beam,
+                BeamWidth = int.Parse(beamWidth, CultureInfo.InvariantCulture),
+                LanguageModel = o.TryGetValue("lm", out string? lmPath) ? OneOcr.Decoding.CharLanguageModel.Load(lmPath) : null,
+            });
+        }
         double loadMs = clock.Elapsed.TotalMilliseconds;
 
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();

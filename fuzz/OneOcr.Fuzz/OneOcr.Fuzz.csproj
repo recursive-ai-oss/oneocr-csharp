@@ -20,6 +20,7 @@
     <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
     <!-- The test-only container writer builds the seed corpus. -->
     <Compile Include="../../tests/OneOcr.Tests/TestModels.cs" Link="TestModels.cs" />
+    <Compile Include="../../tests/OneOcr.Tests/TestLm.cs" Link="TestLm.cs" />
   </ItemGroup>
 
 </Project>

@@ -68,6 +68,36 @@ public sealed class OcrLimits
     /// </summary>
     public long MaxPooledBufferBytes { get; init; } = 64L * 1024 * 1024;
 
+    /// <summary>Largest character language model file, in bytes, that will be read. Default 16 MiB.</summary>
+    public long MaxLanguageModelFileBytes { get; init; } = 16L * 1024 * 1024;
+
+    /// <summary>Most script models in one language model file. Default 8.</summary>
+    public int MaxLanguageModelScripts { get; init; } = 8;
+
+    /// <summary>Highest n-gram order of a language model. Default 8.</summary>
+    public int MaxLanguageModelOrder { get; init; } = 8;
+
+    /// <summary>Most n-grams, over all orders and scripts, in one language model file. Default 4,000,000.</summary>
+    public long MaxLanguageModelNgrams { get; init; } = 4_000_000;
+
+    /// <summary>Most words in a lexicon. Default 2^20.</summary>
+    public int MaxLexiconWords { get; init; } = 1 << 20;
+
+    /// <summary>Longest lexicon word in UTF-16 code units. Default 64.</summary>
+    public int MaxLexiconWordLength { get; init; } = 64;
+
+    /// <summary>Largest lexicon file, in bytes, that will be read. Default 16 MiB.</summary>
+    public long MaxLexiconFileBytes { get; init; } = 16L * 1024 * 1024;
+
+    /// <summary>Widest beam beam-search decoding accepts. Default 64.</summary>
+    public int MaxBeamWidth { get; init; } = 64;
+
+    /// <summary>
+    /// Most prefixes beam search may create for one line, bounded before the search starts from the line's length and the
+    /// beam width (about 60 bytes each). Default 2^22.
+    /// </summary>
+    public long MaxBeamNodes { get; init; } = 1L << 22;
+
     /// <summary>Most text lines recognized on one page. Default 4096.</summary>
     public int MaxLinesPerPage { get; init; } = 4096;
 }

@@ -12,6 +12,7 @@
     <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
     <!-- The test-only container writer builds the model the smoke runs. -->
     <Compile Include="../OneOcr.Tests/TestModels.cs" Link="TestModels.cs" />
+    <Compile Include="../OneOcr.Tests/TestLm.cs" Link="TestLm.cs" />
   </ItemGroup>
 
 </Project>
