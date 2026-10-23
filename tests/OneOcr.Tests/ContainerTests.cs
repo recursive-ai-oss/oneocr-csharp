@@ -100,7 +100,7 @@ public class ContainerTests
         AssertRejected(bad);
 
         bad = (byte[])Valid.Clone();
-        bad[8] = 1;
+        bad[8] = 2;
         AssertRejected(bad);
 
         bad = (byte[])Valid.Clone();

@@ -8,9 +8,11 @@ using OneOcr.Layout;
 
 // Runs the OCR engine over a directory of page images for the scorer in bench/oneocr_bench, and checks line finding.
 //
-//   OneOcr.Bench run   --model FILE --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]]
+//   OneOcr.Bench run   --model FILE --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]] [--words 1]
 //       writes <page-id>.txt for every <page-id>.png and timing.json: the one-time model load, per page the image
 //       decode time and the median-of-K recognition time, and the process's peak working set. --degree 0 is the library default.
+//       --words 1 also writes <page-id>.json, the scorer's word sidecar {"words":[{"box":[x0,y0,x1,y1],"text":..,"conf":..,"conf_raw":..}]}
+//       from OcrEngine.Recognize (greedy, calibrated and raw word confidence). It runs after the timed loop, so timings are unaffected.
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
 //       compares found text lines with lines derived from the truth word boxes (precision and recall at IoU >= 0.5) and times
 //       grayscale conversion, line finding and line preprocessing per page.
@@ -126,6 +128,7 @@ internal static class Program
         }
         double loadMs = clock.Elapsed.TotalMilliseconds;
 
+        bool writeWords = Int(o, "words", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
         foreach (string path in Directory.GetFiles(pages, "*.png").Order(StringComparer.Ordinal))
         {
@@ -145,6 +148,11 @@ internal static class Program
             }
 
             File.WriteAllText(Path.Combine(outDir, id + ".txt"), text, new UTF8Encoding(false));
+            if (writeWords)
+            {
+                WriteWordSidecar(Path.Combine(outDir, id + ".json"), engine.Recognize(image, degree));
+            }
+
             results.Add((id, decodeMs, Median(times), text.Length));
             Console.WriteLine($"{id}: {Median(times):F0} ms, {text.Length} chars");
         }
@@ -176,6 +184,33 @@ internal static class Program
 
         Console.WriteLine($"model load {loadMs:F0} ms, mean page {results.Average(r => r.OcrMs):F0} ms, peak RSS {Process.GetCurrentProcess().PeakWorkingSet64 / 1048576.0:F0} MB");
         return 0;
+    }
+
+    private static void WriteWordSidecar(string path, OcrRecognition result)
+    {
+        using var stream = File.Create(path);
+        using var w = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = false });
+        w.WriteStartObject();
+        w.WriteStartArray("words");
+        foreach (OcrWord word in result.Lines.SelectMany(l => l.Words))
+        {
+            w.WriteStartObject();
+            w.WriteStartArray("box");
+            foreach (float v in new[] { word.Left, word.Top, word.Right, word.Bottom })
+            {
+                w.WriteNumberValue(Math.Round(v, 2));
+            }
+
+            w.WriteEndArray();
+            w.WriteString("text", word.Text);
+            // Round-trip precision: the scorer's calibration table is built from these.
+            w.WriteNumber("conf", word.Confidence);
+            w.WriteNumber("conf_raw", word.RawConfidence);
+            w.WriteEndObject();
+        }
+
+        w.WriteEndArray();
+        w.WriteEndObject();
     }
 
     private readonly record struct Box(double X0, double Y0, double X1, double Y1)

@@ -99,68 +99,13 @@ public sealed class OcrEngine
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(decoding);
         decoding.Validate(_limits);
-        long pixels = (long)image.Width * image.Height;
-        if (pixels > _limits.MaxImagePixels)
-        {
-            throw new OcrLimitException(nameof(OcrLimits.MaxImagePixels), _limits.MaxImagePixels, pixels);
-        }
-
-        int degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Math.Min(4, Environment.ProcessorCount);
-        int width = image.Width, height = image.Height;
-        // One pooled copy of the page as 8-bit gray; lines are cut from it, so no line triggers a second decode.
-        Gray8[] grayPixels = _pixels.Rent(pixels);
-        try
-        {
-            return ReadPage(image, grayPixels, width, height, degree, decoding, cancellationToken);
-        }
-        finally
-        {
-            _pixels.Return(grayPixels);
-        }
-    }
-
-    private string ReadPage(Image image, Gray8[] grayPixels, int width, int height, int degree, DecodeOptions decoding, CancellationToken cancellationToken)
-    {
-        int pixelCount = checked(width * height);
-        image.CopyPixelsTo<Gray8>(grayPixels.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
-        ReadOnlySpan<byte> gray0 = PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount));
-        List<LineBox> lines = LineFinder.Find(gray0, width, height, _limits.MaxLinesPerPage);
-        if (lines.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        int typical = LinePreprocessor.TypicalHeight(lines);
-        int modelHeight = _recognizer.InputHeight;
-        var texts = new string[lines.Count];
-
-        void Read(int index)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            LineBox box = LinePreprocessor.CropBox(lines[index], typical, width, height);
-            Gray8[] crop = LinePreprocessor.Prepare(PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount)), width, box, modelHeight, _pixels, out int cropWidth);
-            try
-            {
+        string[] texts = [];
+        ForEachLine(
+            image, maxDegreeOfParallelism, count => texts = new string[count],
+            (index, _, _, pixels, cropWidth) =>
                 // Lines are the unit of parallelism, so each is recognized on one thread.
-                texts[index] = _recognizer.Recognize(PixelSpans.AsBytes(crop.AsSpan(0, cropWidth * modelHeight)), cropWidth, decoding, 1, cancellationToken).Text;
-            }
-            finally
-            {
-                _pixels.Return(crop);
-            }
-        }
-
-        if (degree > 1 && lines.Count > 1)
-        {
-            Parallel.For(0, lines.Count, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = cancellationToken }, Read);
-        }
-        else
-        {
-            for (int i = 0; i < lines.Count; i++)
-            {
-                Read(i);
-            }
-        }
+                texts[index] = _recognizer.Recognize(pixels, cropWidth, decoding, 1, cancellationToken).Text,
+            cancellationToken);
 
         var result = new StringBuilder();
         foreach (string text in texts)
@@ -179,5 +124,111 @@ public sealed class OcrEngine
         }
 
         return result.ToString();
+    }
+
+    /// <summary>
+    /// Reads a clean, upright, single-column page like <see cref="ToText(Image, int, CancellationToken)"/>, but returns the lines
+    /// with their words, approximate boxes and confidences. Words are always read with greedy decoding, whatever
+    /// <see cref="Decoding"/> says, because beam search does not keep the per-character alignment the boxes come from;
+    /// the text equals <c>ToText</c> with greedy decoding.
+    /// </summary>
+    /// <param name="image">The page.</param>
+    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores). The result does not depend on it.</param>
+    /// <param name="cancellationToken">Cancels between lines.</param>
+    /// <returns>The lines; <see cref="OcrRecognition.Lines"/> is empty when no text lines were found.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="image"/> is null.</exception>
+    /// <exception cref="OcrLimitException">The image, the number of lines or a line's width exceeds the limits.</exception>
+    public OcrRecognition Recognize(Image image, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        OcrLine[] lines = [];
+        ForEachLine(
+            image, maxDegreeOfParallelism, count => lines = new OcrLine[count],
+            (index, ink, crop, pixels, cropWidth) =>
+            {
+                LineWords found = _recognizer.RecognizeWords(pixels, cropWidth, 1, cancellationToken);
+                var words = new OcrWord[found.Words.Count];
+                double chars = 0, weighted = 0;
+                for (int i = 0; i < words.Length; i++)
+                {
+                    RecognizedWord w = found.Words[i];
+                    // The crop was scaled from crop.Width pixels to cropWidth; map back with the same ratio.
+                    double scale = (double)crop.Width / cropWidth;
+                    float left = (float)Math.Clamp(crop.X + (w.X0 * scale), crop.X, crop.Right);
+                    float right = (float)Math.Clamp(crop.X + (w.X1 * scale), crop.X, crop.Right);
+                    words[i] = new OcrWord(w.Text, left, ink.Y, right, ink.Bottom, w.Confidence, w.RawConfidence);
+                    chars += w.Characters;
+                    weighted += w.Confidence * (double)w.Characters;
+                }
+
+                lines[index] = new OcrLine(found.Text, words, ink.X, ink.Y, ink.Right, ink.Bottom, chars == 0 ? 0f : (float)(weighted / chars));
+            },
+            cancellationToken);
+
+        return new OcrRecognition(lines, _recognizer.HasCalibration ? [] : [ModelContainer.NoCalibrationNote]);
+    }
+
+    private delegate void LineVisitor(int index, LineBox ink, LineBox crop, ReadOnlySpan<byte> pixels, int cropWidth);
+
+    // Finds the page's lines and calls visit once per line, in parallel at the given degree, with the line's ink box, its crop box
+    // in page pixels and the crop scaled to the model's input height.
+    private void ForEachLine(Image image, int maxDegreeOfParallelism, Action<int> start, LineVisitor visit, CancellationToken cancellationToken)
+    {
+        long pixels = (long)image.Width * image.Height;
+        if (pixels > _limits.MaxImagePixels)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxImagePixels), _limits.MaxImagePixels, pixels);
+        }
+
+        int degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Math.Min(4, Environment.ProcessorCount);
+        int width = image.Width, height = image.Height;
+        // One pooled copy of the page as 8-bit gray; lines are cut from it, so no line triggers a second decode.
+        Gray8[] grayPixels = _pixels.Rent(pixels);
+        try
+        {
+            int pixelCount = checked(width * height);
+            image.CopyPixelsTo<Gray8>(grayPixels.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            ReadOnlySpan<byte> gray0 = PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount));
+            List<LineBox> lines = LineFinder.Find(gray0, width, height, _limits.MaxLinesPerPage);
+            start(lines.Count);
+            if (lines.Count == 0)
+            {
+                return;
+            }
+
+            int typical = LinePreprocessor.TypicalHeight(lines);
+            int modelHeight = _recognizer.InputHeight;
+
+            void Read(int index)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                LineBox box = LinePreprocessor.CropBox(lines[index], typical, width, height);
+                Gray8[] crop = LinePreprocessor.Prepare(PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount)), width, box, modelHeight, _pixels, out int cropWidth);
+                try
+                {
+                    visit(index, lines[index], box, PixelSpans.AsBytes(crop.AsSpan(0, cropWidth * modelHeight)), cropWidth);
+                }
+                finally
+                {
+                    _pixels.Return(crop);
+                }
+            }
+
+            if (degree > 1 && lines.Count > 1)
+            {
+                Parallel.For(0, lines.Count, new ParallelOptions { MaxDegreeOfParallelism = degree, CancellationToken = cancellationToken }, Read);
+            }
+            else
+            {
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    Read(i);
+                }
+            }
+        }
+        finally
+        {
+            _pixels.Return(grayPixels);
+        }
     }
 }

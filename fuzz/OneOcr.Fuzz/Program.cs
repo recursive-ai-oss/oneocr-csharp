@@ -161,5 +161,18 @@ internal static class Program
         {
             File.WriteAllBytes(Path.Combine(dir, $"{name}.seed"), TestModels.RandomContainer(shape, 1));
         }
+
+        // Version 1: with calibration curves, with one curve and one-knot curves, and with a charset that has space entries.
+        var tinyShape = variants[0].Shape;
+        File.WriteAllBytes(Path.Combine(dir, "v1-all-scripts.seed"), TestModels.RandomContainerV1(tinyShape, 1,
+            "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,0.5,1],\"y\":[0,0.25,1]},\"Greek\":{\"x\":[0.2,0.8],\"y\":[0.1,0.9]},\"Cyrillic\":{\"x\":[0.5],\"y\":[0.5]}}}"));
+        File.WriteAllBytes(Path.Combine(dir, "v1-empty.seed"), TestModels.RandomContainerV1(variants[1].Shape, 2,
+            "{\"raw\":\"word-mean-max-run\",\"scripts\":{}}"));
+        string[] spaced = TestModels.Charset(tinyShape.Classes);
+        spaced[1] = " ";
+        spaced[2] = "a";
+        File.WriteAllBytes(Path.Combine(dir, "v1-spaces.seed"), TestContainerWriter.Write(
+            "crnn-v0", tinyShape.Height, spaced, TestModels.ConfigJson(tinyShape), TestModels.RandomTensors(tinyShape, 3),
+            calibrationJson: "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,1],\"y\":[0.1,0.9]}}}"));
     }
 }

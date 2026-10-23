@@ -1,6 +1,6 @@
 # Model container, version 0
 
-Status: **provisional**. Version 0 exists to prove the pipeline end to end: one recognizer, written by the PyTorch exporter in `training/` and read by the C# loader. It will be replaced by version 1 before the first release; files of version 0 are not promised to load after that.
+Status: **superseded for new files** by [version 1](model-container-v1.md), which adds calibration. Readers still load version 0 files; they carry no calibration.
 
 The container is a cross-language contract: one weights file serves every implementation. Everything below is little-endian.
 

@@ -100,4 +100,7 @@ public sealed class OcrLimits
 
     /// <summary>Most text lines recognized on one page. Default 4096.</summary>
     public int MaxLinesPerPage { get; init; } = 4096;
+
+    /// <summary>Most knots in one script's calibration curve in a model container. Default 64.</summary>
+    public int MaxCalibrationKnots { get; init; } = 64;
 }

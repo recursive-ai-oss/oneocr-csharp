@@ -23,7 +23,7 @@ internal static class TestContainerWriter
 {
     public static byte[] Write(
         string architecture, int height, string[] charset, string configJson, IReadOnlyList<TestTensor> tensors,
-        float mean = 0.5f, float std = 0.5f, bool invert = false)
+        float mean = 0.5f, float std = 0.5f, bool invert = false, string? calibrationJson = null)
     {
         // Place tensors.
         var offsets = new long[tensors.Count];
@@ -82,6 +82,13 @@ internal static class TestContainerWriter
             }
 
             w.WriteEndArray();
+            if (calibrationJson is not null)
+            {
+                w.WritePropertyName("calibration");
+                using JsonDocument cal = JsonDocument.Parse(calibrationJson);
+                cal.RootElement.WriteTo(w);
+            }
+
             w.WriteStartObject("provenance");
             w.WriteString("note", "test");
             w.WriteEndObject();
@@ -89,15 +96,16 @@ internal static class TestContainerWriter
         }
 
         byte[] json = manifest.ToArray();
-        return Assemble(json, tensors, offsets, cursor);
+        // Version 1 is the format that carries calibration; a test that passes calibration JSON gets a version 1 file.
+        return Assemble(json, tensors, offsets, cursor, calibrationJson is null ? 0u : 1u);
     }
 
-    public static byte[] Assemble(byte[] manifestJson, IReadOnlyList<TestTensor> tensors, long[] offsets, long dataLength)
+    public static byte[] Assemble(byte[] manifestJson, IReadOnlyList<TestTensor> tensors, long[] offsets, long dataLength, uint version = 0)
     {
         long dataStart = (16 + manifestJson.Length + 63) / 64 * 64;
         var file = new byte[dataStart + dataLength];
         "ONEOCRM"u8.CopyTo(file);
-        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(8), 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(8), version);
         BinaryPrimitives.WriteUInt32LittleEndian(file.AsSpan(12), (uint)manifestJson.Length);
         manifestJson.CopyTo(file, 16);
         for (int i = 0; i < tensors.Count; i++)
@@ -210,6 +218,10 @@ internal static class TestModels
 
     public static byte[] RandomContainer(Shape s, int seed) =>
         TestContainerWriter.Write("crnn-v0", s.Height, Charset(s.Classes), ConfigJson(s), RandomTensors(s, seed));
+
+    /// <summary>A version 1 container with the given calibration member (JSON text).</summary>
+    public static byte[] RandomContainerV1(Shape s, int seed, string calibrationJson) =>
+        TestContainerWriter.Write("crnn-v0", s.Height, Charset(s.Classes), ConfigJson(s), RandomTensors(s, seed), calibrationJson: calibrationJson);
 
     /// <summary>A random 8-bit line image with some structure (smooth gradients plus noise), so activations are not degenerate.</summary>
     public static byte[] RandomImage(int height, int width, int seed)
