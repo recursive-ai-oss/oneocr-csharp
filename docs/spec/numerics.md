@@ -20,6 +20,14 @@ A bias, when present, is added to the finished sum. Vector paths keep the 16 par
 - **Classifier** logits = dot product + bias, per step.
 - **Softmax denominator** (for confidence) = sum over classes of `exp(z - max)` accumulated into 16 partials by class index mod 16 with plain additions, combined with the tree above; the winning probability is `1 / sum`.
 
+## Evaluation grouping that leaves every sum alone
+
+These rearrangements change what is computed together or which terms are visited, never the value of any output. A port may use them or not.
+
+- **Taps on the zero border.** A tap whose input value is an exact zero (a kernel row that falls on the zero border above or below the image rows) adds nothing: `fma(0, w, s) = s` for finite `w`, and a partial sum that starts at +0 is never -0, so the +0 or -0 product leaves it unchanged. Such taps may be left out of the dot product while every other tap keeps its lane `k mod 16` and its place in the order. This holds only when every weight of the layer is finite (a zero times an infinity or NaN is NaN); a layer with a non-finite weight visits all taps. Zeros that come from the data are not skipped.
+- **Batched recurrence.** The recurrent product `dot(W_hh row, h_prev)` of several lines at the same step may be one matrix product (rows of `h_prev` against the rows of `W_hh`); each output is the same dot product, then `+ proj[t]` as one fp32 addition. A line's step never reads another line's values, so which lines share a product, and in what order, does not matter. The input projections of a run of steps may likewise be computed ahead as one product.
+- **Three-by-three single-channel convolution** with 9 taps keeps the 16 partials in registers; lanes 9 to 15 are +0, and a partial `fma(w, x, +0)` is never -0, so adding one of those lanes in the tree returns the other operand unchanged: only lane 0 + lane 8 is a real addition, and the remaining additions are the tree's, in its order.
+
 ## Transcendental functions
 
 No platform math library is used. With `Limit = 80`:

@@ -244,6 +244,62 @@ public class KernelTests
     }
 
     [Fact]
+    public void DirectConvolutionMayLeaveOutKernelRowsOfZeros()
+    {
+        // Rows of the zero border add nothing to a finite sum, so a result computed without them is the same to the last bit.
+        var rng = new Random(9);
+        foreach (int c in new[] { 16, 32 })
+        {
+            foreach (int oc in new[] { 1, 5, 16, 33 })
+            {
+                foreach (int n in new[] { 1, 3, 4, 7, 40 })
+                {
+                    const int kh = 3, kw = 3, wp = 64;
+                    int k = kh * kw * c;
+                    float[] weights = Random(rng, oc * k, 0.3);
+                    float[] bias = Random(rng, oc);
+                    foreach (var (zeroTop, zeroBottom) in new[] { (true, false), (false, true), (true, true) })
+                    {
+                        float[] input = Random(rng, 6 * wp * c);
+                        // Output row 2 reads padded rows 2..4; zero the first and/or the last of them.
+                        if (zeroTop)
+                        {
+                            Array.Clear(input, 2 * wp * c, wp * c);
+                        }
+
+                        if (zeroBottom)
+                        {
+                            Array.Clear(input, 4 * wp * c, wp * c);
+                        }
+
+                        int start = zeroTop ? 1 : 0, rows = kh - start - (zeroBottom ? 1 : 0);
+                        foreach (KernelPath path in Vectors.Where(p => p is KernelPath.Avx2 or KernelPath.Avx512))
+                        {
+                            var full = new float[n * oc];
+                            var skipped = new float[n * oc];
+                            Gemm.ConvDirect(path, input, wp, c, kh, kw, 2, 3, n, weights, oc, bias, full);
+                            Gemm.ConvDirect(path, input, wp, c, kh, kw, 2, 3, n, weights, oc, bias, skipped, start, rows);
+                            AssertBitEqual(full, skipped, $"{path} c={c} oc={oc} n={n} rows {start}+{rows}");
+                        }
+                    }
+                }
+            }
+
+            // No kernel row at all leaves the bias.
+            if (Vectors.Any(p => p is KernelPath.Avx2 or KernelPath.Avx512))
+            {
+                KernelPath path = Vectors.First(p => p is KernelPath.Avx2 or KernelPath.Avx512);
+                float[] weights = Random(rng, 4 * 3 * 3 * c, 0.3);
+                float[] bias = Random(rng, 4);
+                var none = new float[4];
+                Gemm.ConvDirect(path, new float[6 * 64 * c], 64, c, 3, 3, 2, 3, 1, weights, 4, bias, none, 3, 0);
+                AssertBitEqual(bias, none, "no rows");
+                Assert.Throws<ArgumentOutOfRangeException>(() => Gemm.ConvDirect(path, new float[6 * 64 * c], 64, c, 3, 3, 2, 3, 1, weights, 4, bias, none, 2, 2));
+            }
+        }
+    }
+
+    [Fact]
     public void SingleChannelConvolutionMatchesDotsOverCopiedWindows()
     {
         if (!Dispatch.Avx2Available)

@@ -55,6 +55,7 @@ internal static class Program
             "randommodel" => RandomModel(options),
             "kernels" => Kernels(options),
             "decode" => DecodeBench.Run(options),
+            "group" => GroupBench.Run(options),
             "trainstep" => TrainBench.Run(options),
             "detect" => DetectBench.Run(options),
             "docextract" => DocExtractBench.Run(options),

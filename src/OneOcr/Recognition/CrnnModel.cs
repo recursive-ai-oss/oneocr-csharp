@@ -34,6 +34,12 @@ internal sealed class ConvBlock
     public bool RowsAreBlocks => (KernelW * In) % 16 == 0;
 
     public required float[] Bias { get; init; }
+
+    /// <summary>
+    /// Whether every weight is finite. Only then is a product with an exact zero known to add nothing, which lets the convolution
+    /// leave out the taps that fall on the zero border (a zero times an infinity or NaN would be NaN).
+    /// </summary>
+    public required bool FiniteWeights { get; init; }
 }
 
 internal sealed class LstmDirection
@@ -202,6 +208,7 @@ internal sealed class CrnnModel
             {
                 In = channels, Out = d.Out, KernelH = kh, KernelW = kw, PadH = ph, PadW = pw, PoolH = poolH, PoolW = poolW,
                 K = k, KPadded = kPadded, Weights = padded, WeightsT = transposed, Bias = ReadChecked(container, $"conv.{i}.bias", d.Out),
+                FiniteWeights = AllFinite(padded),
             };
             channels = d.Out;
         }
@@ -254,6 +261,19 @@ internal sealed class CrnnModel
             WeightHh = ReadChecked(c, $"lstm.weight_hh_l{layer}{suffix}", 4 * hidden, hidden),
             Bias = bias,
         };
+    }
+
+    private static bool AllFinite(float[] values)
+    {
+        foreach (float v in values)
+        {
+            if (!float.IsFinite(v))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static int CheckKernel(int value, int block, OcrLimits limits)
