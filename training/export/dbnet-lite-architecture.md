@@ -157,7 +157,7 @@ Both text expansions were reported on the benchmark pages, which were not used t
 
 ## Parity fixture layers
 
-`input` [1,H,W]; `stem`, `stage0` .. `stage3`, `p8`, `p4`, `layout_feat`, `layout`, `text4`, `text2`, `prob` ([C,H',W']); `orient`
+`input` [1,H,W]; `stem`, `stage0` .. `stage3`, `p16`, `p8`, `p4`, (v1: `layout16`, `layout_mix`) `layout_feat`, `layout`, `text4`, `text2`, `prob` ([C,H',W']); `orient`
 ([4]). Five tiles plus one "wide" tile with the head outputs only; see `parity/dbnet_fixtures.py`. Each file under 1 MB.
 
 ## Container v1 additions proposed

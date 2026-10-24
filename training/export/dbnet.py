@@ -105,6 +105,7 @@ class FoldedReference:
             feats.append(h)
         l4, l8, l16, l32 = (self.conv(f"lat{i}", f, relu=False) for i, f in enumerate(feats))
         p16 = l16 + up2(l32)
+        o["p16"] = p16
         o["p8"] = p8 = self.block("smooth8", l8 + up2(p16))
         o["p4"] = p4 = self.block("smooth4", l4 + up2(p8))
         c = {"layout16_blocks": 0, "orient16": False, **c}
@@ -112,7 +113,9 @@ class FoldedReference:
             g = p16
             for j in range(c["layout16_blocks"]):
                 g = self.block(f"layout16.{j}", g)
-            h = self.block("layout.0", p8) + up2(self.conv("layout_mix", g, relu=False))
+            o["layout16"] = g
+            o["layout_mix"] = mix = self.conv("layout_mix", g, relu=False)
+            h = self.block("layout.0", p8) + up2(mix)
             for j in range(1, c["layout_blocks"]):
                 h = self.block(f"layout.{j}", h)
         else:
