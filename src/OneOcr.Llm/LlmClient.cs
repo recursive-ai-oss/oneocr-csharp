@@ -14,7 +14,7 @@ namespace OneOcr.Llm;
 /// the image plus the compact word list (id, text, box) and returns the model's structured answer as JSON. Thread-safe.
 /// Everything that can reach the network is asynchronous; nothing in the local OCR methods ever calls this class.
 /// </summary>
-public sealed class LlmClient : IDisposable
+public sealed partial class LlmClient : IDisposable
 {
     private readonly LlmProvider _provider;
     private readonly LlmOptions _options;
@@ -101,9 +101,15 @@ public sealed class LlmClient : IDisposable
     public async Task<LlmExtraction> ExtractAsync(
         IReadOnlyList<LlmPageInput> pages, string instruction, string jsonSchema, string schemaName = "extraction", CancellationToken cancellationToken = default)
     {
+        return await ExtractCoreAsync(pages, instruction, jsonSchema, schemaName, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    internal async Task<LlmExtraction> ExtractCoreAsync(
+        IReadOnlyList<LlmPageInput> pages, string instruction, string jsonSchema, string schemaName, IReadOnlyList<string>? corrections, CancellationToken cancellationToken)
+    {
         ThrowIfOffline();
         cancellationToken.ThrowIfCancellationRequested();
-        Prepared prepared = Prepare(pages, instruction, jsonSchema, schemaName, cancellationToken);
+        Prepared prepared = Prepare(pages, instruction, jsonSchema, schemaName, cancellationToken, corrections);
         return await SendAsync(prepared, cancellationToken).ConfigureAwait(false);
     }
 
@@ -159,7 +165,7 @@ public sealed class LlmClient : IDisposable
     private sealed record Prepared(
         LlmCall Call, IReadOnlyList<LlmWordRef> Words, int Masked, LlmEstimate Estimate, LlmModelPrice? Price, string CacheKey, List<string> Warnings);
 
-    private Prepared Prepare(IReadOnlyList<LlmPageInput> pages, string instruction, string jsonSchema, string schemaName, CancellationToken ct)
+    private Prepared Prepare(IReadOnlyList<LlmPageInput> pages, string instruction, string jsonSchema, string schemaName, CancellationToken ct, IReadOnlyList<string>? corrections = null)
     {
         ArgumentNullException.ThrowIfNull(pages);
         ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
@@ -207,7 +213,7 @@ public sealed class LlmClient : IDisposable
             images.Add(image);
         }
 
-        (string userText, IReadOnlyList<LlmWordRef> words, int masked) = Prompt.Build(instruction, pages, masks, limits);
+        (string userText, IReadOnlyList<LlmWordRef> words, int masked) = Prompt.Build(instruction, pages, masks, limits, corrections);
         requestBytes += Encoding.UTF8.GetByteCount(userText);
         if (requestBytes > limits.MaxLlmRequestBytes)
         {

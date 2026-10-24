@@ -23,6 +23,9 @@ public enum LlmFailure
 
     /// <summary>The provider's content filter blocked the request or the answer.</summary>
     Blocked = 6,
+
+    /// <summary>Values stayed ungrounded after the re-ask and the read asked for <see cref="Llm.UngroundedPolicy.Throw"/>.</summary>
+    Ungrounded = 7,
 }
 
 /// <summary>A language-model provider failed, was unreachable, or answered with something unusable. Never thrown by local methods.</summary>
