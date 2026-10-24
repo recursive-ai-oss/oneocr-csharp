@@ -87,11 +87,12 @@ The page detector: text lines, layout regions and page orientation from one page
   "arch": "dbnet-lite", "stem": 16, "widths": [32, 72, 144, 224], "depths": [2, 3, 4, 3], "fpn": 56,
   "text": 32, "layout": 112, "layout_blocks": 3, "classes": 8,
   "layout_classes": ["text", "title", "list", "table", "figure", "header_footer", "form_field", "checkbox"],
-  "layout_trained": ["text", "title", "list", "table", "figure", "header_footer"]
+  "layout_trained": ["text", "title", "list", "table", "figure", "header_footer"],
+  "postprocess": {"text_threshold": 0.3, "text_expand": 1.0, "layout_threshold": 0.6, "layout_expand": 0.85}
 }
 ```
 
-  `arch` must be `dbnet-lite`; `widths` and `depths` have four entries each; every width is at least 1 and within the reader's layer-width limit, every depth at least 1; `classes` equals the number of `layout_classes`, whose names are non-empty and unique. **`layout_trained`** is optional: the names of the layout classes the model was trained on. A reader never reports a class that is not listed. When the member is absent, every class except `form_field` and `checkbox` counts as trained (those two had no training labels in the first model). A name that is not in `layout_classes` is an error.
+  `arch` must be `dbnet-lite`; `widths` and `depths` have four entries each; every width is at least 1 and within the reader's layer-width limit, every depth at least 1; `classes` equals the number of `layout_classes`, whose names are non-empty and unique. **`layout_trained`** is optional: the names of the layout classes the model was trained on. A reader never reports a class that is not listed. When the member is absent, every class except `form_field` and `checkbox` counts as trained (those two had no training labels in the first model). A name that is not in `layout_classes` is an error. **`postprocess`** is optional, and so is each of its members: `text_threshold` and `layout_threshold` are probabilities strictly between 0 and 1, compared as float32 logits; `text_expand` and `layout_expand` are factors in (0, 4] on the growth of a text line or layout core ([detector-v0.md](detector-v0.md), "Post-processing"). Absent members take 0.3, 1.0, 0.6 and 0.85. A value out of range is an error.
 - Tensors (all `f16`, PyTorch layout, batch normalization folded in; names in [detector-v0.md](detector-v0.md)): `stem`, `stage<i>.<j>.dw`/`.pw`, `lat<i>`, `smooth8.dw`/`.pw`, `smooth4.dw`/`.pw`, `layout.<j>.dw`/`.pw`, `layout_out`, `text4.dw`/`.pw`, `stem_proj`, `text2.dw`/`.pw`, `prob_out` (each with `.weight` and `.bias`), and `orient.weight` `[4, widths[3]]`, `orient.bias` `[4]`. A depthwise weight is `[c, 1, 3, 3]`, a 1x1 weight `[out, in, 1, 1]`. Shapes are checked against `config`.
 
 ## Calibration (version 1)

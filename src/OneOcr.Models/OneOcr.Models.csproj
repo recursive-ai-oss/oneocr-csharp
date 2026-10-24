@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Model weights for RecursiveAI.OneOcr. The recognizer is embedded when the package is built with OneOcrModelFile pointing at the pinned file (see models.json).</Description>
+    <Description>Model weights for RecursiveAI.OneOcr. The recognizer and the page detector are embedded when the package is built with OneOcrModelFile and OneOcrDetectorFile pointing at the pinned files (see models.json).</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -9,27 +9,47 @@
   </ItemGroup>
 
   <!--
-    Pack step: dotnet pack src/OneOcr.Models -p:OneOcrModelFile=/path/to/model.onm
-    The file must hash to the SHA-256 pinned in models.json; the build stops otherwise. Without the property the package builds
-    without weights (development builds), and BundledModels reports that none are present. Weights are never checked in.
+    Pack step: dotnet pack src/OneOcr.Models -p:OneOcrModelFile=/path/to/recognizer.onm -p:OneOcrDetectorFile=/path/to/detector.onm
+    Each file must hash to the SHA-256 pinned for its role in models.json; the build stops otherwise. Without a property the package
+    builds without that model (development builds), and BundledModels reports that it is absent. Weights are never checked in.
   -->
   <Target Name="EmbedRecognizer" BeforeTargets="AssignTargetPaths" Condition="'$(OneOcrModelFile)' != ''">
     <PropertyGroup>
       <_ManifestText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/models.json'))</_ManifestText>
-      <_PinnedSha>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', '"sha256"\s*:\s*"([0-9a-f]{64})"').Groups[1].Value)</_PinnedSha>
-      <_PinnedAsset>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', '"asset"\s*:\s*"([^"]+)"').Groups[1].Value)</_PinnedAsset>
+      <_PinnedSha>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', '"role"\s*:\s*"recognizer"[^}]*?"sha256"\s*:\s*"([0-9a-f]{64})"').Groups[1].Value)</_PinnedSha>
+      <_PinnedAsset>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', '"role"\s*:\s*"recognizer"[^}]*?"asset"\s*:\s*"([^"]+)"').Groups[1].Value)</_PinnedAsset>
     </PropertyGroup>
     <Error Condition="!Exists('$(OneOcrModelFile)')" Text="OneOcrModelFile '$(OneOcrModelFile)' does not exist." />
-    <Error Condition="'$(_PinnedSha)' == '' Or '$(_PinnedAsset)' == ''" Text="models.json has no pinned model." />
+    <Error Condition="'$(_PinnedSha)' == '' Or '$(_PinnedAsset)' == ''" Text="models.json has no pinned recognizer." />
     <GetFileHash Files="$(OneOcrModelFile)" Algorithm="SHA256" HashEncoding="hex">
       <Output TaskParameter="Items" ItemName="_ModelHash" />
     </GetFileHash>
     <PropertyGroup>
       <_ActualSha>%(_ModelHash.FileHash)</_ActualSha>
     </PropertyGroup>
-    <Error Condition="'$(_ActualSha.ToLowerInvariant())' != '$(_PinnedSha)'" Text="OneOcrModelFile hashes to $(_ActualSha), but models.json pins $(_PinnedSha). Nothing was packed." />
+    <Error Condition="'$(_ActualSha.ToLowerInvariant())' != '$(_PinnedSha)'" Text="OneOcrModelFile hashes to $(_ActualSha), but models.json pins $(_PinnedSha) for the recognizer. Nothing was packed." />
     <ItemGroup>
       <EmbeddedResource Include="$(OneOcrModelFile)" LogicalName="$(_PinnedAsset)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="EmbedDetector" BeforeTargets="AssignTargetPaths" Condition="'$(OneOcrDetectorFile)' != ''">
+    <PropertyGroup>
+      <_ManifestTextD>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/models.json'))</_ManifestTextD>
+      <_PinnedShaD>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestTextD)', '"role"\s*:\s*"detector"[^}]*?"sha256"\s*:\s*"([0-9a-f]{64})"').Groups[1].Value)</_PinnedShaD>
+      <_PinnedAssetD>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestTextD)', '"role"\s*:\s*"detector"[^}]*?"asset"\s*:\s*"([^"]+)"').Groups[1].Value)</_PinnedAssetD>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(OneOcrDetectorFile)')" Text="OneOcrDetectorFile '$(OneOcrDetectorFile)' does not exist." />
+    <Error Condition="'$(_PinnedShaD)' == '' Or '$(_PinnedAssetD)' == ''" Text="models.json has no pinned detector." />
+    <GetFileHash Files="$(OneOcrDetectorFile)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="_DetectorHash" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_ActualShaD>%(_DetectorHash.FileHash)</_ActualShaD>
+    </PropertyGroup>
+    <Error Condition="'$(_ActualShaD.ToLowerInvariant())' != '$(_PinnedShaD)'" Text="OneOcrDetectorFile hashes to $(_ActualShaD), but models.json pins $(_PinnedShaD) for the detector. Nothing was packed." />
+    <ItemGroup>
+      <EmbeddedResource Include="$(OneOcrDetectorFile)" LogicalName="$(_PinnedAssetD)" />
     </ItemGroup>
   </Target>
 

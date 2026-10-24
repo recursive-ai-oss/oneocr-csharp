@@ -81,9 +81,28 @@ internal sealed class DbNetConfigDto
     /// <summary>Names of the layout classes the model was trained on; absent means every class except form_field and checkbox.</summary>
     [JsonPropertyName("layout_trained")]
     public List<string>? LayoutTrained { get; init; }
+
+    /// <summary>Post-processing thresholds and expansions; absent members keep the defaults.</summary>
+    public PostprocessDto? Postprocess { get; init; }
+}
+
+internal sealed class PostprocessDto
+{
+    [JsonPropertyName("text_threshold")]
+    public double? TextThreshold { get; init; }
+
+    [JsonPropertyName("text_expand")]
+    public double? TextExpand { get; init; }
+
+    [JsonPropertyName("layout_threshold")]
+    public double? LayoutThreshold { get; init; }
+
+    [JsonPropertyName("layout_expand")]
+    public double? LayoutExpand { get; init; }
 }
 
 [JsonSerializable(typeof(DbNetConfigDto))]
+[JsonSerializable(typeof(PostprocessDto))]
 [JsonSerializable(typeof(ManifestDto))]
 [JsonSerializable(typeof(CrnnConfigDto))]
 [JsonSerializable(typeof(CalibrationDto))]

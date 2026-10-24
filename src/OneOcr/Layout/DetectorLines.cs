@@ -139,13 +139,13 @@ internal static class DetectorLines
             ReadOnlySpan<byte> page = Kernels.PixelSpans.AsBytes(work.AsSpan(0, count));
             for (int i = 0; i < detection.Lines.Count; i++)
             {
-                LineBox? box = InkBox(detection.Lines[i], page, width, height, threshold, inkIsBright);
-                if (box is not { } b)
+                int leaf = LeafOf(detection, i);
+                var boxes = new List<LineBox>(1);
+                InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes);
+                foreach (LineBox b in boxes)
                 {
-                    continue;
+                    strips.Add(new StripLine(b, leaf));
                 }
-
-                strips.Add(new StripLine(b, LeafOf(detection, i)));
             }
 
             return new LocatedPage
@@ -167,40 +167,109 @@ internal static class DetectorLines
 
     // The ink inside the detected box, as the classical finder's boxes are (the recognizer's crop rules are written for ink-tight
     // lines); the detected box itself when the page has no contrast or no ink falls inside it.
-    private static LineBox? InkBox(DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright)
+    private static void InkBoxes(DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<LineBox> result)
     {
         int x0 = Math.Clamp((int)Math.Floor(line.Left), 0, width), x1 = Math.Clamp((int)Math.Ceiling(line.Right), 0, width);
         int y0 = Math.Clamp((int)Math.Floor(line.Top), 0, height), y1 = Math.Clamp((int)Math.Ceiling(line.Bottom), 0, height);
         if (x1 <= x0 || y1 <= y0)
         {
-            return null;
+            return;
         }
 
         if (threshold >= 0)
         {
-            int minX = int.MaxValue, maxX = -1, minY = int.MaxValue, maxY = -1;
-            for (int y = y0; y < y1; y++)
+            // Ink per row. A detected box is a little taller than the line (the training shrink is undone generously), so it can reach
+            // the descenders of the line above or the ascenders of the line below; only the band of rows that holds most of the ink
+            // belongs to this line. Rows separated by a short blank gap (the dot of an i, an accent) stay one band; a gap of more than
+            // an eighth of the box height ends it, which is less than the space between two lines of running text.
+            int rows = y1 - y0;
+            int[] counts = System.Buffers.ArrayPool<int>.Shared.Rent(rows);
+            try
             {
-                ReadOnlySpan<byte> row = page.Slice((y * width) + x0, x1 - x0);
-                for (int x = 0; x < row.Length; x++)
+                Array.Clear(counts, 0, rows);
+                for (int y = y0; y < y1; y++)
                 {
-                    if (inkIsBright ? row[x] > threshold : row[x] <= threshold)
+                    ReadOnlySpan<byte> row = page.Slice((y * width) + x0, x1 - x0);
+                    int n = 0;
+                    for (int x = 0; x < row.Length; x++)
                     {
-                        minX = Math.Min(minX, x0 + x);
-                        maxX = Math.Max(maxX, x0 + x);
-                        minY = Math.Min(minY, y);
-                        maxY = Math.Max(maxY, y);
+                        if (inkIsBright ? row[x] > threshold : row[x] <= threshold)
+                        {
+                            n++;
+                        }
                     }
+
+                    counts[y - y0] = n;
+                }
+
+                int gap = Math.Max(2, (rows + 4) / 8);
+                var bands = new List<(int Start, int End, long Mass)>(2);
+                long bestMass = 0;
+                for (int r = 0; r < rows;)
+                {
+                    if (counts[r] == 0)
+                    {
+                        r++;
+                        continue;
+                    }
+
+                    int start = r, end = r, blank = 0;
+                    long mass = 0;
+                    for (; r < rows && blank <= gap; r++)
+                    {
+                        if (counts[r] == 0)
+                        {
+                            blank++;
+                            continue;
+                        }
+
+                        blank = 0;
+                        end = r;
+                        mass += counts[r];
+                    }
+
+                    bands.Add((start, end, mass));
+                    bestMass = Math.Max(bestMass, mass);
+                }
+
+                // The main band, and any other band that holds at least 40% as much ink (two lines the detector joined); a smaller
+                // one is the edge of a neighbouring line.
+                foreach ((int start, int end, long mass) in bands)
+                {
+                    if (mass * 5 < bestMass * 2)
+                    {
+                        continue;
+                    }
+
+                    int minX = int.MaxValue, maxX = -1;
+                    for (int y = y0 + start; y <= y0 + end; y++)
+                    {
+                        ReadOnlySpan<byte> row = page.Slice((y * width) + x0, x1 - x0);
+                        for (int x = 0; x < row.Length; x++)
+                        {
+                            if (inkIsBright ? row[x] > threshold : row[x] <= threshold)
+                            {
+                                minX = Math.Min(minX, x0 + x);
+                                maxX = Math.Max(maxX, x0 + x);
+                            }
+                        }
+                    }
+
+                    result.Add(new LineBox(minX, y0 + start, maxX - minX + 1, end - start + 1));
+                }
+
+                if (result.Count > 0)
+                {
+                    return;
                 }
             }
-
-            if (maxX >= 0)
+            finally
             {
-                return new LineBox(minX, minY, maxX - minX + 1, maxY - minY + 1);
+                System.Buffers.ArrayPool<int>.Shared.Return(counts);
             }
         }
 
-        return new LineBox(x0, y0, x1 - x0, y1 - y0);
+        result.Add(new LineBox(x0, y0, x1 - x0, y1 - y0));
     }
 
     // The leaf of a line: the smallest running-text region that holds its centre (offset by one so 0 is never a region), otherwise a
