@@ -17,6 +17,7 @@ internal sealed class PdfRenderer
     private readonly object _gate = new();
     private Image? _image;
     private Exception? _failure;
+    private int _active;
 
     public PdfRenderer(Func<ReadOnlyMemory<byte>> source, PdfOcrOptions options, OcrLimits limits, int firstPage, int pageCount)
     {
@@ -79,6 +80,27 @@ internal sealed class PdfRenderer
             throw new ImageFormatException("The page is not among the rendered pages.");
         }
 
+        lock (_gate)
+        {
+            _active++;
+        }
+
         return image.Frames[slot];
+    }
+
+    /// <summary>
+    /// A page obtained from <see cref="Frame"/> has been read. The image keeps the pixels of every region read from a page (about
+    /// a byte per pixel of the page) until they are released, which would add up over a long document; they are given back as soon
+    /// as no page is being read. (Releasing takes the whole image, so it must not happen while another page reads.)
+    /// </summary>
+    public void Done()
+    {
+        lock (_gate)
+        {
+            if (--_active == 0)
+            {
+                _image?.ReleaseDecodedPixels();
+            }
+        }
     }
 }
