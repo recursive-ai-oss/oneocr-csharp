@@ -12,10 +12,11 @@ internal static partial class PageReader
     // Finds the tables drawn with ruling lines and paints the rules out of the page, so that the crops the recognizer reads hold no
     // rule. This runs before any finder that erases rules itself. The page's own binarization is used, not the finder's: a rule is
     // often lighter than text, and whether it counts as ink must not depend on which finder ran.
-    private static List<RuleGrid> FindGrids(Gray8[] gray, int width, int height, int degree)
+    // `known` is the page's binarization when the caller already made it on these very pixels.
+    private static List<RuleGrid> FindGrids(Gray8[] gray, int width, int height, int degree, (int Level, bool InkIsBright)? known = null)
     {
         int count = checked(width * height);
-        (int level, bool inkIsBright) = LineFinder.Binarize(gray, count, degree);
+        (int level, bool inkIsBright) = known ?? LineFinder.Binarize(gray, count, degree);
         List<RuleGrid> grids = TableRules.Find(PixelSpans.AsBytes(gray.AsSpan(0, count)), width, height, level, inkIsBright);
         if (grids.Count > 0)
         {

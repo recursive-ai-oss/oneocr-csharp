@@ -269,60 +269,81 @@ internal static class TableRules
     // Of two neighbours the one farther from ink: the paper, even when text touches the line on one side.
     private static byte Paper(byte a, byte b, bool inkIsBright) => inkIsBright ? Math.Min(a, b) : Math.Max(a, b);
 
+    // Collects the horizontal and vertical ink runs of at least MinRun pixels. Paper is skipped with the vectorized range search of the
+    // base library and only ink pixels are visited: the columns that were ink in the row above are the only ones whose vertical run can
+    // end in this row, so they are tracked in a list instead of every column being looked at in every row. The runs found are the
+    // same as a pixel-by-pixel scan finds (Merge sorts them by position, which is unique per run).
     private static bool CollectRuns(ReadOnlySpan<byte> gray, int width, int height, int threshold, bool inkIsBright, out List<Run> hRuns, out List<Run> vRuns)
     {
         hRuns = [];
         vRuns = [];
         var vLen = new int[width];
+        // Whether a gray value is ink, for the columns that were ink in the row above.
+        bool[] isInk = new bool[256];
+        for (int v = 0; v < 256; v++)
+        {
+            isInk[v] = inkIsBright ? v > threshold : v <= threshold;
+        }
+
+        // The ink values form one range: [0, threshold] for dark ink, [threshold + 1, 255] for bright ink.
+        byte lo = inkIsBright ? (byte)(threshold + 1) : (byte)0, hi = inkIsBright ? (byte)255 : (byte)threshold;
+        int[] active = new int[width], next = new int[width];
+        int activeCount = 0;
         for (int y = 0; y < height; y++)
         {
             ReadOnlySpan<byte> row = gray.Slice(y * width, width);
-            int start = -1;
-            for (int x = 0; x < row.Length; x++)
+            int nextCount = 0;
+            for (int x = 0; x < row.Length;)
             {
-                bool ink = inkIsBright ? row[x] > threshold : row[x] <= threshold;
-                if (ink)
+                int skip = row.Slice(x).IndexOfAnyInRange(lo, hi);
+                if (skip < 0)
                 {
-                    if (start < 0)
-                    {
-                        start = x;
-                    }
-
-                    vLen[x]++;
-                    continue;
+                    break;
                 }
 
-                if (start >= 0)
+                int start = x + skip;
+                int length = row.Slice(start).IndexOfAnyExceptInRange(lo, hi);
+                int end = length < 0 ? row.Length : start + length;
+                if (end - start >= MinRun)
                 {
-                    if (x - start >= MinRun)
-                    {
-                        hRuns.Add(new Run(y, start, x));
-                    }
-
-                    start = -1;
+                    hRuns.Add(new Run(y, start, end));
                 }
 
-                if (vLen[x] >= MinRun)
+                for (int k = start; k < end; k++)
                 {
-                    vRuns.Add(new Run(x, y - vLen[x], y));
+                    vLen[k]++;
+                    next[nextCount++] = k;
                 }
 
-                vLen[x] = 0;
+                x = end;
             }
 
-            if (start >= 0 && row.Length - start >= MinRun)
+            // A column that was ink above and is not now ends its vertical run here.
+            for (int a = 0; a < activeCount; a++)
             {
-                hRuns.Add(new Run(y, start, row.Length));
+                int x = active[a];
+                if (!isInk[row[x]])
+                {
+                    if (vLen[x] >= MinRun)
+                    {
+                        vRuns.Add(new Run(x, y - vLen[x], y));
+                    }
+
+                    vLen[x] = 0;
+                }
             }
 
+            (active, next) = (next, active);
+            activeCount = nextCount;
             if (hRuns.Count > MaxRuns || vRuns.Count > MaxRuns)
             {
                 return false;
             }
         }
 
-        for (int x = 0; x < width; x++)
+        for (int a = 0; a < activeCount; a++)
         {
+            int x = active[a];
             if (vLen[x] >= MinRun)
             {
                 vRuns.Add(new Run(x, height - vLen[x], height));

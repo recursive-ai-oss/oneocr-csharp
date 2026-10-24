@@ -25,16 +25,40 @@ internal sealed class HeadOrientation : IOrientationDetector
         _resizers = resizers;
     }
 
+    /// <summary>The detector's reading of a page, with no decision made on it.</summary>
+    public PageDetection Look(Gray8[] pixels, int width, int height, int degree, CancellationToken cancellationToken)
+    {
+        long t = StageClock.Start();
+        PageDetection detection = _detector.Detect(pixels.AsSpan(0, checked(width * height)), width, height, _pixels, _resizers, degree, cancellationToken);
+        StageClock.Stop("6 detect on straightened", t);
+        return detection;
+    }
+
     public int Detect(OrientationInput page, CancellationToken cancellationToken)
     {
+        long t = StageClock.Start();
         PageDetection detection = _detector.Detect(
             page.Pixels.AsSpan(0, checked(page.Width * page.Height)), page.Width, page.Height, _pixels, _resizers, page.Degree, cancellationToken);
+        StageClock.Stop("2 head detect", t);
         if (page.Evidence is { } evidence)
         {
             evidence.Detection = detection;
         }
 
         int turn = PageOrientation.QuarterTurnsClockwise(detection) * 90;
-        return turn == 0 || _check is null ? turn : _check.Detect(page, cancellationToken);
+        if (turn == 0 || _check is null)
+        {
+            return turn;
+        }
+
+        if (page.Evidence is { } seen)
+        {
+            seen.PixelsMayHaveChanged = true;
+        }
+
+        t = StageClock.Start();
+        int confirmed = _check.Detect(page, cancellationToken);
+        StageClock.Stop("3 classical confirm", t);
+        return confirmed;
     }
 }

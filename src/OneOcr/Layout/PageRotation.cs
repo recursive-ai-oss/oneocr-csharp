@@ -34,22 +34,44 @@ internal static class PageRotation
     {
         int count = checked(width * height);
         double dcx = toWidth / 2.0, dcy = toHeight / 2.0, qcx = width / 2.0, qcy = height / 2.0;
+        // dx * cos and dx * sin depend on the column alone; the products are the same numbers whether made per pixel or once.
+        var xCos = new double[toWidth];
+        var xSin = new double[toWidth];
+        for (int i = 0; i < toWidth; i++)
+        {
+            double dx = (i + 0.5) - dcx;
+            xCos[i] = dx * cos;
+            xSin[i] = dx * sin;
+        }
+
         ParallelRun.For(toHeight, degree, j =>
         {
             ReadOnlySpan<byte> src = PixelSpans.AsBytes(from.AsSpan(0, count));
             double dy = (j + 0.5) - dcy;
+            double ySin = dy * sin, yCos = dy * cos;
             for (int i = 0; i < toWidth; i++)
             {
-                double dx = (i + 0.5) - dcx;
-                double qx = ((dx * cos) - (dy * sin)) + qcx;
-                double qy = ((dx * sin) + (dy * cos)) + qcy;
+                double qx = (xCos[i] - ySin) + qcx;
+                double qy = (xSin[i] + yCos) + qcy;
                 to[(j * toWidth) + i] = new Gray8(Sample(src, width, height, qx - 0.5, qy - 0.5, background));
             }
         }, cancellationToken);
     }
 
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     private static byte Sample(ReadOnlySpan<byte> src, int width, int height, double sx, double sy, byte background)
     {
+        if (sx >= 0 && sy >= 0 && sx < width - 1 && sy < height - 1)
+        {
+            // Inside, away from the last row and column: the floor is the truncation and both neighbours exist.
+            int ix = (int)sx, iy = (int)sy;
+            double ex = sx - ix, ey = sy - iy;
+            int p = (iy * width) + ix;
+            double t = (src[p] * (1 - ex)) + (src[p + 1] * ex);
+            double u = (src[p + width] * (1 - ex)) + (src[p + width + 1] * ex);
+            return (byte)(int)(((t * (1 - ey)) + (u * ey)) + 0.5);
+        }
+
         if (sx < -0.5 || sy < -0.5 || sx > width - 0.5 || sy > height - 0.5)
         {
             return background;

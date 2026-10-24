@@ -259,7 +259,9 @@ public sealed class OcrEngine
         try
         {
             int pixelCount = checked(width * height);
+            long t = StageClock.Start();
             image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
+            StageClock.Stop("1 decode+gray copy", t);
             return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, cancellationToken);
         }
         finally
@@ -281,11 +283,14 @@ public sealed class OcrEngine
         try
         {
             // The head's first look is reusable when the pixels the reader gets are the ones it looked at.
-            PageDetection? first = ReferenceEquals(prepared.Pixels, gray) ? evidence.Detection : null;
+            PageDetection? first = prepared.Detection ?? (ReferenceEquals(prepared.Pixels, gray) ? evidence.Detection : null);
             OcrPage page = PageReader.Read(
                 _recognizer, _limits, _pixels, _masks, _resizers, _detector, prepared.Pixels, prepared.Width, prepared.Height, pageIndex, dpi, degree, includeChars,
-                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken);
-            return prepared.Finish(page);
+                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken, prepared.Level);
+            long t = StageClock.Start();
+            OcrPage finished = prepared.Finish(page);
+            StageClock.Stop("9 frame map", t);
+            return finished;
         }
         finally
         {
