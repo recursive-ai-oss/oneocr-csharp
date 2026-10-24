@@ -56,6 +56,7 @@ internal static class Program
             "trainstep" => TrainBench.Run(options),
             "detect" => DetectBench.Run(options),
             "strips" => Strips(options),
+            "grids" => Grids(options),
             "skew" => Skew(options),
             _ => 2,
         };
@@ -125,6 +126,33 @@ internal static class Program
         foreach (StripLine s in strips)
         {
             Console.WriteLine($"leaf {s.Leaf,3}  x {s.Box.X,5} y {s.Box.Y,5} w {s.Box.Width,5} h {s.Box.Height,3}");
+        }
+
+        return 0;
+    }
+
+    // Prints the ruled grids of one page: OneOcr.Bench grids --image FILE
+    private static int Grids(Dictionary<string, string> o)
+    {
+        Image image = Image.Load(Need(o, "image"));
+        var gray = new Gray8[image.Width * image.Height];
+        image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+        ReadOnlySpan<byte> bytes = OneOcr.Kernels.PixelSpans.AsBytes(gray);
+        (int threshold, bool inkIsBright) = LineFinder.Binarize(bytes);
+        var clock = Stopwatch.StartNew();
+        List<RuleGrid> grids = TableRules.Find(bytes, image.Width, image.Height, threshold, inkIsBright);
+        Console.WriteLine($"{grids.Count} grids in {clock.Elapsed.TotalMilliseconds:F1} ms (threshold {threshold}, ink bright {inkIsBright})");
+        foreach (RuleGrid g in grids)
+        {
+            Console.WriteLine($"rows {g.Rows} columns {g.Columns} cells {g.Cells.Count} box {g.Left},{g.Top}-{g.Right},{g.Bottom} spans {g.Cells.Count(c => c.RowSpan > 1 || c.ColumnSpan > 1)} xs {string.Join(",", g.Xs)} ys {string.Join(",", g.Ys.Take(5))}");
+        }
+
+        if (grids.Count > 0)
+        {
+            var masks = new OneOcr.BufferPool<byte>(1L << 28, 1);
+            List<StripLine> strips = StripFinder.Find(gray, image.Width, image.Height, 100000, masks, 1, out _, out _, out _, eraseRules: false);
+            List<StripLine> cut = TableStructure.SplitStrips(strips, grids, bytes, image.Width, image.Height, threshold, inkIsBright);
+            Console.WriteLine($"{strips.Count} strips, {cut.Count} after cutting at the rules");
         }
 
         return 0;
