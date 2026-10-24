@@ -34,6 +34,8 @@ from .render import DSFS, Overflow, Renderer, build_truth, dumps, sha256
 
 HERE = Path(__file__).resolve().parent
 _G: dict = {}
+CHUNK = 600  # pages per process pool
+PAGE_TIMEOUT = 240  # seconds to wait for the next finished page before the chunk is abandoned
 
 
 def page_seed(seed: int, split: str, i: int) -> int:
@@ -201,26 +203,45 @@ def main() -> None:
     tmp = str(out / "tmp")
     t0 = time.time()
     idx = list(range(a.start, a.start + a.n))
-    rows = []
+    sdir = out / a.split
+    sdir.mkdir(parents=True, exist_ok=True)
+    mpath = sdir / "manifest.jsonl"
+    if not a.start:
+        mpath.write_text("")
+    rows: list[dict] = []
+
+    def flush(part: list[dict]) -> None:
+        part.sort(key=lambda r: r["i"])
+        with mpath.open("a", encoding="utf-8") as f:
+            for r in part:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        rows.extend(part)
+        print(f"{len(rows)}/{a.n} {len(rows) / (time.time() - t0):.2f} pages/s", file=sys.stderr, flush=True)
+
     if a.workers <= 1:
         init_worker(cfg, a.split, a.seed, str(out), font_cache, tmp)
-        for k, i in enumerate(idx):
-            rows.append(make_page_safe(i))
-            if (k + 1) % 50 == 0:
-                print(f"{k + 1}/{a.n} {(k + 1) / (time.time() - t0):.2f} pages/s", file=sys.stderr, flush=True)
+        for k in range(0, len(idx), 100):
+            flush([make_page_safe(i) for i in idx[k : k + 100]])
     else:
-        with mp.get_context("spawn").Pool(a.workers, init_worker, (cfg, a.split, a.seed, str(out), font_cache, tmp)) as p:
-            for k, r in enumerate(p.imap_unordered(make_page_safe, idx, chunksize=4)):
-                rows.append(r)
-                if (k + 1) % 500 == 0:
-                    print(f"{k + 1}/{a.n} {(k + 1) / (time.time() - t0):.2f} pages/s", file=sys.stderr, flush=True)
+        # Chunks with a fresh process pool each: a hung Chromium costs one chunk's stragglers (recorded as timeouts), not the run.
+        for k in range(0, len(idx), CHUNK):
+            part_idx = idx[k : k + CHUNK]
+            got: list[dict] = []
+            pool = mp.get_context("spawn").Pool(a.workers, init_worker, (cfg, a.split, a.seed, str(out), font_cache, tmp))
+            try:
+                it = pool.imap_unordered(make_page_safe, part_idx, chunksize=1)
+                for _ in part_idx:
+                    got.append(it.next(timeout=PAGE_TIMEOUT))
+            except mp.TimeoutError:
+                done = {r["i"] for r in got}
+                got += [{"i": i, "error": "timeout"} for i in part_idx if i not in done]
+            finally:
+                pool.terminate()
+                pool.join()
+            flush(got)
     dt = time.time() - t0
     rows.sort(key=lambda r: r["i"])
     sdir = out / a.split
-    sdir.mkdir(parents=True, exist_ok=True)
-    with (sdir / "manifest.jsonl").open("a" if a.start else "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
     ok = [r for r in rows if "error" not in r]
     import torch
 
