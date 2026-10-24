@@ -1,4 +1,5 @@
 using System.Text;
+using OneOcr.Documents;
 using OneOcr.Unicode;
 
 namespace OneOcr.Tests;
@@ -186,5 +187,14 @@ public class TextNormalizationTests
             string k = TextNormalization.Nfkc(s);
             Assert.Equal(k, TextNormalization.Nfkc(k));
         }
+    }
+
+    [Fact]
+    public void BoundedDistanceNeverExceedsBoundPlusOne()
+    {
+        // Found by the normalization fuzz target: the corner cell can be far above the bound while the last row still has a cell inside it.
+        Assert.Equal(3, ValueNormalize.BoundedDistance("aa", "bbbb", 2));
+        Assert.Equal(2, ValueNormalize.BoundedDistance("ab", "ba", 5));
+        Assert.Equal(0, ValueNormalize.BoundedDistance("same", "same", 0));
     }
 }

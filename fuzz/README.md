@@ -2,6 +2,8 @@
 
 `fuzz/OneOcr.Fuzz` holds one target per input surface. Today: `container` (model container bytes, version 0 and 1 with calibration, through the parser, the recognizer builder, one forward pass and word splitting, under tight `OcrLimits`; only `OcrModelException` and `OcrLimitException` may come out). For the page detector architecture (`dbnet-lite-v0`) the target also builds the detector, runs it on a 32 by 64 tile and decodes the maps; its seeds are the `dbnet-*.seed` files. `fuzz/corpus/container/` holds the seed corpus (small valid containers written by `OneOcr.Fuzz seeds <dir>`).
 
+Two more targets: `image` (image file bytes through OneImage's decoder and the whole `OcrEngine` page path, with the classical line finder or a small random page detector, the last byte choosing which; only OneImage's `ImageException` and our `OcrLimitException` may come out, and the page must round-trip through JSON) and `normalization` (UTF-16 code units, lone surrogates included, through NFC/NFKC, the comparison fold, amount, date and currency parsing and the bounded edit distance; the normal forms must stay idempotent and NFKC(NFC(x)) = NFKC(x)). Seeds are in `fuzz/corpus/image/` and `fuzz/corpus/normalization/`.
+
 Three more targets, chosen with `ONEOCR_FUZZ_TARGET`: `charlm` (character language model bytes through the parser and, when they parse, a beam search with the model attached) `lexicon` (lexicon file bytes) and `pagejson` (`oneocr.page` JSON through the reader under tight limits; whatever parses must write and read back to the same bytes). Their seeds are in `fuzz/corpus/charlm/`, `fuzz/corpus/lexicon/` and `fuzz/corpus/pagejson/`, written by `ONEOCR_FUZZ_TARGET=charlm OneOcr.Fuzz seeds <dir>`.
 
     OneOcr.Fuzz                         run under libFuzzer (SharpFuzz); the target comes from ONEOCR_FUZZ_TARGET
@@ -9,7 +11,21 @@ Three more targets, chosen with `ONEOCR_FUZZ_TARGET`: `charlm` (character langua
     OneOcr.Fuzz mutate <seconds> <dir> [seed]
                                         in-process mutation loop without coverage feedback, for a quick local run
 
-For a coverage-guided run, instrument `OneOcr.dll` with the `sharpfuzz` tool and start the program through SharpFuzz's `libfuzzer-dotnet` host (built with `clang++ -fsanitize=fuzzer`), with this corpus as the seed directory.
+## Coverage-guided campaign
+
+Two scripts do everything; they need Linux x64, bash, curl, tar, xz and a .NET 10 SDK, and install nothing system-wide.
+
+    export FUZZ_TOOLS=$HOME/oneocr-fuzz-tools      # where the toolchain goes (about 11 GB: a clang release, for its libFuzzer runtime)
+    export FUZZ_OUT=$HOME/oneocr-fuzz-out          # builds, grown corpora, findings, logs; keep it outside the checkout
+    fuzz/setup-tools.sh                             # once: clang 20.1.8, the libfuzzer-dotnet host, the sharpfuzz instrumenter (all pinned, SHA-256 checked)
+    FUZZ_SECONDS=600 fuzz/run-campaign.sh run       # every target, 600 s each, or name targets: run container image
+
+`run` publishes `OneOcr.Fuzz`, instruments `OneOcr`, `OneOcr.Llm`, `OneOcr.Training`, `OneOcr.Pdf` and the OnePDF and OneImage assemblies they call, then runs each target under libFuzzer from a copy of `fuzz/corpus/<target>/`. Per target it writes under `$FUZZ_OUT/<target>/`: `corpus/` (grown), `min/` (the same coverage in the fewest inputs), `artifacts/` (`crash-*`, `timeout-*`, `oom-*`), `run.log`, and one summary row in `$FUZZ_OUT/report.txt`: executions, libFuzzer features (the coverage measure with SharpFuzz; `cov` in the log is the host's own edges and stays tiny), corpus size, findings. A finding does not stop the run: libFuzzer exits, the input stays in `artifacts/`, and the target restarts for the time that is left. Inputs that take longer than `FUZZ_TIMEOUT` (20 s) or push the target process past `FUZZ_HEAP_MB` (2048) are findings too. Run one campaign at a time, and not next to a build or a benchmark: each target uses one core, and the host's timings are skewed by anything else.
+
+    fuzz/run-campaign.sh repro <target> <artifact>  # replay a finding through the instrumented build
+    fuzz/run-campaign.sh promote [targets...]       # add new minimized inputs to fuzz/corpus (smallest first, at most PROMOTE_MAX_KB=256 per target)
+
+For every finding: fix it, put a minimized reproducer under `testdata/` with a test asserting the typed error, then `promote`.
 
 `llm-anthropic`, `llm-openai` and `llm-gemini` run provider response bytes through that provider's parser (Azure OpenAI and OpenAI-compatible servers share the OpenAI parser); `llm-schema` runs JSON Schema text through the schema checks and the per-provider rewrites. Only `OcrProviderException`, `OcrLimitException` (and `ArgumentException` for schemas) may come out. Seeds are in `fuzz/corpus/llm-*/`, written by `ONEOCR_FUZZ_TARGET=llm-openai OneOcr.Fuzz seeds <dir>`. The first mutation run found that a string read out of invalid UTF-8 threw `InvalidOperationException`; response bodies are now checked for valid UTF-8 first.
 

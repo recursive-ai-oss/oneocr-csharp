@@ -686,6 +686,7 @@ internal static class ValueNormalize
             (prev, cur) = (cur, prev);
         }
 
-        return prev[b.Length];
+        // The last row can hold a cell within the bound while the corner is far above it (aa against bbbb).
+        return Math.Min(prev[b.Length], bound + 1);
     }
 }
