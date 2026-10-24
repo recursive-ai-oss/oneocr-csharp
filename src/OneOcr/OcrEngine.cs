@@ -97,7 +97,7 @@ public sealed class OcrEngine
     public OcrEngine WithoutDetector() => new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, null);
 
     internal OcrEngine WithDetector(ModelContainer container, KernelPath path) =>
-        WithDetector(new PageDetector(DbNetModel.FromContainer(container, _limits), _limits, path));
+        WithDetector(new PageDetector(DbNetModel.FromContainer(container, _limits), _limits, path, _recognizer.ScratchPool));
 
     // confirmTurns: whether a quarter turn the detector's head asks for is checked by the classical decision before it is acted on.
     internal OcrEngine WithDetector(IPageDetector detector, bool confirmTurns = true) =>
@@ -259,7 +259,7 @@ public sealed class OcrEngine
         try
         {
             int pixelCount = checked(width * height);
-            image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
             return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, cancellationToken);
         }
         finally
@@ -336,7 +336,7 @@ public sealed class OcrEngine
         try
         {
             int pixelCount = checked(width * height);
-            image.CopyPixelsTo<Gray8>(rented.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            image.CopyPixelsTo<Gray8>(rented.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
             var evidence = new OrientationEvidence();
             prepared = orient
                 ? PagePreparation.Prepare(grayPixels, width, height, true, true, Seam, _limits, _pixels, degree, evidence, quarterInInputFrame: _detector is null, cancellationToken)
