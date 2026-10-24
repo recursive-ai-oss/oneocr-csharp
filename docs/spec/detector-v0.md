@@ -41,15 +41,17 @@ The reference for this table is a float64 evaluation on plain loops (`tests/OneO
 
 ## Post-processing
 
-Both heads use one rule: a cell is on when its logit exceeds a threshold (compared on logits, in fp32: `ln(0.3 / 0.7) = -0.847297860387203` for text, `ln(0.4 / 0.6) = -0.405465108108164` for layout); 4-connected components of on cells are labelled in the order of their first cell in row-major order; each component's bounding cell range is the shrunk core, which is grown back. A component's score is the mean sigmoid of its cells' logits (informational).
+Both heads use one rule: a cell is on when its logit exceeds a threshold (compared on logits, in fp32: `ln(0.3 / 0.7) = -0.847297860387203` for text, `ln(0.6 / 0.4) = 0.405465108108164` for layout; a threshold `p` the manifest gives is converted as `float32(ln(p / (1 - p)))`); 4-connected components of on cells are labelled in the order of their first cell in row-major order; each component's bounding cell range is the shrunk core, which is grown back. A component's score is the mean sigmoid of its cells' logits (informational).
 
-**Text lines** (`prob`, stride 2): components of fewer than 2 cells are dropped. The core in network pixels is `x0 = 2 * minCol`, `x1 = 2 * (maxCol + 1)`, likewise `y`. With `c = min(x1 - x0, y1 - y0)` the box grows by `d = 0.3 / (1 - 2 * 0.3) * c = 0.75 c` on each side (the training shrank each line by 0.3 of its short side per side).
+**Text lines** (`prob`, stride 2): components of fewer than 2 cells are dropped. The core in network pixels is `x0 = 2 * minCol`, `x1 = 2 * (maxCol + 1)`, likewise `y`. With `c = min(x1 - x0, y1 - y0)` the box grows by `d = 0.3 / (1 - 2 * 0.3) * c * expand = 0.75 c * expand` on each side (the training shrank each line by 0.3 of its short side per side).
 
-**Layout regions** (`layout`, stride 8), for every class the manifest calls trained and no other: components of any size. Core `x0 = 8 * minCol` etc., `core = min(x1 - x0, y1 - y0)`; grown by `core / 3` when `core <= 60`, else by 20. Then, for every class except `table` and `figure`: the box becomes the union of the text lines (network pixels, before scaling back) whose centres lie inside it, each side limited to 8 pixels beyond the region's own box; with no line inside, or an empty union, the box stays. There is no non-maximum suppression: regions of different classes may overlap.
+**Layout regions** (`layout`, stride 8), for every class the manifest calls trained and no other: components of any size. Core `x0 = 8 * minCol` etc., `core = min(x1 - x0, y1 - y0)`; grown by `core / 3` when `core <= 60`, else by 20, times the layout expansion (default 0.85). Then, for every class except `table` and `figure`: the box becomes the union of the text lines (network pixels, before scaling back) whose centres lie inside it, each side limited to 8 pixels beyond the region's own box; with no line inside, or an empty union, the box stays. There is no non-maximum suppression: regions of different classes may overlap.
 
 Boxes are divided by `s` to page pixels and clipped to the page; a box that is empty after clipping is dropped. (The training-side reference does not clip.) More than `MaxLinesPerPage` lines or `MaxPageElements` regions is a limit error.
 
 **Orientation:** softmax over `orient` with the library's exp; the winner (lowest index on a tie) is the number of counter-clockwise quarter turns the content is rotated by. A page whose winner probability is below 0.9 is read as it is. Otherwise it is turned clockwise by that many quarter turns and detected again on the upright copy; the page model then describes the upright page, and a diagnostic says so.
+
+**Values.** Defaults (used when the manifest has no `config.postprocess`): text threshold 0.3, text expansion 1.0, layout threshold 0.6, layout expansion 0.85. A model overrides any of them with `config.postprocess` (`text_threshold`, `text_expand`, `layout_threshold`, `layout_expand`; see the container spec).
 
 ## Use in the page pipeline
 
