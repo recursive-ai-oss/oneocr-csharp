@@ -69,6 +69,7 @@ internal static class DetectBench
 
         var floats = new BufferPool<float>(64L << 20, sizeof(float));
         var network = new List<double>();
+        DetectorMaps? last = null;
         for (int r = -2; r < repeat; r++)
         {
             var clock = Stopwatch.StartNew();
@@ -78,8 +79,15 @@ internal static class DetectBench
                 network.Add(clock.Elapsed.TotalMilliseconds);
             }
 
-            GC.KeepAlive(maps);
+            last = maps;
         }
+
+        // One hash over the three output maps: equal in every process on every path and degree.
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        hash.AppendData(Bytes(last!.Prob));
+        hash.AppendData(Bytes(last.Layout));
+        hash.AppendData(Bytes(last.Orientation));
+        string digest = Convert.ToHexString(hash.GetHashAndReset())[..16];
 
         whole.Sort();
         network.Sort();
@@ -87,8 +95,15 @@ internal static class DetectBench
         Console.WriteLine(
             $"detect path={path} degree={degree} page={width}x{height} input={pw}x{ph} load={loadMs:F1} ms  " +
             $"whole(median/min)={whole[whole.Count / 2]:F1}/{whole[0]:F1} ms  network(median/min)={network[network.Count / 2]:F1}/{network[0]:F1} ms  peak={peak:F0} MB  " +
-            $"allocated={GC.GetTotalAllocatedBytes() / 1048576.0:F0} MB total");
+            $"allocated={GC.GetTotalAllocatedBytes() / 1048576.0:F0} MB total  maps-hash={digest}");
         return 0;
+    }
+
+    private static byte[] Bytes(float[] values)
+    {
+        var bytes = new byte[values.Length * sizeof(float)];
+        Buffer.BlockCopy(values, 0, bytes, 0, bytes.Length);
+        return bytes;
     }
 
     private static int Int(Dictionary<string, string> o, string key, int fallback) =>

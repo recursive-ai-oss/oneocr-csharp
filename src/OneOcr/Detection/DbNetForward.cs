@@ -62,7 +62,7 @@ internal static class DbNetForward
     /// <param name="path">The kernel path.</param>
     /// <param name="degree">Most threads to use.</param>
     /// <param name="pool">Scratch for the activations; everything taken is given back, also when a task throws.</param>
-    /// <param name="input">Normalized pixels.</param>
+    /// <param name="input">Normalized pixels, at least <paramref name="height"/> times <paramref name="width"/> of them.</param>
     /// <param name="height">Height, a multiple of 32.</param>
     /// <param name="width">Width, a multiple of 32.</param>
     /// <param name="limits">Bounds checked before the buffers are taken.</param>
@@ -70,7 +70,7 @@ internal static class DbNetForward
     /// <param name="cancellationToken">Cancels between layers.</param>
     /// <returns>The output maps.</returns>
     public static DetectorMaps Run(
-        DbNetModel model, KernelPath path, int degree, BufferPool<float> pool, ReadOnlySpan<float> input, int height, int width, OcrLimits limits,
+        DbNetModel model, KernelPath path, int degree, BufferPool<float> pool, float[] input, int height, int width, OcrLimits limits,
         ForwardTrace? trace, CancellationToken cancellationToken)
     {
         CheckInput(model, height, width, limits);
@@ -87,13 +87,12 @@ internal static class DbNetForward
         {
             int h2 = height / 2, w2 = width / 2;
             int stemP = model.StemPadded;
-            trace?.Add("input", input[..(height * width)], 1, height, width);
+            trace?.Add("input", input.AsSpan(0, height * width), 1, height, width);
 
             // Stem: 3x3 stride 2 on the single input channel.
             float[] stem = Take((long)h2 * w2 * stemP);
-            float[] inputArray = input[..(height * width)].ToArray();
             Rows(h2, Math.Max(1, PositionsPerTask / w2), degree, (y0, y1) =>
-                DetectKernels.Stem(path, inputArray, height, width, model.StemWeights, model.StemBias, stemP, y0, y1, stem.AsSpan(y0 * w2 * stemP)), cancellationToken);
+                DetectKernels.Stem(path, input, height, width, model.StemWeights, model.StemBias, stemP, y0, y1, stem.AsSpan(y0 * w2 * stemP)), cancellationToken);
             TraceMap(trace, "stem", stem, h2, w2, model.StemChannels, stemP);
 
             // Backbone. Each stage output gets its lateral at once and is then dropped, except stage 3 (the orientation head's input).

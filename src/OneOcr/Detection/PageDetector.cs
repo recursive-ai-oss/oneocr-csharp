@@ -106,6 +106,8 @@ internal sealed class PageDetector : IPageDetector
                 PixelResizer resizer = resizers.Rent();
                 try
                 {
+                    // Gamma-space resampling (linear: false) because the model was trained on gamma-space bilinear resizes of the page;
+                    // averaging in linear light would thin dark strokes relative to what it saw.
                     resizer.Resize<Gray8>(source, width, height, scaled.AsSpan(0, nw * nh), nw, nh, ResamplingFilter.Auto, linear: false, cancellationToken: cancellationToken);
                 }
                 finally
@@ -118,7 +120,13 @@ internal sealed class PageDetector : IPageDetector
 
             canvas = _floats.Rent((long)paddedW * paddedH);
             Normalize(source, nw, nh, paddedW, paddedH, _model.Input, canvas);
-            DetectorMaps maps = DbNetForward.Run(_model, _path, degree, _floats, canvas.AsSpan(0, paddedW * paddedH), paddedH, paddedW, _limits, null, cancellationToken);
+            if (scaled is not null)
+            {
+                pixels.Return(scaled);
+                scaled = null;
+            }
+
+            DetectorMaps maps = DbNetForward.Run(_model, _path, degree, _floats, canvas, paddedH, paddedW, _limits, null, cancellationToken);
             return DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits);
         }
         finally
