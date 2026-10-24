@@ -52,6 +52,7 @@ CMASK = {
     "doclaynet": [1, 1, 1, 1, 1, 1, 0, 0],
     # PubLayNet boxes a whole list, DocLayNet one item at a time: its list channel is left unlabelled so the class keeps one meaning
     "publaynet": [1, 1, 0, 1, 1, 0, 0, 0],
+    "pages": [1, 1, 1, 1, 1, 1, 1, 1],
 }
 
 TEXT_SHRINK = 0.3  # of the short side, per side
@@ -76,41 +77,55 @@ def _cells(lo: float, hi: float, stride: int, n: int) -> tuple[int, int]:
     return a, b
 
 
-def text_targets(lines: np.ndarray, h: int, w: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Probability core, threshold ground truth and threshold mask at stride 2 (DB, Liao et al. 2020)."""
+def _oriented(q: np.ndarray) -> tuple[float, float, float, float, float]:
+    """Centre, width, height and angle of a quad given as 4 corners in order (TL, TR, BR, BL up to rotation of the page)."""
+    cx, cy = q[:, 0].mean(), q[:, 1].mean()
+    e1, e2 = q[1] - q[0], q[3] - q[0]
+    w, h = float(np.hypot(*e1)), float(np.hypot(*e2))
+    return float(cx), float(cy), w, h, float(np.arctan2(e1[1], e1[0]))
+
+
+def text_targets(quads: np.ndarray, h: int, w: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Probability core, threshold ground truth and threshold mask at stride 2 (DB, Liao et al. 2020).
+
+    Each line is an oriented rectangle (a quad from a rotated or warped page is replaced by the rectangle with its edge lengths and
+    first-edge angle); distances are measured in the rectangle's own frame, so a tilted line gets a tilted core.
+    """
     H, W = h // TEXT_STRIDE, w // TEXT_STRIDE
     prob = np.zeros((H, W), np.float32)
     thr = np.zeros((H, W), np.float32)
     mask = np.zeros((H, W), np.float32)
-    for x0, y0, x1, y1 in lines:
-        bw, bh = x1 - x0, y1 - y0
+    for q in quads:
+        cx, cy, bw, bh, ang = _oriented(q)
         m = min(bw, bh)
         if m < 2.0:
             continue
         d = text_core_offset(m)
-        ia, ib = _cells(x0 + d, x1 - d, TEXT_STRIDE, W)
-        ja, jb = _cells(y0 + d, y1 - d, TEXT_STRIDE, H)
-        if ib < ia or jb < ja:  # box too small for a core at this stride: keep its centre cell
-            ci, cj = int((x0 + x1) / 2 // TEXT_STRIDE), int((y0 + y1) / 2 // TEXT_STRIDE)
+        reach = np.hypot(bw, bh) / 2 + d
+        ia, ib = _cells(cx - reach, cx + reach, TEXT_STRIDE, W)
+        ja, jb = _cells(cy - reach, cy + reach, TEXT_STRIDE, H)
+        if ib < ia or jb < ja:
+            continue
+        xs = (np.arange(ia, ib + 1) + 0.5) * TEXT_STRIDE - cx
+        ys = (np.arange(ja, jb + 1) + 0.5) * TEXT_STRIDE - cy
+        c, s = np.cos(ang), np.sin(ang)
+        a = xs[None, :] * c + ys[:, None] * s  # coordinate along the first edge
+        b = -xs[None, :] * s + ys[:, None] * c
+        dx, dy = np.abs(a) - bw / 2, np.abs(b) - bh / 2
+        win = (slice(ja, jb + 1), slice(ia, ib + 1))
+        core = (dx <= -d) & (dy <= -d)
+        if core.any():
+            prob[win] = np.maximum(prob[win], core.astype(np.float32))
+        else:  # too small for a core at this stride: keep the cell nearest the centre
+            ci, cj = int(cx // TEXT_STRIDE), int(cy // TEXT_STRIDE)
             if 0 <= ci < W and 0 <= cj < H:
                 prob[cj, ci] = 1.0
             continue
-        prob[ja : jb + 1, ia : ib + 1] = 1.0
-        # threshold band: within d of the box border, inside or outside
-        ia2, ib2 = _cells(x0 - d, x1 + d, TEXT_STRIDE, W)
-        ja2, jb2 = _cells(y0 - d, y1 + d, TEXT_STRIDE, H)
-        if ib2 < ia2 or jb2 < ja2:
-            continue
-        xs = (np.arange(ia2, ib2 + 1) + 0.5) * TEXT_STRIDE
-        ys = (np.arange(ja2, jb2 + 1) + 0.5) * TEXT_STRIDE
-        dx = np.maximum(np.maximum(x0 - xs, xs - x1), 0.0)[None, :]
-        dy = np.maximum(np.maximum(y0 - ys, ys - y1), 0.0)[:, None]
-        outside = np.hypot(dx, dy)
-        inside = np.minimum(np.minimum(xs - x0, x1 - xs)[None, :], np.minimum(ys - y0, y1 - ys)[:, None])
-        dist = np.where((dx > 0) | (dy > 0), outside, np.maximum(inside, 0.0))
+        outside = np.hypot(np.maximum(dx, 0), np.maximum(dy, 0))
+        inside = np.maximum(np.minimum(-dx, -dy), 0.0)
+        dist = np.where((dx > 0) | (dy > 0), outside, inside)
         band = dist <= d
         val = np.where(band, 1.0 - dist / d, 0.0).astype(np.float32)
-        win = (slice(ja2, jb2 + 1), slice(ia2, ib2 + 1))
         thr[win] = np.maximum(thr[win], val)
         mask[win] = np.maximum(mask[win], band.astype(np.float32))
     mask = np.where(prob > 0, 0.0, mask)  # the core itself is not part of the threshold loss
@@ -136,14 +151,27 @@ def layout_targets(boxes: np.ndarray, classes: np.ndarray, h: int, w: int, n_cla
     return out
 
 
-def rot90_boxes(b: np.ndarray, k: int, w: int, h: int) -> tuple[np.ndarray, int, int]:
-    """Rotate boxes with np.rot90(img, k) on an image of width w, height h (counter-clockwise)."""
+def box_quads(b: np.ndarray) -> np.ndarray:
+    """(N,4) boxes -> (N,4,2) quads, corners clockwise from top-left."""
+    x0, y0, x1, y1 = b[:, 0], b[:, 1], b[:, 2], b[:, 3]
+    return np.stack([np.stack([x0, y0], 1), np.stack([x1, y0], 1), np.stack([x1, y1], 1), np.stack([x0, y1], 1)], 1)
+
+
+def as_quads(lines: list) -> np.ndarray:
+    """Lines given as boxes (4 numbers) or quads (8 numbers) -> (N,4,2)."""
+    if not lines:
+        return np.zeros((0, 4, 2), np.float32)
+    out = [np.array(ln, np.float32).reshape(4, 2) if len(ln) == 8 else box_quads(np.array([ln], np.float32))[0] for ln in lines]
+    return np.stack(out)
+
+
+def rot90_points(p: np.ndarray, k: int, w: int, h: int) -> tuple[np.ndarray, int, int]:
+    """Rotate points (..., 2) with np.rot90(img, k) on an image of width w, height h (counter-clockwise)."""
     for _ in range(k % 4):
         # one CCW quarter turn: (x, y) -> (y, w - x); width and height swap
-        x0, y0, x1, y1 = b[:, 0], b[:, 1], b[:, 2], b[:, 3]
-        b = np.stack([y0, w - x1, y1, w - x0], 1)
+        p = np.stack([p[..., 1], w - p[..., 0]], -1)
         w, h = h, w
-    return b, w, h
+    return p, w, h
 
 
 class DetDataset(Dataset):
@@ -167,17 +195,17 @@ class DetDataset(Dataset):
         img = img.resize((nw, nh), Image.BILINEAR, reducing_gap=2.0)
         sx, sy = nw / w0, nh / h0
         lay = np.array(rec["layout"], np.float32).reshape(-1, 5)
-        lb = lay[:, 1:] * np.array([sx, sy, sx, sy], np.float32)
+        lq = box_quads(lay[:, 1:] * np.array([sx, sy, sx, sy], np.float32))
         lc = lay[:, 0].astype(np.int64)
-        wb = None if rec["lines"] is None else np.array(rec["lines"], np.float32).reshape(-1, 4) * np.array([sx, sy, sx, sy], np.float32)
+        wq = None if rec["lines"] is None else as_quads(rec["lines"]) * np.array([sx, sy], np.float32)
         arr = np.asarray(img)
         k = 0
         if self.train and rng.random() < self.rot_p:
             k = rng.choice([1, 2, 3])
             arr = np.rot90(arr, k)
-            lb, _, _ = rot90_boxes(lb, k, nw, nh)
-            if wb is not None:
-                wb, _, _ = rot90_boxes(wb, k, nw, nh)
+            lq, _, _ = rot90_points(lq, k, nw, nh)
+            if wq is not None:
+                wq, _, _ = rot90_points(wq, k, nw, nh)
         ah, aw = arr.shape
         S = self.size
         canvas = np.full((S, S), 255, np.uint8)
@@ -190,20 +218,23 @@ class DetDataset(Dataset):
             py = rng.randint(0, max(0, S - min(ah, S)))
         cw, ch = min(aw, S), min(ah, S)
         canvas[py : py + ch, px : px + cw] = arr[oy : oy + ch, ox : ox + cw]
-        shift = np.array([px - ox, py - oy, px - ox, py - oy], np.float32)
+        shift = np.array([px - ox, py - oy], np.float32)
 
-        def clip(b, keep_frac):
-            if len(b) == 0:
-                return b, np.zeros(0, bool)
-            b = b + shift
-            area = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
-            c = np.clip(b, 0, S)
-            carea = (c[:, 2] - c[:, 0]) * (c[:, 3] - c[:, 1])
-            ok = (area > 0) & (carea >= keep_frac * area) & (c[:, 2] - c[:, 0] > 1) & (c[:, 3] - c[:, 1] > 1)
-            return c, ok
+        def clip(q, keep_frac):
+            """Shift quads into the canvas; keep those whose bounding box is mostly inside."""
+            if len(q) == 0:
+                return q, np.zeros(0, bool)
+            q = q + shift
+            lo, hi = q.min(1), q.max(1)
+            area = (hi[:, 0] - lo[:, 0]) * (hi[:, 1] - lo[:, 1])
+            clo, chi = np.clip(lo, 0, S), np.clip(hi, 0, S)
+            carea = (chi[:, 0] - clo[:, 0]) * (chi[:, 1] - clo[:, 1])
+            ok = (area > 0) & (carea >= keep_frac * area) & (chi[:, 0] - clo[:, 0] > 1) & (chi[:, 1] - clo[:, 1] > 1)
+            return q, ok
 
-        lb, ok = clip(lb, 0.5)
-        lb, lc = lb[ok], lc[ok]
+        lq, ok = clip(lq, 0.5)
+        lq, lc = lq[ok], lc[ok]
+        lb = np.clip(np.concatenate([lq.min(1), lq.max(1)], 1), 0, S)
         if self.train:
             canvas = self._photometric(canvas, rng)
         out = {
@@ -211,11 +242,11 @@ class DetDataset(Dataset):
             "layout": torch.from_numpy(layout_targets(lb, lc, S, S)),
             "cmask": torch.tensor(rec["cmask"], dtype=torch.float32),
             "orient": torch.tensor(k),
-            "text_valid": torch.tensor(float(wb is not None)),
+            "text_valid": torch.tensor(float(wq is not None)),
         }
-        if wb is not None:
-            wb, ok = clip(wb, 0.6)
-            p, t, m = text_targets(wb[ok], S, S)
+        if wq is not None:
+            wq, ok = clip(wq, 0.6)
+            p, t, m = text_targets(wq[ok], S, S)
         else:
             H = S // TEXT_STRIDE
             p = t = m = np.zeros((H, H), np.float32)
@@ -310,12 +341,54 @@ def load_records(name: str, root: Path, split: str, src: dict | None = None) -> 
     if name == "publaynet":
         return load_publaynet_records(root, split)
     if name == "pages":
-        return load_page_records(Path(src["dir"]), split)
+        cache = Path(src["cache"].format(split=split)) if src.get("cache") else None
+        if src.get("holdout_every"):
+            # no separate validation set yet: every n-th page (by id order) is held out of training. Pages share templates with
+            # training, so this estimate is optimistic; final numbers use the generator's own validation split.
+            recs = load_page_records(Path(src["dir"]), "train", cache)
+            k = src["holdout_every"]
+            return [r for i, r in enumerate(recs) if (i % k == 0) == (split != "train")]
+        return load_page_records(Path(src["dir"]), src.get("splits", {}).get(split, split), cache)
     raise ValueError(name)
 
 
-def load_page_records(path: Path, split: str) -> list[dict]:
-    raise NotImplementedError("synthetic page set not available yet")
+PAGE_ROLES = {
+    "text": "text", "title": "title", "list": "list", "table": "table", "figure": "figure",
+    "header": "header_footer", "footer": "header_footer", "formField": "form_field", "checkbox": "checkbox",
+}  # fmt: skip
+
+
+def load_page_records(path: Path, split: str, cache: Path | None = None) -> list[dict]:
+    """Synthetic pages (exact truth from the renderer's own layout): line boxes or quads, region boxes by role.
+
+    `path` is the generator's output root holding `<split>/images` and `<split>/truth`. Parsing thousands of truth files takes a
+    while, so the parsed records are cached as one JSON next to the run state.
+    """
+    if cache is not None and cache.exists():
+        return json.loads(cache.read_text())
+    root = path / split
+    recs = []
+    for tf in sorted((root / "truth").glob("*.json")):
+        d = json.loads(tf.read_text())
+        pg = d["pages"][0]
+        img = root / d["synthetic"]["image"]["file"]
+        if not img.exists():
+            continue
+        lines = []
+        for blk in pg["blocks"]:
+            for ln in blk["lines"]:
+                lines.append([round(v, 1) for v in ln["quad"]] if "quad" in ln else [round(v, 1) for v in ln["bounds"]])
+        layout = [
+            [CLASSES.index(PAGE_ROLES[r["role"]]), *[round(v, 1) for v in r["bounds"]]] for r in pg["regions"] if r["role"] in PAGE_ROLES
+        ]
+        recs.append(
+            {"path": str(img), "kind": "pages", "id": tf.stem, "layout": layout, "lines": lines, "cmask": CMASK["pages"],
+             "doc": pg["documentType"], "profile": d["synthetic"]["degradation"]["profile"]}
+        )  # fmt: skip
+    if cache is not None:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(recs))
+    return recs
 
 
 def load_publaynet_records(root: Path, split: str) -> list[dict]:

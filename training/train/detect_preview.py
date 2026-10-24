@@ -23,17 +23,23 @@ def main() -> None:
     name = sys.argv[2] if len(sys.argv) > 2 else "doclaynet"
     n = int(sys.argv[3]) if len(sys.argv) > 3 else 4
     root = Path(os.environ.get("ONEOCR_DATASETS", Path.home() / "oneocr" / "datasets"))
-    recs = load_records(name, root, "val")[:: max(1, 5000 // 40)][:n]
-    ds = DetDataset(recs, 1024, train=False)
+    src = {"dir": os.environ.get("ONEOCR_PAGES", ""), "splits": {"val": os.environ.get("ONEOCR_PAGES_SPLIT", "val")}}
+    recs = load_records(name, root, "val", src)
+    recs = recs[:: max(1, len(recs) // 40)][:n]
+    train = os.environ.get("PREVIEW_TRAIN") == "1"  # with augmentation (rotation, scale, photometric)
+    ds = DetDataset(recs, 1024, train=train, rot_p=0.6)
     for i, r in enumerate(recs):
         im = Image.open(r["path"]).convert("RGB")
         d = ImageDraw.Draw(im)
         for c, x0, y0, x1, y1 in r["layout"]:
             d.rectangle([x0, y0, x1, y1], outline=COLORS[int(c)], width=2)
         for b in r["lines"] or []:
-            d.rectangle(b, outline="#f0f", width=1)
+            if len(b) == 8:
+                d.polygon(b, outline="#f0f")
+            else:
+                d.rectangle(b, outline="#f0f", width=1)
         im.save(out / f"{name}-{i}-boxes.png")
-        s = ds[i]
+        s = ds[(i, 7)]
         canvas = Image.fromarray(s["image"][0].numpy()).convert("RGB")
         arr = np.asarray(canvas).astype(np.float32)
         prob = np.kron(s["prob"][0].numpy(), np.ones((2, 2)))
