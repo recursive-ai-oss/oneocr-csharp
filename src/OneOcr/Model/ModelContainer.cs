@@ -55,6 +55,7 @@ public sealed class ModelContainer
         ConfigElement = manifest.Config;
         FormatVersion = formatVersion;
         Calibration = calibration;
+        CalibrationElement = calibration is null ? null : manifest.Calibration;
         Diagnostics = calibration is null
             ? [NoCalibrationNote]
             : [];
@@ -91,6 +92,9 @@ public sealed class ModelContainer
     public IReadOnlyList<TensorInfo> Tensors { get; }
 
     internal JsonElement ConfigElement { get; }
+
+    /// <summary>The manifest's <c>calibration</c> member as read, so a writer can carry it over unchanged; null for a version 0 file.</summary>
+    internal JsonElement? CalibrationElement { get; }
 
     /// <summary>Reads and validates a container from a file.</summary>
     /// <param name="path">The file to read.</param>

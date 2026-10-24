@@ -172,6 +172,56 @@ using (var rc = new OneOcr.Llm.LlmClient(new OneOcr.Llm.AnthropicProvider("smoke
     }
 }
 
+// Fine-tuning: stored labels in, a tuned model and a report out, then the review queue both ways.
+string trainRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "oneocr-aot-" + Guid.NewGuid().ToString("N"));
+System.IO.Directory.CreateDirectory(trainRoot);
+try
+{
+    var trainShape = new TestModels.Shape(32, [(8, 2, 2), (16, 2, 2), (16, 2, 1), (32, 2, 1), (32, 2, 1)], 24, 2, 41);
+    string startPath = System.IO.Path.Combine(trainRoot, "start.onm");
+    System.IO.File.WriteAllBytes(startPath, TestModels.RandomContainer(trainShape, 5));
+    string work = System.IO.Path.Combine(trainRoot, "work");
+    string[] trainCharset = TestModels.Charset(41);
+    var store = new OneOcr.Training.WorkStore(work, OcrLimits.Default);
+    for (int d = 0; d < 3; d++)
+    {
+        var doc = new OneOcr.Training.DocLabelsDto { Id = "doc" + d, Document = "d" + d + ".png", Height = 32 };
+        for (int i = 0; i < 3; i++)
+        {
+            doc.Lines.Add(new OneOcr.Training.LineLabelDto
+            {
+                Index = i, Local = "x", Llm = trainCharset[1 + i] + trainCharset[2 + i], State = i == 2 ? OneOcr.Training.LineAgreement.Disagreed : OneOcr.Training.LineAgreement.Agreed,
+                CropWidth = 96, Width = 96, Height = 32, Crop = TestModels.RandomImage(32, 96, (d * 3) + i),
+            });
+        }
+
+        store.Save(doc);
+    }
+
+    var trainOptions = new OneOcr.Training.OcrTrainerOptions { ModelPath = startPath, WorkDirectory = work, Steps = 3, BatchSize = 4, HeldOutFraction = 0.34 };
+    OneOcr.Training.TrainingReport trained = new OneOcr.Training.OcrTrainer(trainOptions).Train();
+    if (trained.TrainLines != 4 || trained.Evaluation is null || trained.Steps != 3 || !System.IO.File.Exists(trained.ModelPath)
+        || !OneOcr.Training.OcrTrainer.ToJson(trained).Contains("\"agreementRate\"", StringComparison.Ordinal))
+    {
+        Console.Error.WriteLine("fine-tuning failed");
+        return 1;
+    }
+
+    OcrEngine.Load(trained.ModelPath);
+    OneOcr.Training.ReviewExport exported = OneOcr.Training.LineReview.Export(work, System.IO.Path.Combine(trainRoot, "export"));
+    string edited = System.IO.File.ReadAllText(exported.ReviewFile).Replace("\"text\": null", "\"text\": \"ab\"", StringComparison.Ordinal);
+    OneOcr.Training.ReviewImportResult imported = OneOcr.Training.LineReview.Import(work, System.Text.Encoding.UTF8.GetBytes(edited));
+    if (exported.Items != 3 || imported.Accepted != 3 || imported.UnknownIds != 0)
+    {
+        Console.Error.WriteLine("review round trip failed");
+        return 1;
+    }
+}
+finally
+{
+    System.IO.Directory.Delete(trainRoot, true);
+}
+
 Console.WriteLine($"ok: {a.Text.Length} characters, confidence {a.Confidence:F3}");
 return 0;
 

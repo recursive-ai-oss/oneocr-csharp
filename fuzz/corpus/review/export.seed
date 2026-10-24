@@ -1,0 +1,1 @@
+{"format":"oneocr.review","version":1,"items":[{"id":"0123456789abcdef-3","document":"scan.png","box":[10,20,300,30],"local":"Tota1 due","llm":"Total due","state":"disagreed","confidence":0.81,"crop":"crops/0123456789abcdef-3.png","text":"Total due"},{"id":"0123456789abcdef-4","state":"unaligned","llm":null,"text":null}]}

@@ -25,6 +25,7 @@ internal static class Program
             "charlm" => CharLmTarget.Run,
             "lexicon" => LexiconTarget.Run,
             "pagejson" => PageJsonTarget.Run,
+            "review" => ReviewImportTarget.Run,
             "llm-anthropic" => LlmTarget.RunAnthropic,
             "llm-openai" => LlmTarget.RunOpenAi,
             "llm-gemini" => LlmTarget.RunGemini,
@@ -136,7 +137,7 @@ internal static class Program
             }
         }
 
-        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + LlmTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer), no findings");
+        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer), no findings");
         return 0;
     }
 
@@ -169,6 +170,17 @@ internal static class Program
             File.WriteAllText(Path.Combine(dir, "full.seed"), OcrPageJson.ToJson([sample, new OcrPage(1, 100, 50, 300, [])]));
             File.WriteAllText(Path.Combine(dir, "indented.seed"), OcrPageJson.ToJson([sample], new OcrPageJsonOptions { Indented = true, IncludeChars = false }));
             File.WriteAllText(Path.Combine(dir, "empty.seed"), OcrPageJson.ToJson([]));
+            return;
+        }
+
+        if (target == "review")
+        {
+            File.WriteAllText(Path.Combine(dir, "export.seed"),
+                "{\"format\":\"oneocr.review\",\"version\":1,\"items\":[{\"id\":\"0123456789abcdef-3\",\"document\":\"scan.png\",\"box\":[10,20,300,30],\"local\":\"Tota1 due\",\"llm\":\"Total due\",\"state\":\"disagreed\",\"confidence\":0.81,\"crop\":\"crops/0123456789abcdef-3.png\",\"text\":\"Total due\"},"
+                + "{\"id\":\"0123456789abcdef-4\",\"state\":\"unaligned\",\"llm\":null,\"text\":null}]}");
+            File.WriteAllText(Path.Combine(dir, "escapes.seed"),
+                "{\"items\":[{\"text\":\"caf\\u00e9 \\ud83d\\ude00 \\\"quoted\\\"\",\"id\":\"a-1\"},{\"id\":\"a-2\",\"text\":\"\",\"extra\":{\"deep\":[1,[2,[3]]]}}],\"version\":1,\"format\":\"oneocr.review\"}");
+            File.WriteAllText(Path.Combine(dir, "empty.seed"), "{\"format\":\"oneocr.review\",\"version\":1,\"items\":[]}");
             return;
         }
 

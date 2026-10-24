@@ -136,4 +136,13 @@ public sealed class OcrLimits
 
     /// <summary>Most bytes of one request to a provider (images as encoded, plus text). Checked before the request is built. Default 32 MiB.</summary>
     public long MaxLlmRequestBytes { get; init; } = 32L * 1024 * 1024;
+
+    /// <summary>Most bytes of a review-import file (corrections to the review queue). Checked before the file is read. Default 16 MiB.</summary>
+    public long MaxReviewImportBytes { get; init; } = 16L * 1024 * 1024;
+
+    /// <summary>Most items in a review-import file. Default 100,000.</summary>
+    public int MaxReviewItems { get; init; } = 100_000;
+
+    /// <summary>Longest corrected line of text in a review-import file, in UTF-16 code units. Default 1,024.</summary>
+    public int MaxReviewTextLength { get; init; } = 1024;
 }

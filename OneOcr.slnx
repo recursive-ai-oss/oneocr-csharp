@@ -3,6 +3,8 @@
     <Project Path="src/OneOcr/OneOcr.csproj" />
     <Project Path="src/OneOcr.Llm/OneOcr.Llm.csproj" />
     <Project Path="src/OneOcr.Models/OneOcr.Models.csproj" />
+    <Project Path="src/OneOcr.Training/OneOcr.Training.csproj" />
+    <Project Path="src/OneOcr.Tool/OneOcr.Tool.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/OneOcr.Tests/OneOcr.Tests.csproj" />

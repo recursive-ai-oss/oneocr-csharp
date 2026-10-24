@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>The oneocr command-line tool: fine-tune a recognition model from your own documents (train), measure it (eval) and work through the lines that need a human look (review).</Description>
+    <OutputType>Exe</OutputType>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>oneocr</ToolCommandName>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../OneOcr.Training/OneOcr.Training.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+</Project>

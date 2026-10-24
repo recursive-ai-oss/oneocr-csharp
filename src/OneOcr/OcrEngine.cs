@@ -182,6 +182,28 @@ public sealed class OcrEngine
         }
     }
 
+    /// <summary>One text line of a page as the line finder sees it, with the crop the recognizer reads and its greedy reading.</summary>
+    internal sealed record LineSample(int X, int Y, int Width, int Height, string Text, float Confidence, byte[] Gray, int CropWidth);
+
+    /// <summary>
+    /// Finds the page's lines and reads each with greedy decoding, keeping the crop (scaled to the model's input height) so a caller
+    /// can train on it. Lines come back in the finder's order (top to bottom).
+    /// </summary>
+    internal List<LineSample> ReadLineSamples(Image image, int maxDegreeOfParallelism, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        LineSample?[] samples = [];
+        ForEachLine(
+            image, maxDegreeOfParallelism, count => samples = new LineSample?[count],
+            (index, ink, _, pixels, cropWidth) =>
+            {
+                RecognizedLine read = _recognizer.Recognize(pixels, cropWidth, null, 1, cancellationToken);
+                samples[index] = new LineSample(ink.X, ink.Y, ink.Width, ink.Height, read.Text, read.Confidence, pixels.ToArray(), cropWidth);
+            },
+            cancellationToken);
+        return [.. samples.Select(static s => s!)];
+    }
+
     private delegate void LineVisitor(int index, LineBox ink, LineBox crop, ReadOnlySpan<byte> pixels, int cropWidth);
 
     // Finds the page's lines and calls visit once per line, in parallel at the given degree, with the line's ink box, its crop box
