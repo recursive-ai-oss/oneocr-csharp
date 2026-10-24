@@ -221,6 +221,9 @@ def main() -> None:
     ap.add_argument("--version", default="0.1.0")
     ap.add_argument("--model-config", help="JSON of model config overrides for --random-seed")
     ap.add_argument("--postprocess", help="JSON {text_threshold,text_expand,layout_threshold,layout_expand}, default: eval.detect")
+    ap.add_argument(
+        "--exclude-classes", default="", help="comma list of layout classes left out of layout_trained (labelled but not learned)"
+    )
     ap.add_argument("--run-manifest", help="run_manifest.json of the training run, copied into provenance")
     a = ap.parse_args()
     out = Path(a.out)
@@ -243,6 +246,8 @@ def main() -> None:
 
         names = [src["name"] for src in prov["run"]["config"]["sources"]]
         trained = [c for i, c in enumerate(LAYOUT_CLASSES) if any(CMASK[n][i] for n in names)]
+    if trained and a.exclude_classes:
+        trained = [c for c in trained if c not in a.exclude_classes.split(",")]
     export(model, out, a.version, prov, json.loads(a.postprocess) if a.postprocess else None, trained)
     # fp16-rounded folded graph vs the PyTorch model in fp32
     manifest, t = read_tensors(out)
