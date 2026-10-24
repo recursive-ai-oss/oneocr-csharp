@@ -317,6 +317,45 @@ public static class PdfOcrExtensions
     public static string ToText(this PdfDocument document, OcrEngine engine, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
         string.Join('\f', Ocr(document, engine, options, cancellationToken).Select(p => p.ToText()));
 
+    /// <summary>Reads one page with <see cref="OneOcr.Default"/> and writes it as Markdown (see <see cref="OcrMarkdown"/>). Header and footer roles from the text layer are honored.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="markdown">Markdown options; null for the defaults.</param>
+    /// <param name="options">Per-call read options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between regions.</param>
+    /// <returns>The Markdown.</returns>
+    /// <exception cref="OcrModelException">No default engine is configured.</exception>
+    public static string ToMarkdown(this PdfPage page, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Ocr(page, options, cancellationToken).ToMarkdown(markdown);
+
+    /// <summary>Reads one page with the given engine and writes it as Markdown.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="engine">The recognizer.</param>
+    /// <param name="markdown">Markdown options; null for the defaults.</param>
+    /// <param name="options">Per-call read options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between regions.</param>
+    /// <returns>The Markdown.</returns>
+    public static string ToMarkdown(this PdfPage page, OcrEngine engine, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Ocr(page, engine, options, cancellationToken).ToMarkdown(markdown);
+
+    /// <summary>Reads an open document with <see cref="OneOcr.Default"/> and writes it as Markdown, pages separated by a thematic break.</summary>
+    /// <param name="document">The document.</param>
+    /// <param name="markdown">Markdown options; null for the defaults.</param>
+    /// <param name="options">Per-call read options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages and regions.</param>
+    /// <returns>The Markdown.</returns>
+    public static string ToMarkdown(this PdfDocument document, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Ocr(document, options, cancellationToken).ToMarkdown(markdown);
+
+    /// <summary>Reads an open document with the given engine and writes it as Markdown, pages separated by a thematic break.</summary>
+    /// <param name="document">The document.</param>
+    /// <param name="engine">The recognizer.</param>
+    /// <param name="markdown">Markdown options; null for the defaults.</param>
+    /// <param name="options">Per-call read options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages and regions.</param>
+    /// <returns>The Markdown.</returns>
+    public static string ToMarkdown(this PdfDocument document, OcrEngine engine, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Ocr(document, engine, options, cancellationToken).ToMarkdown(markdown);
+
     /// <summary>Like <see cref="Ocr(PdfDocument, OcrEngine, PdfOcrOptions?, CancellationToken)"/>, on a worker thread.</summary>
     /// <param name="document">The document.</param>
     /// <param name="engine">The recognizer.</param>

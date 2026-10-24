@@ -18,6 +18,19 @@ public sealed class OcrOptions
     /// <summary>The index written to <see cref="OcrPage.Index"/>, for pages of a document. Default 0.</summary>
     public int PageIndex { get; init; }
 
+    /// <summary>
+    /// Whether to find out how far the page is turned (0, 90, 180 or 270 degrees) and read it upright. Default true. The result is
+    /// reported in <see cref="OcrPage.Orientation"/>; boxes stay in the input image's coordinates and rotated elements carry a quad.
+    /// A page whose text has no clear direction is read as it is.
+    /// </summary>
+    public bool DetectOrientation { get; init; } = true;
+
+    /// <summary>
+    /// Whether to straighten text lines tilted by up to about 15 degrees before reading. Default true. The tilt is reported in
+    /// <see cref="OcrPage.SkewDegrees"/>; tilts under about 0.3 degrees are left alone, so an upright page reads exactly as before.
+    /// </summary>
+    public bool Deskew { get; init; } = true;
+
     internal void Validate()
     {
         if (Dpi is double d && (!double.IsFinite(d) || d <= 0))

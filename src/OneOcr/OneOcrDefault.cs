@@ -1,4 +1,5 @@
 using OneImage;
+using OneOcr.Documents;
 
 namespace OneOcr;
 
@@ -9,6 +10,7 @@ namespace OneOcr;
 public static class OneOcr
 {
     private static OcrEngine? s_default;
+    private static DocumentExtractor? s_extractor;
 
     /// <summary>The configured default engine.</summary>
     /// <exception cref="OcrModelException">No engine has been configured.</exception>
@@ -29,10 +31,29 @@ public static class OneOcr
         }
     }
 
-    /// <summary>Loads the recognizer that ships in the models package and sets it as <see cref="Default"/>. May be called once.</summary>
+    /// <summary>Loads the recognizer and page detector that ship in the models package and sets it as <see cref="Default"/>. May be called once.</summary>
     /// <exception cref="OcrModelException">The package carries no weights, or they do not match their pin.</exception>
     /// <exception cref="InvalidOperationException">A default engine was already configured.</exception>
     public static void Configure() => Configure(OcrEngine.LoadBundled());
+
+    /// <summary>The configured default document extractor, used by the extraction extension methods that take none.</summary>
+    /// <exception cref="OcrModelException">No extractor has been configured.</exception>
+    public static DocumentExtractor DefaultExtractor =>
+        Volatile.Read(ref s_extractor) ?? throw new OcrModelException(
+            "No document extraction model is configured. Call OneOcr.ConfigureExtractor(DocumentExtractor.Load(modelPath)) once at startup (the RecursiveAI.OneOcr.Models.Documents package offers the bundled model), or pass an extractor explicitly.");
+
+    /// <summary>Sets <see cref="DefaultExtractor"/>. May be called once.</summary>
+    /// <param name="extractor">The extractor to use by default.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="extractor"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A default extractor was already configured.</exception>
+    public static void ConfigureExtractor(DocumentExtractor extractor)
+    {
+        ArgumentNullException.ThrowIfNull(extractor);
+        if (Interlocked.CompareExchange(ref s_extractor, extractor, null) is not null)
+        {
+            throw new InvalidOperationException("OneOcr.DefaultExtractor is already configured.");
+        }
+    }
 
     /// <summary>Loads a model file and sets it as <see cref="Default"/>. May be called once.</summary>
     /// <param name="modelPath">A model container file.</param>
@@ -58,6 +79,25 @@ public static class OcrImageExtensions
     {
         ArgumentNullException.ThrowIfNull(engine);
         return engine.ToText(image);
+    }
+
+    /// <summary>Reads a page image with <see cref="OneOcr.Default"/> and writes it as Markdown (see <see cref="OcrMarkdown"/>). Everything is local.</summary>
+    /// <param name="image">The page image.</param>
+    /// <param name="options">Markdown options; null for the defaults.</param>
+    /// <returns>The Markdown; empty when no text was found.</returns>
+    /// <exception cref="OcrModelException">No default engine is configured.</exception>
+    public static string ToMarkdown(this Image image, MarkdownOptions? options = null) => OneOcr.Default.Ocr(image).ToMarkdown(options);
+
+    /// <summary>Reads a page image with the given engine and writes it as Markdown.</summary>
+    /// <param name="image">The page image.</param>
+    /// <param name="engine">The engine to read with.</param>
+    /// <param name="options">Markdown options; null for the defaults.</param>
+    /// <returns>The Markdown; empty when no text was found.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="engine"/> is null.</exception>
+    public static string ToMarkdown(this Image image, OcrEngine engine, MarkdownOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        return engine.Ocr(image).ToMarkdown(options);
     }
 
     /// <summary>Reads a page image into the page model with the default engine (see <see cref="OneOcr.Default"/>).</summary>

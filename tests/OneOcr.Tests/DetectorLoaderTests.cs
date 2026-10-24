@@ -147,6 +147,36 @@ public class DetectorLoaderTests
     }
 
     [Fact]
+    public void ThresholdsAndExpansionsFollowTheOptions()
+    {
+        // One text line of 4 x 2 cells (probability 0.5) and one layout cell (probability 0.5) in the first class.
+        var prob = new float[8 * 8];
+        Array.Fill(prob, -6f);
+        for (int x = 2; x < 6; x++)
+        {
+            prob[(3 * 8) + x] = 0f;
+            prob[(4 * 8) + x] = 0f;
+        }
+
+        var layout = new float[8 * 8 * 16];
+        Array.Fill(layout, -6f);
+        layout[((3 * 8) + 3) * 16] = 0f;
+
+        PageDetection Run(DetectorPostprocess.Options? o) => DetectorPostprocess.Decode(
+            prob, 8, 8, layout, 8, 8, 16, TestDetectorModels.AllClasses, new bool[8].Select(_ => true).ToArray(), new float[4], 1.0, 128, 128, OcrLimits.Default, o);
+
+        PageDetection byDefault = Run(null);
+        Assert.Single(byDefault.Lines);
+        Assert.Empty(byDefault.Regions); // 0.5 is under the default layout threshold of 0.6
+
+        PageDetection looser = Run(new DetectorPostprocess.Options(0.3, 0.5, 0.4, 0.5));
+        Assert.Single(looser.Regions);
+        Assert.True(looser.Lines[0].Right - looser.Lines[0].Left < byDefault.Lines[0].Right - byDefault.Lines[0].Left);
+
+        Assert.Empty(Run(new DetectorPostprocess.Options(0.6, 1.0, 0.6, 0.85)).Lines);
+    }
+
+    [Fact]
     public void OrientationIsTheSoftmaxWinner()
     {
         Assert.Equal(1, DetectorPostprocess.Orientation([0.1f, 3f, 0f, 0f]).Quarter);

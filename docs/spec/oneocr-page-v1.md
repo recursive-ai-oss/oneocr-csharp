@@ -46,6 +46,8 @@ Page = {
   "index": <int>, "width": <number>, "height": <number>,
   "unitsPerInch": <number>,
   "toPdf": [a, b, c, d, e, f],        optional
+  "orientation": 90 | 180 | 270,      optional, written only when not 0
+  "skew": <number>,                   optional, written only when not 0
   "diagnostics": [ <string>, ... ],
   "text": <string>,                   blocks joined by "\n\n", lines by "\n", cells by "\t"; derived, ignored on read
   "blocks": [ Block, ... ],           reading order
@@ -100,6 +102,15 @@ Cell  = { "row", "column", "rowSpan", "columnSpan", "bounds", "words": [ <word i
 KeyValue = { "key": [ <word index>, ... ], "value": [ <word index>, ... ], "bounds", "confidence", "source" }
 ```
 
+**Orientation and skew.** `orientation` is how far the page content was turned clockwise from upright when the image was read:
+90 means the tops of the lines point to the right. `skew` is the tilt, in degrees (three decimals), of the text lines that was
+removed before reading, positive when the lines descend to the right; it is within 45. Both are additive members of version 1, written
+only when they are not 0 (so a page that needed neither has the same bytes as before) and read as 0 when absent. A reader rejects an
+`orientation` other than 0, 90, 180 or 270 and a `skew` beyond 45 with `OcrFormatException`. All coordinates stay in the image as
+given, whatever the turn; text that was turned or straightened carries a `quad` (corners in the text's own frame: top-left, top-right,
+bottom-right, bottom-left), and its `bounds` is the box around the quad. How the turn and tilt are found and mapped back is in
+`page-orientation-v1.md`. Pages from a PDF have neither member.
+
 **Word index.** Words of a page are numbered in reading order: blocks in order, lines in order, words in order, from 0.
 `words` of a cell and `key`/`value` of a key–value pair refer to that numbering. Block indices count from 0 in `blocks`.
 
@@ -129,6 +140,8 @@ of PDF fragments:
   (columns that share paragraph gaps are not interleaved).
 - A run of rows whose cells align in columns is a table block: `table` is true, each line is a row, and a `Table` entry carries
   its cells. Table `confidence` is the share of rows with more than one cell and is not calibrated.
+  Tables drawn with ruling lines, and tables in a detected `table` region, get spans, empty cells (`words: []`) and multi-line
+  cells; see `table-structure-v1.md`. The members are the same.
 
 Word boxes are the ink extent inside the horizontal range the recognizer aligned the word to. Character boxes tile that
 range by the alignment of the network's output and carry `approximate: true`.

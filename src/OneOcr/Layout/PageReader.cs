@@ -7,7 +7,7 @@ using OneOcr.Recognition;
 namespace OneOcr.Layout;
 
 /// <summary>Turns a grayscale page into an <see cref="OcrPage"/>: finds strips, reads them, orders them, assembles the model.</summary>
-internal static class PageReader
+internal static partial class PageReader
 {
     // Page units per inch that body text of about 11 points would have, for a typical line of this many pixels (ink from the top
     // of the ascenders to the bottom of the descenders is about one em tall).
@@ -15,23 +15,39 @@ internal static class PageReader
 
     private static readonly double[] CommonResolutions = [72, 96, 150, 200, 300, 400, 600];
 
+    // The ruled tables are found before the finder erases rules; a page whose strips were found earlier brings its tables with them.
+    private static FoundStrips FindStrips(Gray8[] gray, int width, int height, OcrLimits limits, BufferPool<byte> masks, int degree, out List<RuleGrid> grids)
+    {
+        grids = FindGrids(gray, width, height, degree);
+        List<StripLine> strips = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int level, out bool bright);
+        return new FoundStrips(strips, level, bright);
+    }
+
     public static OcrPage Read(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, BufferPool<byte> masks, ResizerPool resizers, IPageDetector? detector,
-        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, CancellationToken cancellationToken)
+        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, PageDetection? first, bool turn,
+        FoundStrips? found, CancellationToken cancellationToken)
     {
         if (detector is null)
         {
-            List<StripLine> found = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int level, out bool bright);
+            // Strips found earlier on these very pixels are used as they are.
+            List<RuleGrid> ruled = found?.Grids ?? [];
+            FoundStrips strips = found ?? FindStrips(gray, width, height, limits, masks, degree, out ruled);
+            List<StripLine> cut = TableStructure.SplitStrips(strips.Strips, ruled, PixelSpans.AsBytes(gray.AsSpan(0, width * height)), width, height, strips.Threshold, strips.InkIsBright);
             return ReadStrips(
-                recognizer, limits, pixelPool, resizers, gray, width, height, found, level, bright, [], [], pageIndex, dpi, degree, includeChars, cancellationToken);
+                recognizer, limits, pixelPool, resizers, gray, width, height, cut, strips.Threshold, strips.InkIsBright, [], [], ruled, pageIndex, dpi, degree, includeChars,
+                cancellationToken);
         }
 
-        LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken);
+        LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken, first, turn);
         try
         {
+            List<RuleGrid> ruled = FindGrids(located.Gray, located.Width, located.Height, degree);
+            List<StripLine> cut = TableStructure.SplitStrips(
+                located.Strips, ruled, PixelSpans.AsBytes(located.Gray.AsSpan(0, located.Width * located.Height)), located.Width, located.Height, located.Threshold, located.InkIsBright);
             return ReadStrips(
-                recognizer, limits, pixelPool, resizers, located.Gray, located.Width, located.Height, located.Strips, located.Threshold, located.InkIsBright,
-                located.Regions, located.Notes, pageIndex, dpi, degree, includeChars, cancellationToken);
+                recognizer, limits, pixelPool, resizers, located.Gray, located.Width, located.Height, cut, located.Threshold, located.InkIsBright,
+                located.Regions, located.Notes, ruled, pageIndex, dpi, degree, includeChars, cancellationToken);
         }
         finally
         {
@@ -41,7 +57,7 @@ internal static class PageReader
 
     private static OcrPage ReadStrips(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, ResizerPool resizers, Gray8[] gray, int width, int height,
-        List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<string> notes, int pageIndex, double? dpi, int degree,
+        List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<string> notes, List<RuleGrid> grids, int pageIndex, double? dpi, int degree,
         bool includeChars, CancellationToken cancellationToken)
     {
         int count = checked(width * height);
@@ -147,7 +163,7 @@ internal static class PageReader
             }
         }
 
-        List<OrderBlock> plan = ReadingOrder.Arrange(ordered, cancellationToken);
+        List<OrderBlock> plan = TableStructure.Infer(TableStructure.Apply(ReadingOrder.Arrange(ordered, cancellationToken), grids), regions, null);
         return Assemble(plan, ordered, regions, pageIndex, width, height, units, diagnostics);
     }
 
@@ -233,6 +249,12 @@ internal static class PageReader
         int wordIndex = 0;
         foreach (OrderBlock block in plan)
         {
+            if (block.Cells is not null)
+            {
+                AddGridBlock(block, strips, ref wordIndex, blocks, tables);
+                continue;
+            }
+
             var lines = new List<OcrLine>(block.Lines.Count);
             var cells = new Dictionary<(int Row, int Column), (OcrBox Box, List<int> Words)>();
             int multi = 0;

@@ -3,6 +3,7 @@
     <Project Path="src/OneOcr/OneOcr.csproj" />
     <Project Path="src/OneOcr.Llm/OneOcr.Llm.csproj" />
     <Project Path="src/OneOcr.Models/OneOcr.Models.csproj" />
+    <Project Path="src/OneOcr.Models.Documents/OneOcr.Models.Documents.csproj" />
     <Project Path="src/OneOcr.Training/OneOcr.Training.csproj" />
     <Project Path="src/OneOcr.Tool/OneOcr.Tool.csproj" />
     <Project Path="src/OneOcr.Pdf/OneOcr.Pdf.csproj" />

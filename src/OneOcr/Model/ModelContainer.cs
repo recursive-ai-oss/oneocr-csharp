@@ -12,6 +12,13 @@ namespace OneOcr.Model;
 /// <param name="Invert">Whether intensities are flipped (<c>1 - p/255</c>) before normalizing.</param>
 public readonly record struct ModelInput(int Height, int Channels, float Mean, float Std, bool Invert);
 
+/// <summary>Input limits of a model that reads the words of a page instead of pixels.</summary>
+/// <param name="MaxWords">Most words in one window.</param>
+/// <param name="MaxChars">Characters kept per word.</param>
+/// <param name="Bins">Cells per axis of the position grid.</param>
+/// <param name="Features">Numeric features per word.</param>
+internal readonly record struct WordModelInput(int MaxWords, int MaxChars, int Bins, int Features);
+
 /// <summary>Name, shape and location of one tensor in a container.</summary>
 /// <param name="Name">The tensor name.</param>
 /// <param name="Shape">Dimensions, row-major.</param>
@@ -29,6 +36,8 @@ public sealed record TensorInfo(string Name, IReadOnlyList<int> Shape, long Elem
 public sealed class ModelContainer
 {
     internal const string NoCalibrationNote = "The model file is container version 0, which carries no calibration: calibrated confidence equals raw confidence.";
+
+    internal const string DocExtractArchitecture = "docextract-v0";
 
     private const int HeaderSize = 16;
     private const int Alignment = 64;
@@ -49,7 +58,11 @@ public sealed class ModelContainer
         Name = manifest.Name;
         Version = manifest.Version;
         License = manifest.License;
-        Input = new ModelInput(manifest.Input.Height, manifest.Input.Channels, manifest.Input.Mean, manifest.Input.Std, manifest.Input.Invert);
+        Input = new ModelInput(
+            manifest.Input.Height ?? 0, manifest.Input.Channels ?? 1, manifest.Input.Mean ?? 0f, manifest.Input.Std ?? 1f, manifest.Input.Invert ?? false);
+        WordInput = manifest.Architecture == DocExtractArchitecture
+            ? new WordModelInput(manifest.Input.MaxWords ?? 0, manifest.Input.MaxChars ?? 0, manifest.Input.Bins ?? 0, manifest.Input.Features ?? 0)
+            : null;
         Charset = manifest.Charset;
         Tensors = tensors;
         ConfigElement = manifest.Config;
@@ -75,6 +88,9 @@ public sealed class ModelContainer
 
     /// <summary>Input preprocessing parameters.</summary>
     public ModelInput Input { get; }
+
+    /// <summary>Featurization limits of a word-based model (<c>docextract-v0</c>); null for models that read pixels.</summary>
+    internal WordModelInput? WordInput { get; }
 
     /// <summary>Output classes in order; index 0 is the CTC blank.</summary>
     public IReadOnlyList<string> Charset { get; }
@@ -330,24 +346,70 @@ public sealed class ModelContainer
         }
     }
 
-    private static List<TensorInfo> ValidateManifest(
-        ManifestDto m, OcrLimits limits, long dataLength, out Dictionary<string, TensorInfo> byName)
+    private static void ValidatePixelInput(ManifestDto m, OcrLimits limits)
     {
+        InputDto input = m.Input;
+        if (input.Height is null || input.Channels is null || input.Mean is null || input.Std is null || input.Invert is null)
+        {
+            throw new OcrModelException("The manifest is not valid: input needs height, channels, mean, std and invert.");
+        }
+
         // Height 0 means "any multiple of 32" and is allowed only for the page detector, which has no fixed input height.
-        bool anyHeight = m.Architecture == "dbnet-lite-v0" && m.Input.Height == 0;
-        if ((m.Input.Height < 1 && !anyHeight) || m.Input.Channels < 1)
+        bool anyHeight = m.Architecture == "dbnet-lite-v0" && input.Height == 0;
+        if ((input.Height < 1 && !anyHeight) || input.Channels < 1)
         {
             throw new OcrModelException("The input height and channel count must be positive.");
         }
 
-        if (m.Input.Height > limits.MaxInputHeight)
+        if (input.Height > limits.MaxInputHeight)
         {
-            throw new OcrLimitException(nameof(OcrLimits.MaxInputHeight), limits.MaxInputHeight, m.Input.Height);
+            throw new OcrLimitException(nameof(OcrLimits.MaxInputHeight), limits.MaxInputHeight, input.Height.Value);
         }
 
-        if (!float.IsFinite(m.Input.Mean) || !float.IsFinite(m.Input.Std) || m.Input.Std <= 0)
+        if (!float.IsFinite(input.Mean.Value) || !float.IsFinite(input.Std.Value) || input.Std <= 0)
         {
             throw new OcrModelException("The input mean must be finite and the standard deviation finite and positive.");
+        }
+    }
+
+    private static void ValidateWordInput(InputDto input, OcrLimits limits)
+    {
+        if (input.Kind != "words" || input.MaxWords is null || input.MaxChars is null || input.Bins is null || input.Features is null)
+        {
+            throw new OcrModelException("The manifest is not valid: the input of a word model needs kind \"words\", max_words, max_chars, bins and features.");
+        }
+
+        if (input.MaxWords < 1 || input.MaxChars < 1 || input.Bins < 1 || input.Features < 1)
+        {
+            throw new OcrModelException("The word input limits must be positive.");
+        }
+
+        if (input.MaxWords > limits.MaxWordsPerWindow)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxWordsPerWindow), limits.MaxWordsPerWindow, input.MaxWords.Value);
+        }
+
+        if (input.MaxChars > limits.MaxCharsPerWord)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxCharsPerWord), limits.MaxCharsPerWord, input.MaxChars.Value);
+        }
+
+        if (input.Bins > limits.MaxPositionBins)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxPositionBins), limits.MaxPositionBins, input.Bins.Value);
+        }
+    }
+
+    private static List<TensorInfo> ValidateManifest(
+        ManifestDto m, OcrLimits limits, long dataLength, out Dictionary<string, TensorInfo> byName)
+    {
+        if (m.Architecture == DocExtractArchitecture)
+        {
+            ValidateWordInput(m.Input, limits);
+        }
+        else
+        {
+            ValidatePixelInput(m, limits);
         }
 
         if (m.Charset.Count == 0)

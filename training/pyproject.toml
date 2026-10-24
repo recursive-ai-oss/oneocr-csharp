@@ -11,6 +11,9 @@ dependencies = [
     "fonttools>=4.55",
     "pyyaml>=6",
     "rapidfuzz>=3.14.6",
+    "scipy>=1.18.1",
+    "pycocotools>=2.0.11",
+    "playwright==1.55.0",
 ]
 
 [dependency-groups]
@@ -35,3 +38,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+# long lines in the page generator are CSS and HTML templates
+"pages/*" = ["E501", "E741", "E731"]

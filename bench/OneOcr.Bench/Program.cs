@@ -13,6 +13,9 @@ using OneOcr.Layout;
 //       decode time and the median-of-K recognition time, and the process's peak working set. --degree 0 is the library default.
 //       --words 1 also writes <page-id>.json, the scorer's word sidecar {"words":[{"box":[x0,y0,x1,y1],"text":..,"conf":..,"conf_raw":..}]}
 //       from OcrEngine.Ocr (greedy; word boxes are ink extents; calibrated and raw word confidence). It runs after the timed loop, so timings are unaffected.
+//       --noorient 1 reads with orientation detection and deskew off (the text of a page that needs neither is the same either way).
+//       --metaonly 1 skips the timed text run and its .txt (with --meta 1: orientation and skew only).
+//       --meta 1 also writes <page-id>.meta.json {"orientation":..,"skew":..} as the engine reports them.
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
 //       compares found text lines with lines derived from the truth word boxes (precision and recall at IoU >= 0.5) and times
 //       grayscale conversion, line finding and line preprocessing per page.
@@ -23,6 +26,8 @@ using OneOcr.Layout;
 //       median time of one training step (see TrainBench.cs).
 //   OneOcr.Bench detect [--model FILE] [--page 2480x3508] [--degree 1] [--repeat 15] [--path avx2]
 //       median time of the page detector (scaling, network, decoding) and of the network alone; see DetectBench.cs.
+//   OneOcr.Bench docextract --model FILE [--words 150,300] [--degree 1] [--repeat 15] [--path avx2]
+//       median time of the document-extraction forward pass and assembly for pages of the given word counts; see DocExtractBench.cs.
 //   OneOcr.Bench randommodel --out FILE
 //       writes a random-weight model of the intended size, to exercise the pipeline before trained weights exist (the text is garbage).
 //
@@ -52,7 +57,11 @@ internal static class Program
             "decode" => DecodeBench.Run(options),
             "trainstep" => TrainBench.Run(options),
             "detect" => DetectBench.Run(options),
+            "docextract" => DocExtractBench.Run(options),
             "strips" => Strips(options),
+            "detlines" => DetLines(options),
+            "grids" => Grids(options),
+            "skew" => Skew(options),
             _ => 2,
         };
     }
@@ -126,6 +135,95 @@ internal static class Program
         return 0;
     }
 
+    // Prints what the page detector finds on one page and the ink strips made from it: OneOcr.Bench detlines --image FILE --detector FILE
+    private static int DetLines(Dictionary<string, string> o)
+    {
+        Image image = Image.Load(Need(o, "image"));
+        var gray = new Gray8[image.Width * image.Height];
+        image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+        var detector = new OneOcr.Detection.PageDetector(
+            OneOcr.Detection.DbNetModel.FromContainer(OneOcr.Model.ModelContainer.Load(Need(o, "detector"), null), OneOcr.OcrLimits.Default),
+            OneOcr.OcrLimits.Default, OneOcr.Kernels.Dispatch.Best);
+        var pixels = new OneOcr.BufferPool<Gray8>(1L << 28, 1);
+        var resizers = new ResizerPool();
+        OneOcr.Detection.PageDetection d = detector.Detect(gray, image.Width, image.Height, pixels, resizers, 1, System.Threading.CancellationToken.None);
+        Console.WriteLine($"{d.Lines.Count} lines, {d.Regions.Count} regions, quarter {d.Quarter} ({d.OrientationConfidence:F2})");
+        foreach (var l in d.Lines)
+        {
+            Console.WriteLine($"line x {l.Left,7:F1} y {l.Top,7:F1} w {l.Right - l.Left,6:F1} h {l.Bottom - l.Top,5:F1} score {l.Score:F2}");
+        }
+
+        foreach (var r in d.Regions)
+        {
+            Console.WriteLine($"region {r.Name,-13} x {r.Left,7:F1} y {r.Top,7:F1} w {r.Right - r.Left,6:F1} h {r.Bottom - r.Top,6:F1} score {r.Score:F2}");
+        }
+
+        LocatedPage located = DetectorLines.Locate(detector, gray, image.Width, image.Height, pixels, resizers, 1, System.Threading.CancellationToken.None, d, false);
+        foreach (StripLine s in located.Strips)
+        {
+            Console.WriteLine($"strip leaf {s.Leaf,7}  x {s.Box.X,5} y {s.Box.Y,5} w {s.Box.Width,5} h {s.Box.Height,3}");
+        }
+
+        return 0;
+    }
+
+    // Prints the ruled grids of one page: OneOcr.Bench grids --image FILE
+    private static int Grids(Dictionary<string, string> o)
+    {
+        Image image = Image.Load(Need(o, "image"));
+        var gray = new Gray8[image.Width * image.Height];
+        image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+        ReadOnlySpan<byte> bytes = OneOcr.Kernels.PixelSpans.AsBytes(gray);
+        (int threshold, bool inkIsBright) = LineFinder.Binarize(bytes);
+        var clock = Stopwatch.StartNew();
+        List<RuleGrid> grids = TableRules.Find(bytes, image.Width, image.Height, threshold, inkIsBright);
+        Console.WriteLine($"{grids.Count} grids in {clock.Elapsed.TotalMilliseconds:F1} ms (threshold {threshold}, ink bright {inkIsBright})");
+        foreach (RuleGrid g in grids)
+        {
+            Console.WriteLine($"rows {g.Rows} columns {g.Columns} cells {g.Cells.Count} box {g.Left},{g.Top}-{g.Right},{g.Bottom} spans {g.Cells.Count(c => c.RowSpan > 1 || c.ColumnSpan > 1)} xs {string.Join(",", g.Xs)} ys {string.Join(",", g.Ys.Take(5))}");
+        }
+
+        if (grids.Count > 0)
+        {
+            var masks = new OneOcr.BufferPool<byte>(1L << 28, 1);
+            List<StripLine> strips = StripFinder.Find(gray, image.Width, image.Height, 100000, masks, 1, out _, out _, out _, eraseRules: false);
+            List<StripLine> cut = TableStructure.SplitStrips(strips, grids, bytes, image.Width, image.Height, threshold, inkIsBright);
+            Console.WriteLine($"{strips.Count} strips, {cut.Count} after cutting at the rules");
+        }
+
+        return 0;
+    }
+
+    // Prints the skew search of one page, and with --model the orientation evidence: OneOcr.Bench skew --image FILE [--model FILE]
+    private static int Skew(Dictionary<string, string> o)
+    {
+        Image image = Image.Load(Need(o, "image"));
+        var gray = new Gray8[image.Width * image.Height];
+        image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+        ReadOnlySpan<byte> bytes = OneOcr.Kernels.PixelSpans.AsBytes(gray);
+        (int threshold, bool inkIsBright) = LineFinder.Binarize(bytes);
+        InkGrid grid = InkGrid.Build(bytes, image.Width, image.Height, threshold, inkIsBright);
+        SkewEstimate flat = SkewEstimator.Estimate(grid), sideways = SkewEstimator.Estimate(grid.TurnClockwise());
+        Console.WriteLine($"threshold {threshold} inkIsBright {inkIsBright} grid {grid.Width}x{grid.Height} factor {grid.Factor}");
+        Console.WriteLine($"flat     slope {flat.Slope,4} gain {flat.Gain:F3} contrast {flat.Contrast:F2}");
+        Console.WriteLine($"sideways slope {sideways.Slope,4} gain {sideways.Gain:F3} contrast {sideways.Contrast:F2}");
+        if (o.TryGetValue("model", out string? model))
+        {
+            var recognizer = OneOcr.Recognition.LineRecognizer.Load(model);
+            var detector = new ClassicalOrientation(recognizer, new OneOcr.BufferPool<Gray8>(1L << 28, 1), new OneOcr.BufferPool<byte>(1L << 28, 1), new ResizerPool(), OneOcr.OcrLimits.Default);
+            var trace = new List<string>();
+            int degrees = detector.Detect(new OrientationInput(gray, image.Width, image.Height, 4), trace, System.Threading.CancellationToken.None);
+            foreach (string line in trace)
+            {
+                Console.WriteLine(line);
+            }
+
+            Console.WriteLine($"turn {degrees}");
+        }
+
+        return 0;
+    }
+
     private static int RandomModel(Dictionary<string, string> o)
     {
         File.WriteAllBytes(Need(o, "out"), OneOcr.Tests.TestModels.RandomContainer(OneOcr.Tests.TestModels.Full, 1));
@@ -157,7 +255,7 @@ internal static class Program
 
         double loadMs = clock.Elapsed.TotalMilliseconds;
 
-        bool writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
+        bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
         foreach (string path in Directory.GetFiles(pages).Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal))
         {
@@ -169,14 +267,24 @@ internal static class Program
             double decodeMs = clock.Elapsed.TotalMilliseconds;
             var times = new List<double>();
             string text = string.Empty;
-            for (int r = 0; r < repeat; r++)
+            for (int r = 0; r < (metaOnly ? 0 : repeat); r++)
             {
                 clock.Restart();
-                text = engine.ToText(image, degree);
+                text = noOrient
+                    ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, IncludeChars = false }).ToText()
+                    : engine.ToText(image, degree);
                 times.Add(clock.Elapsed.TotalMilliseconds);
             }
 
-            File.WriteAllText(Path.Combine(outDir, id + ".txt"), text, new UTF8Encoding(false));
+            if (metaOnly)
+            {
+                times.Add(0);
+            }
+            else
+            {
+                File.WriteAllText(Path.Combine(outDir, id + ".txt"), text, new UTF8Encoding(false));
+            }
+
             if (writeWords || writePageJson)
             {
                 OcrPage page = engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
@@ -185,6 +293,15 @@ internal static class Program
                 {
                     File.WriteAllText(Path.Combine(outDir, id + ".page.json"), OcrPageJson.ToJson([page]), new UTF8Encoding(false));
                 }
+            }
+
+            if (Int(o, "meta", 0) != 0)
+            {
+                // The orientation and skew the page reports, for checking against a known rotation.
+                OcrPage found = engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
+                File.WriteAllText(
+                    Path.Combine(outDir, id + ".meta.json"),
+                    string.Create(CultureInfo.InvariantCulture, $"{{\"orientation\":{found.Orientation},\"skew\":{found.SkewDegrees:0.####}}}"));
             }
 
             results.Add((id, decodeMs, Median(times), text.Length));
@@ -207,6 +324,8 @@ internal static class Program
             w.WriteNumber("allocated_mb", Math.Round(GC.GetTotalAllocatedBytes() / 1048576.0, 0));
             w.WriteString("runtime", System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
             w.WriteNumber("mean_page_ms", Math.Round(results.Average(r => r.OcrMs), 1));
+            w.WriteNumber("allocated_mb_per_page", Math.Round(GC.GetTotalAllocatedBytes() / 1048576.0 / results.Count, 1));
+            w.WriteNumber("gen2_collections", GC.CollectionCount(2));
             w.WriteStartArray("pages");
             foreach (var r in results)
             {

@@ -174,6 +174,26 @@ public static partial class OcrPageJson
                 toPdf = new OcrMatrix(v[0], v[1], v[2], v[3], v[4], v[5]);
             }
 
+            int orientation = 0;
+            if (e.TryGetProperty("orientation", out JsonElement o))
+            {
+                orientation = IntRange(o, path + ".orientation", 0, 270);
+                if (orientation % 90 != 0)
+                {
+                    throw new OcrFormatException($"{path}.orientation must be 0, 90, 180 or 270.");
+                }
+            }
+
+            double skew = 0;
+            if (e.TryGetProperty("skew", out JsonElement sk))
+            {
+                skew = Num(sk, path + ".skew");
+                if (!(Math.Abs(skew) <= 45))
+                {
+                    throw new OcrFormatException($"{path}.skew must be within 45 degrees.");
+                }
+            }
+
             var diagnostics = new List<string>();
             JsonElement diag = Req(e, "diagnostics", path);
             Array(diag, path + ".diagnostics");
@@ -234,7 +254,7 @@ public static partial class OcrPageJson
                 keyValues.Add(ReadKeyValue(kv, $"{path}.keyValues[{ki++}]", totalWords));
             }
 
-            return new OcrPage(index, width, height, upi, blocks, regions, tables, keyValues, diagnostics, toPdf);
+            return new OcrPage(index, width, height, upi, blocks, regions, tables, keyValues, diagnostics, toPdf, orientation, skew);
         }
 
         private OcrBlock ReadBlock(JsonElement e, string path)

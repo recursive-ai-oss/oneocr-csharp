@@ -58,7 +58,13 @@ internal sealed class OrderFragment
 
     /// <summary>Column index inside a table block; 0 elsewhere.</summary>
     public int Column;
+
+    /// <summary>Index into <see cref="OrderBlock.Cells"/> of the table cell the fragment lies in; -1 outside a ruled table.</summary>
+    public int Cell = -1;
 }
+
+/// <summary>A cell of a table whose structure was read: from its ruling lines, or from the gaps between its columns.</summary>
+internal sealed record OrderCell(int Row, int Column, int RowSpan, int ColumnSpan, OcrBox Box);
 
 /// <summary>One line of a block: its fragments left to right.</summary>
 internal sealed class OrderLine
@@ -72,6 +78,15 @@ internal sealed class OrderBlock
     public required bool IsTable { get; init; }
     public required int Columns { get; init; }
     public required List<OrderLine> Lines { get; init; }
+
+    /// <summary>The cells of a table whose structure was read, empty ones included; null for every other block.</summary>
+    public IReadOnlyList<OrderCell>? Cells { get; init; }
+
+    /// <summary>Number of rows of a table whose cells are given.</summary>
+    public int Rows { get; init; }
+
+    /// <summary>Probability that the block is a table, when its structure was read; null for ruled tables, which have a fixed value.</summary>
+    public float? TableConfidence { get; init; }
 }
 
 internal static class ReadingOrder
