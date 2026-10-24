@@ -11,6 +11,8 @@ dependencies = [
     "fonttools>=4.55",
     "pyyaml>=6",
     "rapidfuzz>=3.14.6",
+    "scipy>=1.18.1",
+    "pycocotools>=2.0.11",
 ]
 
 [dependency-groups]

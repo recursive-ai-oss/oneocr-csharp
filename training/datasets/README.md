@@ -33,3 +33,8 @@ dedup.json              splits.json          DONE.json
 - Real images are de-duplicated across splits by SHA-256 of the file bytes. `dedup.json` records within-split duplicates and cross-split collisions; for a collision the copy in the higher-priority split (test, dev, val, train) is kept and `drop` lists the ids to exclude from the other. Byte hashing does not catch re-encoded or re-photographed copies.
 
 Datasets whose labels ship with them (CORD, DocLayNet, PubLayNet) are label sources in their own right; see `LICENCES.md` for attribution.
+
+## Additions for the page detector
+
+- `fetch_doclaynet_extra.py` fetches DocLayNet's "extra" archive (8.0 GB, SHA-256 pinned in `manifests/doclaynet_extra.json`, same CDLA-Permissive-1.0 licence) and keeps only its per-page JSON: the PDF's text cells, used as text-line truth. The PDFs are not extracted.
+- `filter_publaynet_licence.py` looks up each PubLayNet article's licence code in PMC's Open Access cloud bucket metadata and writes `licence/allowed_{train,val}.txt` for articles coded exactly `CC0` or `CC BY`. Result on the fetched shards: train shard 0, 38,309 of 39,841 articles kept (CC BY 38,217; CC0 92; excluded: TDM 1,035, no code 467, CC BY-NC 26, CC BY-NC-ND 4); val, 7,755 of 7,797 kept.
