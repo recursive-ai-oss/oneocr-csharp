@@ -162,9 +162,34 @@ public sealed class LineRecognizer
 
     internal RecognizedLine Decode(float[] logits, int steps)
     {
-        var runs = new List<CharRun>();
+        List<CharRun> runs = RentRuns(steps);
         CollectRuns(logits, steps, runs);
-        var text = new StringBuilder();
+        return Decode(runs);
+    }
+
+    // Each thread keeps one list of runs and two string builders for the lines it reads, so that a line leaves no scratch behind.
+    // Characters are about two steps apiece, which is what the list is sized to.
+    [ThreadStatic]
+    private static List<CharRun>? t_runs;
+
+    [ThreadStatic]
+    private static StringBuilder? t_lineText;
+
+    [ThreadStatic]
+    private static StringBuilder? t_wordText;
+
+    private static List<CharRun> RentRuns(int steps)
+    {
+        List<CharRun> runs = t_runs ??= [];
+        runs.Clear();
+        runs.EnsureCapacity(Math.Max(4, (steps / 2) + 1));
+        return runs;
+    }
+
+    private RecognizedLine Decode(List<CharRun> runs)
+    {
+        StringBuilder text = t_lineText ??= new StringBuilder();
+        text.Clear();
         float total = 0f;
         foreach (CharRun run in runs)
         {
@@ -176,12 +201,12 @@ public sealed class LineRecognizer
     }
 
     /// <summary>Reads a line and splits it into words with boxes (in pixels of the line image) and calibrated confidences. Greedy decoding.</summary>
-    internal LineWords RecognizeWords(ReadOnlySpan<byte> gray, int width, int maxDegreeOfParallelism, CancellationToken cancellationToken)
+    internal LineWords RecognizeWords(ReadOnlySpan<byte> gray, int width, int maxDegreeOfParallelism, CancellationToken cancellationToken, bool withChars = true)
     {
         float[] logits = Forward(gray, width, maxDegreeOfParallelism, null, cancellationToken, out int steps);
         try
         {
-            return SplitWords(logits, steps, width);
+            return SplitWords(logits, steps, width, withChars);
         }
         finally
         {
@@ -192,13 +217,33 @@ public sealed class LineRecognizer
         }
     }
 
-    internal LineWords SplitWords(float[] logits, int steps, int width)
+    // The number of groups of non-space characters.
+    private int CountWords(List<CharRun> runs)
     {
-        var runs = new List<CharRun>();
+        int words = 0;
+        bool inWord = false;
+        foreach (CharRun run in runs)
+        {
+            bool space = _isSpace[run.Class];
+            if (!space && !inWord)
+            {
+                words++;
+            }
+
+            inWord = !space;
+        }
+
+        return words;
+    }
+
+    internal LineWords SplitWords(float[] logits, int steps, int width, bool withChars = true)
+    {
+        List<CharRun> runs = RentRuns(steps);
         CollectRuns(logits, steps, runs);
-        RecognizedLine line = Decode(logits, steps);
-        var words = new List<RecognizedWord>();
-        var text = new StringBuilder();
+        RecognizedLine line = Decode(runs);
+        var words = new List<RecognizedWord>(CountWords(runs));
+        StringBuilder text = t_wordText ??= new StringBuilder();
+        text.Clear();
         float total = 0f;
         double stepWidth = steps == 0 ? 0 : (double)width / steps;
         int first = -1;
@@ -233,10 +278,17 @@ public sealed class LineRecognizer
             float raw = total / (last - first + 1);
             OcrScript script = ScriptDetector.Of(word);
             float calibrated = _model.Calibration is { } c ? c.Apply(script, raw) : raw;
-            var chars = new List<RecognizedChar>(last - first + 1);
-            for (int k = first; k <= last; k++)
+            // Callers that only want the text and the word boxes skip the per-character list.
+            IReadOnlyList<RecognizedChar> chars = [];
+            if (withChars)
             {
-                chars.Add(new RecognizedChar(_model.Charset[runs[k].Class], runs[k].First * stepWidth, (runs[k].Last + 1) * stepWidth, runs[k].MaxProbability));
+                var list = new List<RecognizedChar>(last - first + 1);
+                for (int k = first; k <= last; k++)
+                {
+                    list.Add(new RecognizedChar(_model.Charset[runs[k].Class], runs[k].First * stepWidth, (runs[k].Last + 1) * stepWidth, runs[k].MaxProbability));
+                }
+
+                chars = list;
             }
 
             words.Add(new RecognizedWord(word, (float)(left * stepWidth), (float)(right * stepWidth), calibrated, raw, script, last - first + 1, chars));

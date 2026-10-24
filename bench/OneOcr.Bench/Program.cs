@@ -110,7 +110,7 @@ internal static class Program
         var gray = new Gray8[image.Width * image.Height];
         image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
         var masks = new OneOcr.BufferPool<byte>(1L << 28, 1);
-        List<StripLine> strips = StripFinder.Find(gray, image.Width, image.Height, 100000, masks, out bool used, out _, out _);
+        List<StripLine> strips = StripFinder.Find(gray, image.Width, image.Height, 100000, masks, 1, out bool used, out _, out _);
         Console.WriteLine($"{strips.Count} strips, regions used: {used}");
         foreach (StripLine s in strips)
         {

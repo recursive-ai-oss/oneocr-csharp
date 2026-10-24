@@ -38,7 +38,7 @@ internal static class CrnnForward
     /// <summary>Normalizes into the start of <paramref name="result"/>, which must hold at least <c>gray.Length</c> values.</summary>
     public static void NormalizeInto(ReadOnlySpan<byte> gray, ModelInputView input, float[] result)
     {
-        var table = new float[256];
+        Span<float> table = stackalloc float[256];
         for (int p = 0; p < 256; p++)
         {
             float x = p / 255f;
@@ -354,9 +354,10 @@ internal static class CrnnForward
         {
             int gates = 4 * hidden;
             float[] proj = pool.Rent(checked(t * gates));
-            float[] z = new float[gates];
-            float[] cell = new float[hidden];
-            float[] zeros = new float[hidden];
+            // One pooled block holds the gate sums, the cell state and a zero vector for the first step.
+            float[] scratch = pool.Rent(gates + (2 * hidden));
+            scratch.AsSpan(gates, 2 * hidden).Clear();
+            Span<float> z = scratch.AsSpan(0, gates), cell = scratch.AsSpan(gates, hidden), zeros = scratch.AsSpan(gates + hidden, hidden);
             try
             {
                 // proj[s] = W_ih * x_s + (b_ih + b_hh), one dot product per entry.
@@ -375,6 +376,7 @@ internal static class CrnnForward
             finally
             {
                 pool.Return(proj);
+                pool.Return(scratch);
             }
         }
 

@@ -19,7 +19,7 @@ internal static class PageReader
         int pageIndex, double? dpi, int degree, bool includeChars, CancellationToken cancellationToken)
     {
         int count = checked(width * height);
-        List<StripLine> strips = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, out _, out int threshold, out bool inkIsBright);
+        List<StripLine> strips = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int threshold, out bool inkIsBright);
         var diagnostics = new List<string>();
         if (!recognizer.HasCalibration)
         {
@@ -79,7 +79,7 @@ internal static class PageReader
                 LineWords line;
                 try
                 {
-                    line = recognizer.RecognizeWords(PixelSpans.AsBytes(cropPixels.AsSpan(0, cropWidth * modelHeight)), cropWidth, 1, cancellationToken);
+                    line = recognizer.RecognizeWords(PixelSpans.AsBytes(cropPixels.AsSpan(0, cropWidth * modelHeight)), cropWidth, 1, cancellationToken, includeChars);
                 }
                 catch (OcrLimitException ex) when (ex.LimitName == nameof(OcrLimits.MaxLineWidth))
                 {
@@ -171,9 +171,11 @@ internal static class PageReader
         }
 
         OcrBox box = maxX < 0 ? new OcrBox(xa, ink.Y, xb, ink.Bottom) : new OcrBox(minX, minY, maxX + 1, maxY + 1);
-        var chars = new List<OcrChar>();
+        IReadOnlyList<OcrChar> chars = [];
         if (includeChars)
         {
+            var list = new List<OcrChar>(w.Chars.Count);
+            chars = list;
             // A character's edge toward a neighbour is halfway across the gap between their runs; the ends are the word's.
             double left = box.Left;
             for (int i = 0; i < w.Chars.Count; i++)
@@ -186,7 +188,7 @@ internal static class PageReader
                     right = Math.Clamp(edge, left, box.Right);
                 }
 
-                chars.Add(new OcrChar(c.Text, new OcrBox(left, box.Top, right, box.Bottom), c.Probability));
+                list.Add(new OcrChar(c.Text, new OcrBox(left, box.Top, right, box.Bottom), c.Probability));
                 left = right;
             }
         }

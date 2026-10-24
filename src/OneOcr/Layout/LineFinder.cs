@@ -1,3 +1,7 @@
+using System.Runtime.CompilerServices;
+using OneImage;
+using OneOcr.Kernels;
+
 namespace OneOcr.Layout;
 
 /// <summary>An axis-aligned pixel rectangle of ink: left, top, width, height.</summary>
@@ -88,46 +92,43 @@ internal static class LineFinder
         return FromProfiles(rowInk, rowFirst, rowLast, width, height, maxLines);
     }
 
-    /// <summary>
-    /// Finds the lines of a region of an ink mask (one byte per pixel, 1 for ink, <paramref name="stride"/> bytes per row).
-    /// The boxes are in the mask's coordinates.
-    /// </summary>
-    internal static List<LineBox> FindInMask(ReadOnlySpan<byte> mask, int stride, LineBox region, int maxLines)
+    /// <summary>Finds the lines of a region of the ink mask (ink is value 1; ruling lines are not ink). The boxes are in the mask's coordinates.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal static List<LineBox> FindInMask(PageMask mask, LineBox region, int maxLines)
     {
-        var rowInk = new int[region.Height];
-        var rowFirst = new int[region.Height];
-        var rowLast = new int[region.Height];
-        for (int y = 0; y < region.Height; y++)
+        int[] rowInk = System.Buffers.ArrayPool<int>.Shared.Rent(region.Height);
+        int[] rowFirst = System.Buffers.ArrayPool<int>.Shared.Rent(region.Height);
+        int[] rowLast = System.Buffers.ArrayPool<int>.Shared.Rent(region.Height);
+        byte[] scratch = System.Buffers.ArrayPool<byte>.Shared.Rent(region.Width);
+        try
         {
-            ReadOnlySpan<byte> row = mask.Slice(((region.Y + y) * stride) + region.X, region.Width);
-            int count = 0, first = -1, last = -1;
-            for (int x = 0; x < row.Length; x++)
+            for (int y = 0; y < region.Height; y++)
             {
-                if (row[x] == 1)
-                {
-                    count++;
-                    if (first < 0)
-                    {
-                        first = x;
-                    }
-
-                    last = x;
-                }
+                mask.ReadRow(region.Y + y, region.X, region.Width, scratch);
+                // Only the ink value counts (ruling lines are 2); the span searches are vectorized.
+                ReadOnlySpan<byte> row = scratch.AsSpan(0, region.Width);
+                int count = row.Count(PageMask.Ink);
+                rowInk[y] = count;
+                rowFirst[y] = count == 0 ? -1 : row.IndexOf(PageMask.Ink);
+                rowLast[y] = count == 0 ? -1 : row.LastIndexOf(PageMask.Ink);
             }
 
-            rowInk[y] = count;
-            rowFirst[y] = first;
-            rowLast[y] = last;
-        }
+            List<LineBox> found = FromProfiles(rowInk, rowFirst, rowLast, region.Width, region.Height, maxLines);
+            for (int i = 0; i < found.Count; i++)
+            {
+                LineBox b = found[i];
+                found[i] = new LineBox(b.X + region.X, b.Y + region.Y, b.Width, b.Height);
+            }
 
-        List<LineBox> found = FromProfiles(rowInk, rowFirst, rowLast, region.Width, region.Height, maxLines);
-        for (int i = 0; i < found.Count; i++)
+            return found;
+        }
+        finally
         {
-            LineBox b = found[i];
-            found[i] = new LineBox(b.X + region.X, b.Y + region.Y, b.Width, b.Height);
+            System.Buffers.ArrayPool<int>.Shared.Return(rowInk);
+            System.Buffers.ArrayPool<int>.Shared.Return(rowFirst);
+            System.Buffers.ArrayPool<int>.Shared.Return(rowLast);
+            System.Buffers.ArrayPool<byte>.Shared.Return(scratch);
         }
-
-        return found;
     }
 
     private static List<LineBox> FromProfiles(int[] rowInk, int[] rowFirst, int[] rowLast, int width, int height, int maxLines)
@@ -220,11 +221,61 @@ internal static class LineFinder
     internal static (int Threshold, bool InkIsBright) Binarize(ReadOnlySpan<byte> gray)
     {
         var histogram = new long[256];
-        foreach (byte v in gray)
+        AddHistogram(gray, histogram);
+        return Binarize(histogram, gray.Length);
+    }
+
+    /// <summary>The same for a page in an array, counting its pixels on up to <paramref name="degree"/> threads (the counts are exact, so the threshold does not depend on it).</summary>
+    internal static (int Threshold, bool InkIsBright) Binarize(Gray8[] gray, int count, int degree)
+    {
+        int chunks = degree <= 1 ? 1 : Math.Clamp(count / (1 << 20), 1, degree * 2);
+        var histograms = new long[chunks][];
+        int per = (count + chunks - 1) / chunks;
+        ParallelRun.For(chunks, degree, i =>
         {
-            histogram[v]++;
+            int from = i * per, to = Math.Min(count, from + per);
+            histograms[i] = new long[256];
+            AddHistogram(PixelSpans.AsBytes(gray.AsSpan(from, to - from)), histograms[i]);
+        }, CancellationToken.None);
+        for (int i = 1; i < chunks; i++)
+        {
+            for (int v = 0; v < 256; v++)
+            {
+                histograms[0][v] += histograms[i][v];
+            }
         }
 
+        return Binarize(histograms[0], count);
+    }
+
+    // Four interleaved tables: consecutive pixels are often equal, and one table would make each increment wait for the last.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private static void AddHistogram(ReadOnlySpan<byte> gray, long[] histogram)
+    {
+        Span<int> h = stackalloc int[4 * 256];
+        h.Clear();
+        int i = 0;
+        for (; i + 4 <= gray.Length; i += 4)
+        {
+            h[gray[i]]++;
+            h[256 + gray[i + 1]]++;
+            h[512 + gray[i + 2]]++;
+            h[768 + gray[i + 3]]++;
+        }
+
+        for (; i < gray.Length; i++)
+        {
+            h[gray[i]]++;
+        }
+
+        for (int v = 0; v < 256; v++)
+        {
+            histogram[v] += (long)h[v] + h[256 + v] + h[512 + v] + h[768 + v];
+        }
+    }
+
+    private static (int Threshold, bool InkIsBright) Binarize(long[] histogram, long total)
+    {
         int min = 0, max = 255;
         while (min < 255 && histogram[min] == 0)
         {
@@ -241,7 +292,6 @@ internal static class LineFinder
             return (-1, false);
         }
 
-        long total = gray.Length;
         double sumAll = 0;
         for (int i = 0; i < 256; i++)
         {
