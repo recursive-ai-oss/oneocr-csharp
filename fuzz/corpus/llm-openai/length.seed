@@ -1,0 +1,1 @@
+{"id":"chatcmpl-3","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"{\"vendor\":\"Ac"},"finish_reason":"length"}],"usage":{"prompt_tokens":10,"completion_tokens":4096}}

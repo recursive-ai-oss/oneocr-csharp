@@ -25,6 +25,10 @@ internal static class Program
             "charlm" => CharLmTarget.Run,
             "lexicon" => LexiconTarget.Run,
             "pagejson" => PageJsonTarget.Run,
+            "llm-anthropic" => LlmTarget.RunAnthropic,
+            "llm-openai" => LlmTarget.RunOpenAi,
+            "llm-gemini" => LlmTarget.RunGemini,
+            "llm-schema" => LlmTarget.RunSchema,
             _ => throw new ArgumentException($"Unknown target '{name}'."),
         };
     }
@@ -132,7 +136,7 @@ internal static class Program
             }
         }
 
-        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer), no findings");
+        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + LlmTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer), no findings");
         return 0;
     }
 
@@ -146,6 +150,16 @@ internal static class Program
             File.WriteAllBytes(Path.Combine(dir, "order3.seed"), TestLm.Build("latin", alphabet, ["cab", "cab", "dab", "cod", "b\u00e9"], 3));
             File.WriteAllBytes(Path.Combine(dir, "order2.seed"), TestLm.Build("latin", alphabet, ["cab", "dab", "cod"], 2));
             File.WriteAllBytes(Path.Combine(dir, "two-scripts.seed"), TestLm.Assemble([("latin", alphabet, ["cab", "dab"]), ("other", ["x", "y"], ["xy", "yx"])], 3));
+            return;
+        }
+
+        if (target.StartsWith("llm-", StringComparison.Ordinal))
+        {
+            foreach (var (name, body) in LlmFixtures.Seeds(target["llm-".Length..]))
+            {
+                File.WriteAllText(Path.Combine(dir, name + ".seed"), body);
+            }
+
             return;
         }
 

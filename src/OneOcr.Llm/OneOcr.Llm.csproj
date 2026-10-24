@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Opt-in language-model vision for RecursiveAI.OneOcr: Anthropic, OpenAI, OpenAI-compatible, Gemini and Azure OpenAI over plain HttpClient. This is the only OneOcr package with networking code.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../OneOcr/OneOcr.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="System.Net.Http" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="$(LibName).Tests" />
+    <InternalsVisibleTo Include="$(LibName).Fuzz" />
+    <InternalsVisibleTo Include="$(LibName).AotSmoke" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,1 @@
+{"candidates":[{"content":{"role":"model","parts":[{"text":"{\"vend"}]},"finishReason":"MAX_TOKENS","index":0}],"usageMetadata":{"promptTokenCount":900,"candidatesTokenCount":4096}}

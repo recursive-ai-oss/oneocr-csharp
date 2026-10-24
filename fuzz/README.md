@@ -11,4 +11,6 @@ Three more targets, chosen with `ONEOCR_FUZZ_TARGET`: `charlm` (character langua
 
 For a coverage-guided run, instrument `OneOcr.dll` with the `sharpfuzz` tool and start the program through SharpFuzz's `libfuzzer-dotnet` host (built with `clang++ -fsanitize=fuzzer`), with this corpus as the seed directory.
 
+`llm-anthropic`, `llm-openai` and `llm-gemini` run provider response bytes through that provider's parser (Azure OpenAI and OpenAI-compatible servers share the OpenAI parser); `llm-schema` runs JSON Schema text through the schema checks and the per-provider rewrites. Only `OcrProviderException`, `OcrLimitException` (and `ArgumentException` for schemas) may come out. Seeds are in `fuzz/corpus/llm-*/`, written by `ONEOCR_FUZZ_TARGET=llm-openai OneOcr.Fuzz seeds <dir>`. The first mutation run found that a string read out of invalid UTF-8 threw `InvalidOperationException`; response bodies are now checked for valid UTF-8 first.
+
 A minimized reproducer of a finding goes to `testdata/` with a regression test asserting a typed error.
