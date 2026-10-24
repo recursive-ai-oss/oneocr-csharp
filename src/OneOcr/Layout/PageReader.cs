@@ -13,6 +13,13 @@ internal static partial class PageReader
     // of the ascenders to the bottom of the descenders is about one em tall).
     private const double AssumedBodyPoints = 11;
 
+    // Most lines read together as one group.
+    private const int MaxGroupLines = 12;
+
+    // Most line pixels (the sum of the widths, about four per step of the recurrence) in one group: the group holds the sequences of
+    // all its lines at once, so this bounds the memory a group needs.
+    private const int MaxGroupWidth = 4096;
+
     private static readonly double[] CommonResolutions = [72, 96, 150, 200, 300, 400, 600];
 
     // The ruled tables are found before the finder erases rules; a page whose strips were found earlier brings its tables with them.
@@ -99,56 +106,93 @@ internal static partial class PageReader
         int modelHeight = recognizer.InputHeight;
         var read = new OrderStrip?[strips.Count];
         var skipped = new string?[strips.Count];
-        void ReadStrip(int index)
+        var crops = new LineBox[strips.Count];
+        var queue = new List<(int Index, int Width)>(strips.Count);
+        for (int index = 0; index < strips.Count; index++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
             LineBox ink = strips[index].Box;
-            LineBox crop = LinePreprocessor.CropBox(ink, typical, width, height);
+            crops[index] = LinePreprocessor.CropBox(ink, typical, width, height);
+            LineBox crop = crops[index];
             // A strip far wider than tall (a rule, a photo's edge) would be wider than the model's limit once scaled to its input height;
             // it is left out with a note instead of failing the page.
-            if (Math.Ceiling((double)crop.Width * modelHeight / crop.Height) > limits.MaxLineWidth)
+            int scaledWidth = PixelResizer.GetSize(crop.Width, crop.Height, null, modelHeight).Width;
+            if (Math.Ceiling((double)crop.Width * modelHeight / crop.Height) > limits.MaxLineWidth || scaledWidth > limits.MaxLineWidth)
             {
                 skipped[index] = SkipNote(ink, limits);
-                return;
+                continue;
             }
 
+            queue.Add((index, scaledWidth));
+        }
+
+        // The recurrent layers read their weights once per step for a whole group of lines, so lines are read in groups of similar
+        // width (a group runs as long as its longest line). A group is the unit of parallelism; with few lines the groups shrink so
+        // that every thread has one. Which lines share a group never changes any line's result.
+        queue.Sort((l, r) => l.Width != r.Width ? r.Width.CompareTo(l.Width) : l.Index.CompareTo(r.Index));
+        int maxLines = degree <= 1 ? MaxGroupLines : Math.Clamp(queue.Count / (2 * degree), 1, MaxGroupLines);
+        var groups = new List<(int First, int Count)>();
+        for (int first = 0; first < queue.Count;)
+        {
+            int taken = 0, columns = 0;
+            while (first + taken < queue.Count && taken < maxLines && (taken == 0 || columns + queue[first + taken].Width <= MaxGroupWidth))
+            {
+                columns += queue[first + taken].Width;
+                taken++;
+            }
+
+            groups.Add((first, taken));
+            first += taken;
+        }
+
+        void ReadGroup(int g)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            (int first, int lineCount) = groups[g];
             ReadOnlySpan<byte> page = PixelSpans.AsBytes(gray.AsSpan(0, count));
-            Gray8[] cropPixels = LinePreprocessor.Prepare(page, width, crop, modelHeight, pixelPool, resizers, out int cropWidth);
+            var pixels = new Gray8[lineCount][];
+            var images = new LineImage[lineCount];
             try
             {
-                // Lines are the unit of parallelism, so each is recognized on one thread.
-                LineWords line;
-                try
+                for (int k = 0; k < lineCount; k++)
                 {
-                    line = recognizer.RecognizeWords(PixelSpans.AsBytes(cropPixels.AsSpan(0, cropWidth * modelHeight)), cropWidth, 1, cancellationToken, includeChars);
-                }
-                catch (OcrLimitException ex) when (ex.LimitName == nameof(OcrLimits.MaxLineWidth))
-                {
-                    skipped[index] = SkipNote(ink, limits);
-                    return;
+                    int index = queue[first + k].Index;
+                    pixels[k] = LinePreprocessor.Prepare(page, width, crops[index], modelHeight, pixelPool, resizers, out int cropWidth);
+                    images[k] = new LineImage(pixels[k], cropWidth);
                 }
 
-                var words = new List<OcrWord>(line.Words.Count);
-                foreach (RecognizedWord w in line.Words)
+                LineWords[] lines = recognizer.RecognizeWordsGroup(images, cancellationToken, includeChars);
+                for (int k = 0; k < lineCount; k++)
                 {
-                    words.Add(MakeWord(w, page, width, height, threshold, inkIsBright, ink, crop, cropWidth, includeChars));
-                }
+                    int index = queue[first + k].Index;
+                    LineBox ink = strips[index].Box;
+                    var words = new List<OcrWord>(lines[k].Words.Count);
+                    foreach (RecognizedWord w in lines[k].Words)
+                    {
+                        words.Add(MakeWord(w, page, width, height, threshold, inkIsBright, ink, crops[index], images[k].Width, includeChars));
+                    }
 
-                read[index] = new OrderStrip
-                {
-                    Leaf = strips[index].Leaf,
-                    Box = new OcrBox(ink.X, ink.Y, ink.Right, ink.Bottom),
-                    Size = Math.Max(ink.Height, 0.85 * typical),
-                    Words = words,
-                };
+                    read[index] = new OrderStrip
+                    {
+                        Leaf = strips[index].Leaf,
+                        Box = new OcrBox(ink.X, ink.Y, ink.Right, ink.Bottom),
+                        Size = Math.Max(ink.Height, 0.85 * typical),
+                        Words = words,
+                    };
+                }
             }
             finally
             {
-                pixelPool.Return(cropPixels);
+                foreach (Gray8[]? p in pixels)
+                {
+                    if (p is not null)
+                    {
+                        pixelPool.Return(p);
+                    }
+                }
             }
         }
 
-        ParallelRun.For(strips.Count, degree, ReadStrip, cancellationToken);
+        ParallelRun.For(groups.Count, degree, ReadGroup, cancellationToken);
 
         var ordered = new List<OrderStrip>(strips.Count);
         for (int i = 0; i < read.Length; i++)
