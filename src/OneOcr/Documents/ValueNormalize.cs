@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using OneOcr.Unicode;
 
 namespace OneOcr.Documents;
 
@@ -44,15 +45,7 @@ internal static class ValueNormalize
     /// <summary>Folds a string for comparison: NFKC, typographic quotes and dashes to ASCII, lower case, no whitespace, format or control characters.</summary>
     public static string Fold(string s)
     {
-        string n;
-        try
-        {
-            n = s.Normalize(NormalizationForm.FormKC);
-        }
-        catch (ArgumentException)
-        {
-            n = s; // lone surrogates: compared as they are
-        }
+        string n = TextNormalization.Nfkc(s); // lone surrogates pass through and are compared as they are
 
         var sb = new StringBuilder(n.Length);
         foreach (char c in n)

@@ -1,4 +1,5 @@
 using System.Text;
+using OneOcr.Unicode;
 
 namespace OneOcr.Training;
 
@@ -9,7 +10,7 @@ internal static class TextMetrics
     public static string Normalize(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
-        string nfc = text.IsNormalized(NormalizationForm.FormC) ? text : text.Normalize(NormalizationForm.FormC);
+        string nfc = TextNormalization.Nfc(text);
         var sb = new StringBuilder(nfc.Length);
         bool space = false;
         foreach (char c in nfc)
