@@ -33,7 +33,12 @@ def main() -> None:
             s = ds[i]
             w, h = Image.open(r["path"]).size
             maps.append(
-                {"prob": s["prob"][0].numpy(), "layout": s["layout"].numpy(), "orient": s["layout"].new_tensor([1, 0, 0, 0]).numpy(), "scale": 1024 / max(w, h)}
+                {
+                    "prob": s["prob"][0].numpy(),
+                    "layout": s["layout"].numpy(),
+                    "orient": s["layout"].new_tensor([1, 0, 0, 0]).numpy(),
+                    "scale": 1024 / max(w, h),
+                }
             )
         res = score_maps(maps, recs)
         print(name, json.dumps({"layout": res["layout"], "text": res.get("text")}), flush=True)

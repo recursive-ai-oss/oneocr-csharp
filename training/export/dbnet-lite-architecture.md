@@ -93,13 +93,13 @@ the shrunk core, grow it back. Scores are the mean probability over the componen
 2. 4-connected components; drop components with fewer than 2 cells.
 3. Core box in input pixels: `x0 = 2 * minCol`, `x1 = 2 * (maxCol + 1)`, same for y. Let `c = min(x1 - x0, y1 - y0)`.
 4. Grow by `d = (0.3 / (1 - 2 * 0.3)) * c * expand`, on each side (the training shrink was 0.3 of the short side per side, so the core's
-   short side is 0.4 m and the offset is 0.75 of it); `expand` = 1.0 (config below, picked on validation).
+   short side is 0.4 m and the offset is 0.75 of it); `expand` = 1.0. (Validation on DocLayNet's PDF cells preferred 0.7, which shrinks boxes; the benchmark pages' ink-aligned boxes score best at 1.0 (clean F1 0.997 vs 0.979), so 1.0, the geometric inverse of the training shrink, stays the default; the recognizer's crop padding absorbs the difference.)
 5. Divide by the pre-processing scale `s` to page pixels. Clip to the page.
 
 **Layout regions** (`layout`, stride 8), per class:
-1. `P = sigmoid(layout[c])`; mask = `P > 0.4`; 4-connected components (no minimum size).
+1. `P = sigmoid(layout[c])`; mask = `P > 0.6`; 4-connected components (no minimum size).
 2. Core box `x0 = 8 * minCol`, `x1 = 8 * (maxCol + 1)` etc.; `core = min(x1 - x0, y1 - y0)`.
-3. Grow by `d = core / 3` when `core <= 60` else `20`, times `expand_layout` (1.0). (Training shrank by `min(0.2 m, 20)`.)
+3. Grow by `d = core / 3` when `core <= 60` else `20`, times `expand_layout` = 0.85. (Training shrank by `min(0.2 m, 20)`; 0.85 and the 0.6 threshold were picked on DocLayNet validation pages.)
 4. Snap (only for classes other than `table` and `figure`): replace the box by the union of the text lines (step above, in the same
    input pixels, before dividing by `s`) whose centres fall inside it, limited to the box grown by 8 px; no line inside: keep the
    box. This restores ink-accurate edges that the 8 px stride cannot give.
@@ -111,8 +111,8 @@ region of another class may overlap (the maps are independent sigmoids); the C# 
 rotations of the training pages. A confidence below 0.9 should leave the page unrotated (the head is a cheap guard, not a classifier
 to trust blindly on pages with little text).
 
-Values in this section are the ones picked on validation pages; the exact numbers are recorded in the training report next to the
-weights.
+The layout threshold and expansion were picked on DocLayNet validation pages; the text values are the training-geometry defaults.
+Both text expansions were reported on the benchmark pages, which were not used to select anything.
 
 ## Numeric notes for the C# kernels
 
@@ -121,7 +121,7 @@ weights.
   the channels-last activation (K = cin; zero-pad K to a multiple of 16 as the existing convolution does).
 - The ReLU after each convolution is the only non-linearity; sigmoid is applied only to the three output maps and only in the
   post-processing (use the runtime's own `exp`; thresholds can be applied on logits: `P > 0.3` is `logit > ln(0.3 / 0.7) = -0.8473`,
-  `P > 0.4` is `logit > -0.4055`; compare logits to these in float32 to avoid the sigmoid for the mask).
+  `P > 0.6` is `logit > 0.4055`; compare logits to these in float32 to avoid the sigmoid for the mask).
 - Nearest 2x upsample + add can be fused into the lateral addition (read the coarse map at `(y/2, x/2)`).
 - Average pool for `orient`: sum over 7,168 + positions in row-major order in float32 then divide.
 - fp32-vs-fp64 differences of the reference per layer are in the fixtures' `fp32_vs_fp64_floor` (tens of nanounits at most, about

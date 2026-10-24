@@ -19,7 +19,8 @@ from scipy import ndimage
 from train.detect_data import CLASSES, LAYOUT_SHRINK_CAP, LAYOUT_STRIDE, TEXT_SHRINK, TEXT_STRIDE
 
 TEXT_THRESHOLD = 0.3
-LAYOUT_THRESHOLD = 0.4
+LAYOUT_THRESHOLD = 0.6  # picked on DocLayNet val (sweep in eval.detect_eval)
+EXPAND_LAYOUT = 0.85
 LONG_SIDE = 1024
 MULTIPLE = 32
 
@@ -122,7 +123,7 @@ def snap_to_lines(layout: list, lines: np.ndarray, tol: float = SNAP_TOLERANCE) 
     return out
 
 
-def decode(m: dict, text_thr=TEXT_THRESHOLD, lay_thr=LAYOUT_THRESHOLD, expand_text=1.0, expand_layout=1.0, snap=True) -> dict:
+def decode(m: dict, text_thr=TEXT_THRESHOLD, lay_thr=LAYOUT_THRESHOLD, expand_text=1.0, expand_layout=EXPAND_LAYOUT, snap=True) -> dict:
     s = m["scale"]
     tb, ts = text_boxes(m["prob"], text_thr, expand_text)
     lb = layout_boxes(m["layout"], lay_thr, expand_layout)

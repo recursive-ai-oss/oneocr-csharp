@@ -56,7 +56,11 @@ def main() -> None:
         for f in files:
             t = json.loads(f.read_text())
             res = infer(
-                model, Image.open(Path(a.bench) / s / "pages" / (f.stem + ".png")), a.device, expand_text=a.expand, text_thr=a.text_thr
+                model,
+                Image.open(next((Path(a.bench) / s / "pages").glob(f.stem + ".*"))),
+                a.device,
+                expand_text=a.expand,
+                text_thr=a.text_thr,
             )
             tp += match_counts(res["text"], truth_lines(t["words"]))
             orient_ok += int(res["orient"].argmax() == 0)
