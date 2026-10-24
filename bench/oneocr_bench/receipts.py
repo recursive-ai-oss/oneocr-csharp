@@ -74,6 +74,7 @@ def render(out: Path, set_name: str) -> list[dict]:
             raise SystemExit(f"{ix['id']}: annotation size differs from the image")
         tw = derive_words(gt)
         for t in tw:  # truth sanity: box inside the image, non-empty text
+            t["ink"] = list(t["box"])  # CORD's word quads already enclose the printed word closely; no pixel pass
             x0, y0, x1, y1 = t["box"]
             if not (t["text"] and -2 <= x0 < x1 <= w + 2 and -2 <= y0 < y1 <= h + 2):
                 raise SystemExit(f"{ix['id']}: bad word {t}")
