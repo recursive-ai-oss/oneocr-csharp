@@ -1,0 +1,26 @@
+# Document extraction model (docextract-v0). ${ONEOCR_HOME} is the state directory of the machine running the job.
+# Data pickles come from `python -m train.docextract_data build` (generated pages and CORD, as truth words and as OCR words).
+name: docextract-v0
+seed: 1
+run_dir: ${ONEOCR_HOME}/runs/docextract-v0
+model: {}            # models/docextract.py default_config(): d 192, 5 layers, 6 heads, ffn 512
+loss: {tags: 1.0, roles: 0.5, doc: 0.2, group: 0.5, kv: 0.5}
+sources:
+  - {pickle: "${ONEOCR_HOME}/data/docextract/train.pkl", set: generated, kind: truth, weight: 0.25, label_source: "exact truth: oneocr-pages-v0 generator fields and keyValues, seeds in the page set manifest"}
+  - {pickle: "${ONEOCR_HOME}/data/docextract/train.pkl", set: generated, kind: ocr, weight: 0.45, label_source: "exact truth aligned by box overlap to the words our OCR read from the same page"}
+  - {pickle: "${ONEOCR_HOME}/data/docextract/cord-train.pkl", set: cord, kind: truth, weight: 0.1, label_source: "CORD v2 train annotations (CC BY 4.0)"}
+  - {pickle: "${ONEOCR_HOME}/data/docextract/cord-train.pkl", set: cord, kind: ocr, weight: 0.2, label_source: "CORD v2 train annotations aligned to our OCR words"}
+val:
+  - {pickle: "${ONEOCR_HOME}/data/docextract/val.pkl", set: generated, kind: ocr, limit: 250}
+  - {pickle: "${ONEOCR_HOME}/data/docextract/cord-dev.pkl", set: cord, kind: ocr}
+train:
+  steps: 14000
+  batch: 16
+  max_words: 400
+  lr: 0.0006
+  warmup: 400
+  weight_decay: 0.01
+  log_every: 100
+  eval_every: 1000
+  ckpt_every: 500
+  max_minutes: 100
