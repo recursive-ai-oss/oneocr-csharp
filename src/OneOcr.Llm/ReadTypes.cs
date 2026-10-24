@@ -63,6 +63,9 @@ public enum GroundingState
 
     /// <summary>Nothing on the page supports the value: a possible hallucination.</summary>
     Ungrounded = 3,
+
+    /// <summary>The value is on the page, but the local extraction model reads the cited words as a different field, or reads another value as this field. Boxes are given; <see cref="GroundedField.Confidence"/> is 0. Counts like <see cref="Ungrounded"/> for the re-ask and <see cref="UngroundedPolicy"/>. See <see cref="LlmReadOptions.RoleCheck"/>.</summary>
+    RoleConflict = 4,
 }
 
 /// <summary>A box on one page of a call.</summary>
@@ -81,9 +84,10 @@ public readonly record struct GroundedBox(int PageIndex, OcrBox Box);
 /// <param name="CitationCorrected">True when the model's cited words did not hold the value and the page was searched instead (or no words were cited).</param>
 /// <param name="Reasked">True when this value comes from the re-ask.</param>
 /// <param name="Note">A short explanation for anything but a clean grounding; null otherwise.</param>
+/// <param name="Source">Who produced the value: <see cref="OcrSource.Llm"/> for the model (the default), <see cref="OcrSource.Ocr"/> for a local extraction model whose value was kept by <see cref="LlmRouting.LocalFirst"/>.</param>
 public sealed record GroundedField(
     string Path, string Value, GroundingState State, float Confidence, string? NormalizedValue, IReadOnlyList<LlmWordRef> Words,
-    IReadOnlyList<GroundedBox> Boxes, bool CitationCorrected = false, bool Reasked = false, string? Note = null);
+    IReadOnlyList<GroundedBox> Boxes, bool CitationCorrected = false, bool Reasked = false, string? Note = null, OcrSource Source = OcrSource.Llm);
 
 /// <summary>How a word of the model's text and a word of the local reading differ.</summary>
 public enum DisagreementKind
@@ -112,14 +116,15 @@ public sealed record TextDisagreement(
     int PageIndex, DisagreementKind Kind, string? OcrText, string? LlmText, float OcrConfidence, OcrSource? Chosen, OcrBox? Box, int Start, int Length);
 
 /// <summary>Fields found by a local model; the seam for local-first extraction.</summary>
-/// <param name="Json">The values as one JSON object that fits the schema.</param>
-/// <param name="Fields">Each value with its grounding.</param>
-/// <param name="MinConfidence">The lowest confidence among the fields; the model is skipped under <see cref="LlmRouting.LocalFirst"/> when this reaches <see cref="LlmReadOptions.ConfidenceThreshold"/>.</param>
-public sealed record LocalFieldResult(string Json, IReadOnlyList<GroundedField> Fields, float MinConfidence);
+/// <param name="Json">The values as one JSON object that fits the schema; a value the model did not find is null.</param>
+/// <param name="Fields">Each value found, by schema path, with its words and <see cref="GroundedField.Confidence"/>. Under <see cref="LlmRouting.LocalFirst"/> a schema value is kept locally only when it is listed here at or above <see cref="LlmReadOptions.ConfidenceThreshold"/>; an empty list means the extractor only offers a whole-document result judged by <paramref name="MinConfidence"/>.</param>
+/// <param name="MinConfidence">The lowest confidence among the fields; for an extractor that lists no <paramref name="Fields"/>, the whole result is kept under <see cref="LlmRouting.LocalFirst"/> when this reaches <see cref="LlmReadOptions.ConfidenceThreshold"/>.</param>
+/// <param name="OtherFields">Optional: fields the local model found that the schema does not ask for (<see cref="GroundedField.Path"/> names the field, not a schema path). The role check uses their words.</param>
+public sealed record LocalFieldResult(string Json, IReadOnlyList<GroundedField> Fields, float MinConfidence, IReadOnlyList<GroundedField>? OtherFields = null);
 
 /// <summary>
-/// A local extraction model. None ships yet; the interface is where one plugs in, so that <see cref="LlmRouting.LocalFirst"/> and
-/// <see cref="LlmRouting.LocalOnly"/> can answer <see cref="LlmOutputs.Json"/> reads without the network.
+/// A local extraction model for <see cref="LlmOutputs.Json"/>. <see cref="DocumentFieldExtractor"/> plugs in the shipped and custom extraction models;
+/// any other implementation lets <see cref="LlmRouting.LocalFirst"/> and <see cref="LlmRouting.LocalOnly"/> answer reads without the network.
 /// </summary>
 public interface ILocalFieldExtractor
 {
@@ -150,13 +155,20 @@ public sealed class LlmReadOptions
 
     /// <summary>
     /// Calibrated confidence from which a local result is kept. For text, a local word at or above it wins a disagreement and under
-    /// <see cref="LlmRouting.LocalFirst"/> a page whose words are all at or above it is not sent. For fields, it is compared with
-    /// <see cref="LocalFieldResult.MinConfidence"/>. Default 0.9.
+    /// <see cref="LlmRouting.LocalFirst"/> a page whose words are all at or above it is not sent. For fields, each local value is
+    /// kept at or above it (<see cref="GroundedField.Confidence"/>) and the model is asked only for the others; it is also the confidence from which the role check trusts a local value. Default 0.9.
     /// </summary>
     public float ConfidenceThreshold { get; init; } = 0.9f;
 
-    /// <summary>A local extraction model for <see cref="LlmOutputs.Json"/>; default null (there is none yet).</summary>
+    /// <summary>A local extraction model for <see cref="LlmOutputs.Json"/>, for example a <see cref="DocumentFieldExtractor"/>; default null. Under <see cref="LlmRouting.LocalFirst"/> it answers the values it is sure of and the model only the rest.</summary>
     public ILocalFieldExtractor? LocalExtractor { get; init; }
+
+    /// <summary>
+    /// With a <see cref="LocalExtractor"/>, check each model value against the local reading: a value whose cited words the local model reads as another
+    /// field, or that differs from what the local model confidently reads for the same field, becomes <see cref="GroundingState.RoleConflict"/>. Runs under every
+    /// routing except <see cref="LlmRouting.LocalOnly"/> (which has no model values) and costs no call. Default true.
+    /// </summary>
+    public bool RoleCheck { get; init; } = true;
 
     /// <summary>What happens to values that stay ungrounded after the re-ask. Default <see cref="UngroundedPolicy.Flag"/>.</summary>
     public UngroundedPolicy UngroundedPolicy { get; init; } = UngroundedPolicy.Flag;
