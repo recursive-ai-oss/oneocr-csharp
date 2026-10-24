@@ -143,7 +143,7 @@ def count_macs(model: DBNetLite, h: int, w: int) -> dict:
     was = model.training
     model.eval()
     with torch.no_grad():
-        model(torch.zeros(1, 1, h, w), train_heads=False)
+        model(torch.zeros(1, 1, h, w, device=next(model.parameters()).device), train_heads=False)
     model.train(was)
     for hk in hooks:
         hk.remove()

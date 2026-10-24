@@ -50,7 +50,8 @@ DOCLAYNET_MAP = {
 PUBLAYNET_MAP = {"text": "text", "title": "title", "list": "list", "table": "table", "figure": "figure"}
 CMASK = {
     "doclaynet": [1, 1, 1, 1, 1, 1, 0, 0],
-    "publaynet": [1, 1, 1, 1, 1, 0, 0, 0],
+    # PubLayNet boxes a whole list, DocLayNet one item at a time: its list channel is left unlabelled so the class keeps one meaning
+    "publaynet": [1, 1, 0, 1, 1, 0, 0, 0],
 }
 
 TEXT_SHRINK = 0.3  # of the short side, per side

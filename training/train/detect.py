@@ -153,6 +153,9 @@ def main() -> None:
     opt = torch.optim.AdamW(model.parameters(), lr=tc["lr"], weight_decay=tc["weight_decay"])
     step, best = 0, -1.0
     ckpt_path = run_dir / "ckpt-latest.pt"
+    if not ckpt_path.exists() and cfg.get("init_from"):  # continue from our own earlier run's weights, fresh optimizer and schedule
+        model.load_state_dict(torch.load(cfg["init_from"], map_location=dev, weights_only=False)["model"])
+        print(f"initialised from {cfg['init_from']}", flush=True)
     if ckpt_path.exists():
         ck = torch.load(ckpt_path, map_location=dev, weights_only=False)
         model.load_state_dict(ck["model"])
