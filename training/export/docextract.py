@@ -54,6 +54,11 @@ def tensors_of(model: DocExtract) -> OrderedDict[str, torch.Tensor]:
 
 
 def manifest_for(model: DocExtract, version: str, provenance: dict) -> dict:
+    charset = charset_list()
+    # the unknown-character id is the first id past the alphabet; the library reads it from the manifest and requires this
+    assert UNK_CHAR == len(charset), f"unk_char {UNK_CHAR} != charset length {len(charset)}"
+    assert model.cfg["max_words"] == 512, "input.max_words and config.max_words must agree with the window rule"
+    assert model.cfg["tags"] == 1 + 2 * model.cfg["classes"] and model.cfg["d"] % model.cfg["heads"] == 0
     return {
         "architecture": ARCHITECTURE,
         "name": "document-extraction",
@@ -62,7 +67,7 @@ def manifest_for(model: DocExtract, version: str, provenance: dict) -> dict:
         # words in, no pixels: the "input" block names the featurization limits instead of an image size
         "input": {"kind": "words", "max_words": model.cfg["max_words"], "max_chars": MAX_CHARS, "bins": NBINS, "features": NFEATS},
         # the character alphabet of the word embedding: charset-v1 (class 0 = padding); id 622 = unknown character
-        "charset": charset_list(),
+        "charset": charset,
         "config": {**model.cfg, "classes_list": CLASSES, "roles_list": ROLES, "doc_types_list": DOC_TYPES, "unk_char": UNK_CHAR},
         "provenance": provenance,
     }

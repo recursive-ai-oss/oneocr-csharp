@@ -71,8 +71,16 @@ def decode_tag(t: int) -> tuple[str, int] | None:
     return ("B" if (t - 1) % 2 == 0 else "I", c)
 
 
+def pointers(out: dict, r: int, n: int) -> np.ndarray:
+    """Pointer targets of relation r: `out["ptr"][r]` (already window-local argmax shifted to page indices) or argmax of `out["rel"][r]`."""
+    if n == 0:
+        return np.zeros(0, dtype=int)
+    return out["ptr"][r] if "ptr" in out else out["rel"][r].argmax(1)
+
+
 def assemble(out: dict, texts: list[str], boxes: np.ndarray) -> dict:
-    """`out`: numpy arrays from the model for one page: tags [N, T], roles [N, 5], doc [3], rel [2, N, N] (logits)."""
+    """`out`: numpy arrays from the model for one page: tags [N, T], roles [N, 5], doc [3] and the pointers, either `ptr` [2, N]
+    (targets from models.docextract.page_outputs, window rule applied) or `rel` [2, N, N] (logits of a single window)."""
     n = len(texts)
     doc_probs = softmax(out["doc"])
     doc = DOC_TYPES[int(doc_probs.argmax())]
@@ -104,7 +112,7 @@ def assemble(out: dict, texts: list[str], boxes: np.ndarray) -> dict:
 
     header: dict[str, dict] = {}
     grouped: dict[tuple[str, int], dict[str, dict]] = {}
-    ptr = out["rel"][REL_GROUP].argmax(1) if n else np.zeros(0, dtype=int)
+    ptr = pointers(out, REL_GROUP, n)
 
     def anchor(i: int) -> int:
         seen = [i]
@@ -151,7 +159,7 @@ def assemble(out: dict, texts: list[str], boxes: np.ndarray) -> dict:
     for k in keys:
         for w in k["words"]:
             key_of_word[w] = k
-    kvptr = out["rel"][REL_KV].argmax(1) if n else np.zeros(0, dtype=int)
+    kvptr = pointers(out, REL_KV, n)
     pairs = []
     for v in (s for s in rspans if s["key"] == "VAL"):
         k = key_of_word.get(int(kvptr[v["words"][0]]))

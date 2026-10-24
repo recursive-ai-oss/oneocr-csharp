@@ -291,3 +291,67 @@ def collate(items: list[dict]) -> dict:
                 out[key][k, :m] = torch.from_numpy(np.asarray(it[key], dtype=np.int64))
         out["doc"][k] = int(it.get("doc", 2))
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Pages longer than one window
+
+
+def window_plan(n: int, max_words: int) -> tuple[list[tuple[int, int]], list[int]]:
+    """Windows (start, end) over n words and, per word, the window that owns it.
+
+    A page of at most `max_words` words is one window. A longer page runs in windows of `max_words` words starting every
+    `max_words * 3 // 4` words (512 and 384), the last window ending at the last word: starts 0, s, 2s, ... while
+    `start + max_words < n`. A word belongs to the window whose centre `(start + end) / 2` is nearest the word's centre
+    `index + 0.5`; on a tie the earlier window. This is the rule the library's C# reader implements.
+    """
+    if n <= max_words:
+        return [(0, n)], [0] * n
+    stride = max_words * 3 // 4
+    starts = [0]
+    while starts[-1] + max_words < n:
+        starts.append(starts[-1] + stride)
+    wins = [(s, min(s + max_words, n)) for s in starts]
+    owner = []
+    for i in range(n):
+        best, bd = 0, None
+        for k, (s, e) in enumerate(wins):
+            d = abs((s + e) / 2 - (i + 0.5))
+            if bd is None or d < bd:
+                best, bd = k, d
+        owner.append(best)
+    return wins, owner
+
+
+@torch.no_grad()
+def page_outputs(model: DocExtract, ex: dict, dev: str = "cpu"):
+    """Model outputs for one page as numpy arrays, with the window rule applied: tags [N, T], roles [N, 5], doc [3], ptr [2, N].
+
+    Each word takes its tag logits, role logits and pointer from the window that owns it. A pointer is the window-local argmax
+    (lowest index on a tie) shifted by the window start, so it never leaves its window. The document logits of a multi-window page
+    are the mean of the windows' logits weighted by the number of words each window owns, in double precision.
+    """
+    import numpy as np
+
+    n = len(ex["texts"])
+    wins, owner = window_plan(n, model.cfg["max_words"])
+    tags = np.zeros((n, model.cfg["tags"]), dtype=np.float32)
+    roles = np.zeros((n, model.cfg["roles"]), dtype=np.float32)
+    ptr = np.zeros((NREL, n), dtype=np.int64)
+    doc = np.zeros(model.cfg["doc_types"], dtype=np.float64)
+    owner_a = np.asarray(owner)
+    for k, (s, e) in enumerate(wins):
+        sl = slice(s, e)
+        m = e - s
+
+        def t(a, sl=sl):
+            return torch.as_tensor(np.asarray(a)[None, sl], device=dev)
+
+        o = model(t(ex["chars"]).long(), t(ex["feats"]), t(ex["bins"]).long(), t(ex["geo"]), torch.ones(1, m, dtype=torch.bool, device=dev))
+        mine = np.nonzero(owner_a[sl] == k)[0]
+        tags[s + mine] = o["tags"][0].float().cpu().numpy()[mine]
+        roles[s + mine] = o["roles"][0].float().cpu().numpy()[mine]
+        rel = o["rel"][0].float().cpu().numpy()
+        ptr[:, s + mine] = rel[:, mine, :].argmax(-1) + s
+        doc += len(mine) * o["doc"][0].double().cpu().numpy()
+    return {"tags": tags, "roles": roles, "doc": (doc / max(n, 1)).astype(np.float32), "ptr": ptr}

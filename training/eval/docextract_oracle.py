@@ -23,16 +23,16 @@ def oracle_output(ex: dict) -> dict:
     big = 20.0
     tags = np.zeros((n, NTAGS), dtype=np.float32)
     roles = np.zeros((n, 5), dtype=np.float32)
-    rel = np.zeros((NREL, n, n), dtype=np.float32)
+    ptr = np.zeros((NREL, n), dtype=np.int64)
     for i in range(n):
         tags[i, max(int(ex["tags"][i]), 0)] = big
         roles[i, max(int(ex["roles"][i]), 0)] = big
         for r, key in enumerate(("group_ptr", "kv_ptr")):
             p = int(ex[key][i])
-            rel[r, i, p if p >= 0 else i] = big
+            ptr[r, i] = p if p >= 0 else i
     doc = np.zeros(3, dtype=np.float32)
     doc[ex["doc"]] = big
-    return {"tags": tags, "roles": roles, "doc": doc, "rel": rel}
+    return {"tags": tags, "roles": roles, "doc": doc, "ptr": ptr}
 
 
 def main() -> None:

@@ -11,8 +11,7 @@ for GELU; Dozat and Manning 2017 for scoring head pointers with a bilinear form.
 
 ## What it predicts
 
-For a page of N words (N <= `max_words` = 512; longer pages are processed in windows of 512 words with a stride of 384 and the
-window with the word nearest its centre wins; relations are only scored inside a window):
+For a page of N words the model runs in windows (next section); the table gives the shapes inside one window of N <= `max_words` = 512 words.
 
 | output | shape | meaning |
 |---|---|---|
@@ -25,6 +24,18 @@ Class order (never reordered once shipped, append only): `BT-1 BT-2 BT-5 BT-9 BT
 BT-48 BT-50 BT-52 BT-53 BT-55 BT-72 BT-84 BT-86 BT-106 BT-110 BT-112 BT-115` (header), `BT-126 BT-129 BT-130 BT-131 BT-146 BT-152 BT-153`
 (line), `BT-116 BT-117 BT-119` (tax row), then `receipt.merchant date time subtotal tax tip total paymentMethod` (header) and
 `receipt.itemName quantity unitPrice amount` (line). The same list is in the manifest as `config.classes_list`.
+
+## Windows (pages longer than `max_words`)
+
+The rule is the library's (`docs/spec/docextract-v0.md`); `models.docextract.window_plan` and `page_outputs` implement it, and evaluation uses it.
+
+* A page of at most 512 words is one window. A longer page runs in windows of 512 words starting every 384 (`max_words * 3 / 4`), the last
+  window ending at the last word: starts 0, 384, 768, ... while `start + 512 < N`. Featurization (`unit`, page size, bins) is computed once for the
+  whole page, not per window.
+* A word belongs to the window whose centre `(start + end) / 2` is nearest the word's centre `index + 0.5`; on a tie, the earlier window. It takes
+  its tag logits, role logits and pointer row from that window.
+* Pointers are scored inside a window only: the target is the window-local argmax (lowest index on a tie) shifted by the window start.
+* The document-type logits are the mean of the windows' logits weighted by the number of words each window owns, in double precision, rounded to fp32.
 
 ## Input featurization (per page; float64 until stored as fp32)
 

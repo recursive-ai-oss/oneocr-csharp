@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from models.docextract import CLASSES, DOC_TYPES, GROUP_CLASSES, LINE_CLASSES, DocExtract, collate
+from models.docextract import CLASSES, DOC_TYPES, GROUP_CLASSES, LINE_CLASSES, DocExtract, page_outputs
 from models.docextract_assemble import assemble
 
 
@@ -42,27 +42,10 @@ def norm(s: str) -> str:
     return "".join(unicodedata.normalize("NFC", s).split())
 
 
-@torch.no_grad()
 def predict(model: DocExtract, examples: list[dict], dev: str = "cpu", batch: int = 16) -> list[dict]:
+    """Outputs per page with the library's window rule (models.docextract.window_plan); one page at a time."""
     model.eval()
-    outs = []
-    order = sorted(range(len(examples)), key=lambda i: len(examples[i]["texts"]))
-    res: dict[int, dict] = {}
-    for s in range(0, len(order), batch):
-        idx = order[s : s + batch]
-        b = collate([examples[i] for i in idx])
-        o = model(b["chars"].to(dev), b["feats"].to(dev), b["bins"].to(dev), b["geo"].to(dev), b["mask"].to(dev))
-        for k, i in enumerate(idx):
-            n = len(examples[i]["texts"])
-            res[i] = {
-                "tags": o["tags"][k, :n].float().cpu().numpy(),
-                "roles": o["roles"][k, :n].float().cpu().numpy(),
-                "doc": o["doc"][k].float().cpu().numpy(),
-                "rel": o["rel"][k, :, :n, :n].float().cpu().numpy(),
-            }
-    for i in range(len(examples)):
-        outs.append(res[i])
-    return outs
+    return [page_outputs(model, ex, dev) for ex in examples]
 
 
 def multiset_prf(tp: int, fp: int, fn: int) -> dict:
