@@ -91,7 +91,7 @@ public sealed class OcrEngine
     public OcrEngine WithoutDetector() => new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, null);
 
     internal OcrEngine WithDetector(ModelContainer container, KernelPath path) =>
-        WithDetector(new PageDetector(DbNetModel.FromContainer(container, _limits), _limits, path));
+        WithDetector(new PageDetector(DbNetModel.FromContainer(container, _limits), _limits, path, _recognizer.ScratchPool));
 
     internal OcrEngine WithDetector(IPageDetector detector) =>
         new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, detector);
@@ -237,7 +237,7 @@ public sealed class OcrEngine
         try
         {
             int pixelCount = checked(width * height);
-            image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
             return PageReader.Read(
                 _recognizer, _limits, _pixels, _masks, _resizers, _detector, gray, width, height, pageIndex, dpi, degree, includeChars, cancellationToken);
         }
@@ -288,7 +288,7 @@ public sealed class OcrEngine
         try
         {
             int pixelCount = checked(width * height);
-            image.CopyPixelsTo<Gray8>(grayPixels.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            image.CopyPixelsTo<Gray8>(grayPixels.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
             LocatedPage? located = null;
             Gray8[] work = grayPixels;
             int workWidth = width, workHeight = height;
