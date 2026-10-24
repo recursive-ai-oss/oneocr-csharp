@@ -67,6 +67,17 @@ public sealed class OcrLimitException : OcrException
         Actual = actual;
     }
 
+    /// <summary>Creates the exception for a bound that belongs to a library OneOcr builds on (for example a PDF or image limit).</summary>
+    /// <param name="limitName">A short name for the bound.</param>
+    /// <param name="message">What was exceeded, as the other library words it.</param>
+    /// <param name="innerException">The other library's exception.</param>
+    /// <remarks><see cref="Limit"/> and <see cref="Actual"/> are 0 for this form; the message carries the numbers.</remarks>
+    public OcrLimitException(string limitName, string message, Exception innerException)
+        : base(message, innerException)
+    {
+        LimitName = limitName;
+    }
+
     /// <summary>The name of the <see cref="OcrLimits"/> property that was exceeded.</summary>
     public string LimitName { get; }
 

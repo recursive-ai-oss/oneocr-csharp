@@ -25,6 +25,7 @@ internal static class Program
             "charlm" => CharLmTarget.Run,
             "lexicon" => LexiconTarget.Run,
             "pagejson" => PageJsonTarget.Run,
+            "pdf" => PdfTarget.Run,
             "llm-anthropic" => LlmTarget.RunAnthropic,
             "llm-openai" => LlmTarget.RunOpenAi,
             "llm-gemini" => LlmTarget.RunGemini,
@@ -169,6 +170,16 @@ internal static class Program
             File.WriteAllText(Path.Combine(dir, "full.seed"), OcrPageJson.ToJson([sample, new OcrPage(1, 100, 50, 300, [])]));
             File.WriteAllText(Path.Combine(dir, "indented.seed"), OcrPageJson.ToJson([sample], new OcrPageJsonOptions { Indented = true, IncludeChars = false }));
             File.WriteAllText(Path.Combine(dir, "empty.seed"), OcrPageJson.ToJson([]));
+            return;
+        }
+
+        if (target == "pdf")
+        {
+            foreach (var (name, bytes) in PdfFixtures.Seeds())
+            {
+                File.WriteAllBytes(Path.Combine(dir, name + ".seed"), bytes);
+            }
+
             return;
         }
 
