@@ -403,6 +403,16 @@ public class DetectorTests
             using JsonDocument doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(dir, "postprocess.json")));
             string[] classes = doc.RootElement.GetProperty("classes").EnumerateArray().Select(e => e.GetString()!).ToArray();
             bool[] allTrained = classes.Select(_ => true).ToArray();
+
+            // A fixture made for a model with its own post-processing parameters (the manifest's config.postprocess) records them.
+            DetectorPostprocess.Options? options = null;
+            if (doc.RootElement.TryGetProperty("postprocess", out JsonElement pp))
+            {
+                options = new DetectorPostprocess.Options(
+                    pp.GetProperty("text_thr").GetDouble(), pp.GetProperty("expand_text").GetDouble(),
+                    pp.GetProperty("lay_thr").GetDouble(), pp.GetProperty("expand_layout").GetDouble());
+            }
+
             foreach (JsonElement c in doc.RootElement.GetProperty("cases").EnumerateArray())
             {
                 string name = c.GetProperty("name").GetString()!;
@@ -422,7 +432,7 @@ public class DetectorTests
 
                 float[] orient = c.GetProperty("orient").EnumerateArray().Select(e => (float)e.GetDouble()).ToArray();
                 int pageW = ps[1] * 2, pageH = ps[0] * 2;
-                PageDetection d = DetectorPostprocess.Decode(prob, ps[1], ps[0], layout, lw, lh, stride, classes, allTrained, orient, 1.0, pageW, pageH, OcrLimits.Default);
+                PageDetection d = DetectorPostprocess.Decode(prob, ps[1], ps[0], layout, lw, lh, stride, classes, allTrained, orient, 1.0, pageW, pageH, OcrLimits.Default, options);
 
                 var expectedLines = new List<(double[] Box, double Score)>();
                 var lineScores = c.GetProperty("line_scores").EnumerateArray().Select(e => e.GetDouble()).ToArray();
