@@ -66,7 +66,7 @@ def dice(p: torch.Tensor, g: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 
 
 def det_loss(out: dict, b: dict, lc: dict) -> dict:
-    valid = b["text_valid"].view(-1, 1, 1, 1)
+    valid = b["text_valid"].view(-1, 1, 1, 1) * b["text_ok"]
     gt, thr_gt, thr_m = b["prob"], b["thr"], b["thr_mask"]
     logit = out["prob"].float()
     p = logit.sigmoid()
@@ -212,7 +212,10 @@ def main() -> None:
         if step % tc["eval_every"] == 0 or step == tc["steps"]:
             model.eval()
             v = {n: evaluate_records(model, recs, dev) for n, recs in val_sets.items()}
-            score = sum(r["layout"]["mAP"] + (r["text"]["f1"] if "text" in r else 0.0) for r in v.values()) / len(v)
+            # CORD labels only part of each receipt, so its precision means nothing: it contributes text recall
+            score = sum(
+                r["layout"]["mAP"] + (r["text"]["recall" if n == "cord" else "f1"] if "text" in r else 0.0) for n, r in v.items()
+            ) / len(v)
             emit({"step": step, "val": v, "score": score})
             if score > best:  # picked on validation pages only
                 best = score
