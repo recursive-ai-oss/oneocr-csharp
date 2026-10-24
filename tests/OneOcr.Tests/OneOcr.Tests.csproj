@@ -24,6 +24,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Minimized reproducers of fuzz findings. -->
+    <Content Include="../../testdata/fuzz/**" Link="testdata/fuzz/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
     <ProjectReference Include="../../src/OneOcr.Llm/OneOcr.Llm.csproj" />
     <ProjectReference Include="../../src/OneOcr.Training/OneOcr.Training.csproj" />
