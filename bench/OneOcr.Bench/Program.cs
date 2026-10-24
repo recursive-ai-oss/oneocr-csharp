@@ -19,6 +19,8 @@ using OneOcr.Layout;
 //   OneOcr.Bench kernels --model FILE [--width 1000] [--degree 1] [--repeat 20]
 //       median wall time of each stage (conv blocks, LSTM layers, classifier) for one line of the given width, on a
 //       synthetic image, at the given degree of parallelism.
+//   OneOcr.Bench trainstep --model FILE [--batch 16] [--width 400] [--chars 40] [--degree 1] [--repeat 5]
+//       median time of one training step (see TrainBench.cs).
 //   OneOcr.Bench randommodel --out FILE
 //       writes a random-weight model of the intended size, to exercise the pipeline before trained weights exist (the text is garbage).
 //
@@ -46,6 +48,7 @@ internal static class Program
             "randommodel" => RandomModel(options),
             "kernels" => Kernels(options),
             "decode" => DecodeBench.Run(options),
+            "trainstep" => TrainBench.Run(options),
             "strips" => Strips(options),
             _ => 2,
         };
