@@ -228,6 +228,90 @@ def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> t
     return luma
 
 
+def _extent(mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """First and last True index along the last axis of mask [n, L], and whether any is True."""
+    ln = mask.shape[1]
+    has = mask.any(1)
+    first = mask.float().argmax(1)
+    last = ln - 1 - mask.flip(1).float().argmax(1)
+    return first, last, has
+
+
+def _shift_gather(cov: torch.Tensor, dy: torch.Tensor, dx: torch.Tensor, wd: torch.Tensor, wrap: bool) -> torch.Tensor:
+    """Copy of cov [n, 1, h, w] moved by (dy, dx) pixels per sample (zeros where nothing moves in); wrap=True rolls the columns
+    inside each sample's own width instead."""
+    n, _, h, w = cov.shape
+    dev = cov.device
+    rows = torch.arange(h, device=dev).view(1, h, 1).float() - dy.view(n, 1, 1)
+    cols = torch.arange(w, device=dev).view(1, 1, w).float() - dx.view(n, 1, 1)
+    if wrap:
+        cols = torch.remainder(cols, wd.view(n, 1, 1).float())
+    ok = (rows >= 0) & (rows < h) & (cols >= 0) & (cols < w)
+    r = rows.round().long().clamp(0, h - 1).expand(n, h, w)
+    c = cols.round().long().clamp(0, w - 1).expand(n, h, w)
+    flat = cov[:, 0].reshape(n, h * w).gather(1, (r * w + c).reshape(n, h * w)).view(n, 1, h, w)
+    return flat * ok.unsqueeze(1)
+
+
+def add_distractors(cov: torch.Tensor, widths: torch.Tensor, P: dict, g: torch.Generator) -> torch.Tensor:
+    """Ink that real line crops carry besides the line itself, drawn into the coverage before the camera simulation:
+      sliver_v  per side: a bit of the neighbouring line, a shifted copy of this line showing in the top or bottom margin
+      sliver_h  per side: the end of a neighbouring word or cell, a shifted copy showing in the left or right margin
+      rule      one of: a vertical rule near one end (cell or form-field border), a horizontal rule above or below the text,
+                an underline, or a box (both vertical rules)
+    Every distractor stays inside the margin (clear of the line's own ink) so the label stays exact. cov: [n, 1, 48, Wp]."""
+    n, _, h, w = cov.shape
+    dev = cov.device
+    wd = widths.to(dev).clamp(max=w)
+    rowmax, colmax = cov.amax(dim=(1, 3)), cov.amax(dim=(1, 2))
+    top, bot, has_r = _extent(rowmax > 0.25)
+    left, right, has_c = _extent(colmax > 0.25)
+    has = has_r & has_c
+    rnd = lambda: torch.rand(n, generator=g, device=dev)  # noqa: E731
+    out = cov
+    zero = torch.zeros(n, device=dev)
+    # neighbouring line above / below
+    for side in (-1, 1):
+        room = (top - 2).float() if side < 0 else (h - 1 - bot - 2).float()
+        on = (rnd() < P.get("sliver_v", 0.0)) & has & (room >= 3)
+        vis = (0.3 + 0.7 * rnd()) * room.clamp(min=0)
+        dy = vis - bot.float() if side < 0 else (h - vis) - top.float()
+        dx = (rnd() - 0.5) * wd.float()
+        sl = _shift_gather(cov, torch.where(on, dy, zero), torch.where(on, dx, zero), wd, True) * (0.7 + 0.3 * rnd()).view(n, 1, 1, 1)
+        out = torch.maximum(out, sl * on.view(n, 1, 1, 1))
+    # neighbouring word or cell to the left / right
+    for side in (-1, 1):
+        room = (left - 2).float() if side < 0 else (wd - 1 - right - 2).float()
+        on = (rnd() < P.get("sliver_h", 0.0)) & has & (room >= 3)
+        vis = (0.3 + 0.7 * rnd()) * room.clamp(min=0)
+        dx = vis - right.float() if side < 0 else (wd.float() - vis) - left.float()
+        sl = _shift_gather(cov, zero, torch.where(on, dx, zero), wd, False) * (0.7 + 0.3 * rnd()).view(n, 1, 1, 1)
+        out = torch.maximum(out, sl * on.view(n, 1, 1, 1))
+    # rules
+    on = (rnd() < P.get("rule", 0.0)) & has
+    kind = (rnd() * 4).long().clamp(max=3)  # 0 vertical at one end, 1 horizontal above, 2 underline / below, 3 box
+    thick = (1.0 + 2.0 * rnd()) * h / 48.0
+    inten = (0.5 + 0.5 * rnd()).view(n, 1, 1, 1)
+    rows = torch.arange(h, device=dev).view(1, 1, h, 1).float()
+    cols = torch.arange(w, device=dev).view(1, 1, 1, w).float()
+    t4 = thick.view(n, 1, 1, 1)
+    line = lambda d: (t4 / 2 + 0.5 - d.abs()).clamp(0, 1)  # noqa: E731
+    pos_l = (left.float() * (0.3 + 0.5 * rnd())).view(n, 1, 1, 1)
+    pos_r = (right.float() + (wd - 1 - right).float() * (0.3 + 0.5 * rnd())).view(n, 1, 1, 1)
+    pos_t = (top.float() * (0.3 + 0.5 * rnd())).view(n, 1, 1, 1)
+    pos_b = (bot.float() + (h - 1 - bot).float() * (0.3 + 0.5 * rnd())).view(n, 1, 1, 1)
+    inside = (cols < wd.view(n, 1, 1, 1)).float()
+    ends_left = (rnd() < 0.5).view(n, 1, 1, 1)
+    vert_one = line(cols - torch.where(ends_left, pos_l, pos_r))
+    vert_both = torch.maximum(line(cols - pos_l), line(cols - pos_r))
+    vert = torch.where((kind == 3).view(n, 1, 1, 1), vert_both, vert_one) * torch.ones_like(rows)
+    hor = torch.where((kind == 1).view(n, 1, 1, 1), line(rows - pos_t), line(rows - pos_b)) * inside
+    rule = torch.where((kind <= 0).view(n, 1, 1, 1) | (kind == 3).view(n, 1, 1, 1), vert, hor)
+    # a rule is only drawn where the margin is wide enough to hold it clear of the text
+    room_ok = torch.where(kind == 1, top >= 4, torch.where(kind == 2, h - 1 - bot >= 4, (left >= 4) & (wd - 1 - right >= 4)))
+    return torch.maximum(out, rule * inten * (on & room_ok).view(n, 1, 1, 1))
+
+
 @torch.no_grad()
 def degrade(clean: torch.Tensor, widths: torch.Tensor, side: dict, g: torch.Generator) -> tuple[torch.Tensor, torch.Tensor, dict]:
     """clean: uint8 [B, 1, 48, Wp] on the device (255 = paper, padded anywhere right of each width); widths: [B] clean widths.
@@ -238,6 +322,8 @@ def degrade(clean: torch.Tensor, widths: torch.Tensor, side: dict, g: torch.Gene
     b, _, _, wp = clean.shape
     params = sample_params(side, b, g, dev)
     cov = 1.0 - clean.float() / 255.0
+    if any(k in side["p"] for k in ("rule", "sliver_v", "sliver_h")):  # off in the configs of the earlier line sets
+        cov = add_distractors(cov, widths, side["p"], g)
     w32p = out_width(wp)
     out = torch.empty(b, 1, OUT_H, w32p, dtype=torch.uint8, device=dev)
     wh_all = params["src_h"].long()

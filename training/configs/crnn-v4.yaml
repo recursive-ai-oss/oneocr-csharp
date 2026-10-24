@@ -1,0 +1,20 @@
+# Production recognizer, second stage: continues from the best validation checkpoint of crnn-v3 on lines-v4 (training side with
+# distractor ink and more light-on-dark text), 80k steps with a fresh optimizer and a lower peak learning rate.
+# ${ONEOCR_HOME} is the state directory of the machine running the job.
+name: crnn-v4
+seed: 4
+init_from: ${ONEOCR_HOME}/runs/crnn-v3/best.pt
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_HOME}/data/lines-v4
+run_dir: ${ONEOCR_HOME}/runs/crnn-v4
+train:
+  steps: 80000
+  batch: 128
+  lr: 0.001
+  warmup: 1000
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 4000
+  ckpt_every: 2000

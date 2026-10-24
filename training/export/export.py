@@ -44,7 +44,9 @@ def random_model(seed: int, config: dict) -> CRNN:
     return m.eval()
 
 
-def export(model, charset: list[str], path: Path, version: str, provenance: dict) -> dict:
+def export(
+    model, charset: list[str], path: Path, version: str, provenance: dict, format_version: int = 0, calibration: dict | None = None
+) -> dict:
     tensors = fold(model.eval())
     manifest = {
         "architecture": ARCHITECTURE_IDS[model.config.get("arch", "crnn-v0")],
@@ -56,7 +58,10 @@ def export(model, charset: list[str], path: Path, version: str, provenance: dict
         "config": model.config,
         "provenance": provenance,
     }
-    write_container(path, manifest, {k: v.numpy() for k, v in tensors.items()})
+    if format_version == 1:
+        assert calibration is not None
+        manifest["calibration"] = calibration
+    write_container(path, manifest, {k: v.numpy() for k, v in tensors.items()}, version=format_version)
     return manifest
 
 
@@ -84,6 +89,8 @@ def main() -> None:
     ap.add_argument("--charset", default="data/charset-v1.txt")
     ap.add_argument("--out", required=True)
     ap.add_argument("--version", default="0.1.0")
+    ap.add_argument("--format-version", type=int, default=0, choices=[0, 1], help="container format; 1 needs --calibration")
+    ap.add_argument("--calibration", help="calibration.json written by eval.calibrate fit (container v1)")
     ap.add_argument("--eval-data", action="append", default=[], help="LABEL=DIR of a line set (labels.jsonl + images/); repeatable")
     a = ap.parse_args()
 
@@ -99,7 +106,8 @@ def main() -> None:
     else:
         model = random_model(a.random_seed, {**DEFAULT_CONFIG, "classes": len(charset)})
         provenance = {"random_init_seed": a.random_seed, "note": "untrained, for parity tests only"}
-    export(model, charset, out, a.version, provenance)
+    cal = json.loads(Path(a.calibration).read_text(encoding="utf-8")) if a.calibration else None
+    export(model, charset, out, a.version, provenance, a.format_version, cal)
 
     # round trip: the reader must return exactly the fp16 values that were written
     m2, tensors = read_container(out)

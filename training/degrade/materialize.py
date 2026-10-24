@@ -40,19 +40,31 @@ def main() -> None:
         (out / "images").mkdir(parents=True, exist_ok=True)
         g = torch.Generator(device="cuda")
         g.manual_seed(cfg["seed"] * 1000 + i)
-        side = cfg["gpu_degrade"][spec["degrade"]]
+        sides = [cfg["gpu_degrade"][k] for k in ((["train", "heldout"]) if spec["degrade"] == "all" else [spec["degrade"]])]
         labels, params = [], []
         for s in range(0, len(pack), BATCH):
             idx = list(range(s, min(s + BATCH, len(pack))))
             x, w = pack.batch(idx)
-            img, w32, p = degrade(x.cuda(), w.cuda(), side, g)
-            img = img.cpu().numpy()
+            # "all": even samples use the training ranges, odd samples the held-out ranges
+            parts = [(slice(k, None, len(sides)), sd) for k, sd in enumerate(sides)]
+            img = [None] * len(idx)
+            w32 = torch.zeros(len(idx), dtype=torch.long)
+            plist = [None] * len(idx)
+            for sl, sd in parts:
+                sub = list(range(len(idx)))[sl]
+                im, ww, pp = degrade(x[sub].cuda(), w[sub].cuda(), sd, g)
+                im = im.cpu().numpy()
+                recs = param_records(pp, [pack.ids[idx[j]] for j in sub])
+                for n, j in enumerate(sub):
+                    img[j] = im[n]
+                    w32[j] = ww[n]
+                    plist[j] = recs[n]
             for k, j in enumerate(idx):
                 png = out / "images" / (pack.ids[j] + ".png")
-                Image.fromarray(img[k, 0, :, : int(w32[k])], mode="L").save(png)
+                Image.fromarray(img[k][0, :, : int(w32[k])], mode="L").save(png)
                 labels.append({"id": pack.ids[j], "text": pack.texts[j], "w": int(w32[k]), "h": 32, "font": pack.fonts[j],
                                "sha256": hashlib.sha256(png.read_bytes()).hexdigest()})  # fmt: skip
-            params += param_records(p, [pack.ids[j] for j in idx])
+            params += plist
         (out / "labels.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in labels), encoding="utf-8")
         (out / "params.jsonl").write_text("".join(json.dumps(r) + "\n" for r in params), encoding="utf-8")
         print(f"{name}: {len(labels)} crops ({spec['degrade']} ranges) -> {out}", flush=True)

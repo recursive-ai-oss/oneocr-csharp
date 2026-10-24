@@ -5,7 +5,8 @@ Usage: uv run python -m gen.check DATA_DIR [PAGE_TRUTH_DIR]
 Asserts: eval fonts are families the training set never uses (and none of the page-evaluation families appears anywhere);
 validation and eval lines come from books the training set never reads; no val/eval text of 20+ characters equals a training
 text (short fragments and generated strings that coincide by chance are counted, not failed); the held-out degradation ranges
-do not overlap the training ranges; every label file lists exactly the ids of its plan. With a page truth directory it also
+do not overlap the training ranges; the calibration split (if any) shares no text of 20+ characters with validation or evaluation;
+every label file lists exactly the ids of its plan. With a page truth directory it also
 counts 8-word sequences shared between the training texts and the page evaluation texts (must be zero).
 """
 
@@ -67,6 +68,14 @@ def main() -> None:
                 continue
             for k in ("em", "blur", "noise", "contrast", "jpeg_q"):
                 assert disjoint(cfg["degrade"]["heldout"][k], cfg["degrade"]["train"][k]), k
+    if "calib" in plans:  # the calibration split shares no line (20+ characters) with validation or evaluation, nor any book with training
+        cal = {r["text"] for r in plans["calib"] if len(r["text"]) >= 20}
+        for other in plans:
+            if other not in ("calib", "train"):
+                both = cal & {r["text"] for r in plans[other]}
+                assert not both, f"calib shares text with {other}: {sorted(both)[:3]}"
+        n_fonts = len({r["font"] for r in plans["calib"]})
+        print(f"calib: {len(plans['calib'])} lines, {n_fonts} font files, no text shared with the other sets")
     for s, rows in plans.items():
         lab = [json.loads(x)["id"] for x in (root / s / "labels.jsonl").read_text(encoding="utf-8").splitlines()]
         assert lab == [r["id"] for r in rows], s
