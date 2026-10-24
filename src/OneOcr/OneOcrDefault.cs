@@ -14,7 +14,7 @@ public static class OneOcr
     /// <exception cref="OcrModelException">No engine has been configured.</exception>
     public static OcrEngine Default =>
         Volatile.Read(ref s_default) ?? throw new OcrModelException(
-            "No OCR model is configured. Call OneOcr.Configure(OcrEngine.Load(modelPath)) once at startup, or pass an engine explicitly.");
+            "No OCR model is configured. Call OneOcr.Configure() (the bundled recognizer) or OneOcr.Configure(OcrEngine.Load(modelPath)) once at startup, or pass an engine explicitly.");
 
     /// <summary>Sets <see cref="Default"/>. May be called once.</summary>
     /// <param name="engine">The engine to use by default.</param>
@@ -28,6 +28,11 @@ public static class OneOcr
             throw new InvalidOperationException("OneOcr.Default is already configured.");
         }
     }
+
+    /// <summary>Loads the recognizer that ships in the models package and sets it as <see cref="Default"/>. May be called once.</summary>
+    /// <exception cref="OcrModelException">The package carries no weights, or they do not match their pin.</exception>
+    /// <exception cref="InvalidOperationException">A default engine was already configured.</exception>
+    public static void Configure() => Configure(OcrEngine.LoadBundled());
 
     /// <summary>Loads a model file and sets it as <see cref="Default"/>. May be called once.</summary>
     /// <param name="modelPath">A model container file.</param>
