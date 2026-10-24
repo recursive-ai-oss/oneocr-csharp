@@ -34,6 +34,11 @@ else
   for v in $(ls "$rot" | grep -v expected.json); do
     for s in $(ls "$rot/$v"); do jobs+=("$v/$s"); done
   done
-  printf '%s\n' "${jobs[@]}" | xargs -P 6 -I{} bash -c 'v=$(dirname {}); s=$(basename {}); nice bash -c "run \"'"$rot"'/{}/pages\" \"'"$out"'/rot/{}\" 1"'
+  printf '%s\n' "${jobs[@]}" | xargs -P 6 -I{} bash -c 'v=$(dirname {}); s=$(basename {}); nice bash -c "run \"'"$rot"'/{}\" \"'"$out"'/rot/{}\" 1"'
   python3 bench/scripts/check_rotated.py "$out/rot" "$rot/expected.json" | tail -40
+  # Page CER of every rotated copy against the upright truth, next to the upright pages' own CER.
+  (cd bench && for s in clean300-v1 layout-v1; do
+    echo -n "upright $s: "; uv run python -m oneocr_bench score "$eval_dir/$s" "${UPRIGHT:?}/$s" 2>&1 | tail -1 | cut -c1-90
+    for v in $(ls "$rot" | grep -v expected.json); do echo -n "$v $s: "; uv run python -m oneocr_bench score "$eval_dir/$s" "$out/rot/$v/$s" 2>&1 | tail -1 | cut -c1-90; done
+  done)
 fi

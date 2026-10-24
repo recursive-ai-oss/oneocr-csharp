@@ -50,6 +50,9 @@ internal sealed class ClassicalOrientation : IOrientationDetector
     // One profile this many times as sharp as the other decides the line direction without a reading.
     private const double DecisiveRatio = 3.0;
 
+    // A sideways page whose profile is this many times sharper needs no confident reading to be turned.
+    private const double StrongRatio = 6.0;
+
     // A reading turned half way round must itself be at least this confident to win.
     private const double SureConfidence = 0.75;
 
@@ -124,9 +127,9 @@ internal sealed class ClassicalOrientation : IOrientationDetector
         trace?.Add($"axis {first}: upright {firstReading.Upright:F3} turned {firstReading.Turned:F3} share {firstReading.TurnedShare:F2} (contrast flat {flat.Contrast:F2} sideways {sideways.Contrast:F2})");
         if (ratio >= DecisiveRatio || ratio <= 1 / DecisiveRatio)
         {
-            // Vertical structure alone (a photographed edge, a long vertical rule) is not sideways text: unless the recognizer reads
-            // the turned page with confidence, the page stays as it is.
-            return first == 1 && firstReading.Best < SureConfidence ? 0 : firstReading.Degrees(first);
+            // Vertical structure alone (a photographed edge, a long vertical rule) is not sideways text: unless the profile is
+            // overwhelming or the recognizer reads the turned page with confidence, the page stays as it is.
+            return first == 1 && ratio < StrongRatio && firstReading.Best < SureConfidence ? 0 : firstReading.Degrees(first);
         }
 
         // The other direction wins only by reading AxisMargin better than this one, which a reading above 1 - AxisMargin cannot be beaten
