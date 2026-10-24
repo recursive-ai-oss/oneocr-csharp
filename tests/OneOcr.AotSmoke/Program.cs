@@ -155,6 +155,23 @@ foreach (var provider in new OneOcr.Llm.LlmProvider[]
     }
 }
 
+// Grounded read: every requested output from one call, values checked against the page.
+var readHandler = new ReadHandler();
+using (var rc = new OneOcr.Llm.LlmClient(new OneOcr.Llm.AnthropicProvider("smoke-key", "smoke-model", http: new System.Net.Http.HttpClient(readHandler))))
+{
+    var read = rc.ReadAsync(page, llmPage, new OneOcr.Llm.LlmReadOptions
+    {
+        Outputs = OneOcr.Llm.LlmOutputs.Text | OneOcr.Llm.LlmOutputs.Markdown | OneOcr.Llm.LlmOutputs.Json | OneOcr.Llm.LlmOutputs.PageModel,
+        JsonSchema = "{\"type\":\"object\",\"properties\":{\"word\":{\"type\":[\"string\",\"null\"]}}}",
+    }).GetAwaiter().GetResult();
+    if (read.Calls != 1 || readHandler.Calls != 1 || read.Text != "Total" || read.Markdown != "**Total**" || read.Json != "{\"word\":\"Total\"}"
+        || read.Fields.Count != 1 || read.Fields[0].State != OneOcr.Llm.GroundingState.Grounded || read.Pages.Count != 1)
+    {
+        Console.Error.WriteLine("grounded read failed");
+        return 1;
+    }
+}
+
 Console.WriteLine($"ok: {a.Text.Length} characters, confidence {a.Confidence:F3}");
 return 0;
 
@@ -172,6 +189,21 @@ internal sealed class SmokeHandler : System.Net.Http.HttpMessageHandler
     {
         Calls++;
         const string Body = "{\"type\":\"message\",\"content\":[{\"type\":\"tool_use\",\"name\":\"extraction\",\"input\":{\"total\":\"12.50\"}}],\"stop_reason\":\"tool_use\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10}}";
+        return System.Threading.Tasks.Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new System.Net.Http.StringContent(Body, System.Text.Encoding.UTF8, "application/json"),
+        });
+    }
+}
+
+internal sealed class ReadHandler : System.Net.Http.HttpMessageHandler
+{
+    public int Calls;
+
+    protected override System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, System.Threading.CancellationToken cancellationToken)
+    {
+        Calls++;
+        const string Body = "{\"type\":\"message\",\"content\":[{\"type\":\"tool_use\",\"name\":\"extraction\",\"input\":{\"pages\":[\"Total\"],\"markdown\":[\"**Total**\"],\"data\":{\"word\":{\"value\":\"Total\",\"words\":[\"w0\"],\"derived\":false}}}}],\"stop_reason\":\"tool_use\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10}}";
         return System.Threading.Tasks.Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
         {
             Content = new System.Net.Http.StringContent(Body, System.Text.Encoding.UTF8, "application/json"),
