@@ -267,6 +267,7 @@ public sealed class OcrEngine
         finally
         {
             _pixels.Return(gray);
+            GarbageBound.AfterPage();
         }
     }
 
