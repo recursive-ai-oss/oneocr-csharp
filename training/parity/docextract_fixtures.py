@@ -116,12 +116,14 @@ def main() -> None:
     ref64 = Reference(manifest["config"], t, torch.float64)
     rng = random.Random(a.seed)
     pages = []
+    pool_big = []
     for path in a.data:
         d = pickle.load(open(path, "rb"))
         for src in ("generated", "cord"):
             exs = [e for e in d.get(src, {}).get("ocr", []) if len(e["texts"]) >= 64]
             if exs:
                 pages.append((src, rng.sample(exs, min(3, len(exs)))))
+                pool_big += [e for e in d[src]["ocr"] if len(e["texts"]) >= 200]
     samples = []
     picks = [(s, e) for s, es in pages for e in es]
     rng.shuffle(picks)
@@ -143,7 +145,7 @@ def main() -> None:
                 True,
             )
         )
-    big = [e for _, es in pages for e in es if len(e["texts"]) >= 200]
+    big = pool_big
     if big:
         e = big[0]
         samples.append(

@@ -23,6 +23,7 @@ mapping of `menu.price` to amount, `menu.unitprice` to unit price.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import pickle
 import time
@@ -242,7 +243,7 @@ def load_model(path: str, dev: str = "cpu") -> DocExtract:
 def latency(model: DocExtract, examples: list[dict], n: int = 40) -> dict:
     """Per page forward + assembly on one torch CPU thread (a proxy for the C# kernels, which are not the same code)."""
     torch.set_num_threads(1)
-    model = model.cpu().eval()
+    model = copy.deepcopy(model).cpu().eval()
     sel = examples[:: max(1, len(examples) // n)][:n]
     ms, words = [], []
     for ex in sel:

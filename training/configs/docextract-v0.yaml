@@ -23,4 +23,4 @@ train:
   log_every: 100
   eval_every: 1000
   ckpt_every: 500
-  max_minutes: 100
+  max_minutes: 90

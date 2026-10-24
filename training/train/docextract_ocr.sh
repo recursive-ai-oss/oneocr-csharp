@@ -3,7 +3,7 @@
 #   train/docextract_ocr.sh IMAGES OUT MODEL [SHARDS] [LIMIT]
 # IMAGES holds .png/.jpg files; the images are split over SHARDS processes (degree 1 each). Needs .NET 10 on PATH (DOTNET_ROOT set) and
 # the repository's bench project; ONEOCR_ARTIFACTS (optional) says where the build output goes. The OCR only supplies words and boxes:
-# labels come from the generator's truth or CORD (train/docextract_data.py).
+# ONEOCR_DETECTOR (optional) names a detector model file to read with. Labels come from the generator's truth or CORD (train/docextract_data.py).
 set -euo pipefail
 images=$1 out=$2 model=$3 shards=${4:-8} limit=${5:-0}
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -25,7 +25,7 @@ run_shard() {
   while :; do
     for f in "$work/$s"/*; do [ -e "$work/out$s/$(basename "${f%.*}").page.json" ] && rm -f "$f"; done
     ls "$work/$s" | grep -qE '\.(png|jpg|jpeg)$' || return 0
-    dotnet "$dll" run --model "$model" --pages "$work/$s" --out "$work/out$s" --degree 1 --metaonly 1 --pagejson 1 >>"$work/log$s" 2>&1 && return 0
+    dotnet "$dll" run --model "$model" --pages "$work/$s" --out "$work/out$s" --degree 1 --metaonly 1 --pagejson 1 ${ONEOCR_DETECTOR:+--detector "$ONEOCR_DETECTOR"} >>"$work/log$s" 2>&1 && return 0
     first=$(ls "$work/$s" | grep -E '\.(png|jpg|jpeg)$' | head -1); tries=$((tries + 1))
     if [ "$tries" -gt 40 ]; then echo "giving up on shard $s" >&2; return 1; fi
     if [ "${first%.*}.png" = "$first" ] && [ -e "$work/$s/$first.recoded" ]; then rm -f "$work/$s/$first" "$work/$s/$first.recoded"; echo "dropped $first" >>"$work/dropped"; continue; fi
