@@ -11,9 +11,14 @@ public class OrientationTests
     private const int W = 1000, H = 700;
 
     // Text-like lines; about half of the ink pixels, scattered by a hash, are paper again, so glyphs are as thin as the strokes of real text.
-    private static byte[] TextPage()
+    private static byte[] TextPage() => ScatterInk(EngineTests.SyntheticPage(W, H, [.. Enumerable.Range(0, 20).Select(i => 60 + (30 * i))], 6, 8, plain: true).Pixels);
+
+    // Widely spaced thin lines: their profile is so much sharper than the page turned that a sideways copy is turned upright
+    // without the (random-weight) recognizer having to read anything with confidence.
+    private static byte[] SparseTextPage() => ScatterInk(EngineTests.SyntheticPage(W, H, [.. Enumerable.Range(0, 10).Select(i => 60 + (60 * i))], 4, 8, plain: true).Pixels);
+
+    private static byte[] ScatterInk(byte[] px)
     {
-        byte[] px = EngineTests.SyntheticPage(W, H, [.. Enumerable.Range(0, 20).Select(i => 60 + (30 * i))], 6, 8, plain: true).Pixels;
         for (int y = 0; y < H; y++)
         {
             for (int x = 0; x < W; x++)
@@ -200,7 +205,7 @@ public class OrientationTests
     [Fact]
     public void ASidewaysPageIsTurnedUprightWithQuadsInInputCoordinates()
     {
-        Gray8[] turned = Turn(Gray(TextPage()), W, H, 1);
+        Gray8[] turned = Turn(Gray(SparseTextPage()), W, H, 1);
         Image image = Image.FromPixels<Gray8>(turned, H, W);
         OcrPage page = Engine().Ocr(image);
         // The random-weight recognizer cannot tell the two upright candidates apart; the line direction is what is tested.
@@ -230,7 +235,7 @@ public class OrientationTests
     [Fact]
     public void ResultsAreIdenticalOnEveryPathAndDegree()
     {
-        (byte[] px, int h) = Shear(TextPage(), W, H, -60);
+        (byte[] px, int h) = Shear(SparseTextPage(), W, H, -60);
         Gray8[] turned = Turn(Gray(px), W, h, 3);
         Image image = Image.FromPixels<Gray8>(turned, h, W);
         string baseline = OcrPageJson.ToJson([Engine().Ocr(image, new OcrOptions { MaxDegreeOfParallelism = 1 })]);
@@ -283,7 +288,7 @@ public class OrientationTests
     public void WithADetectorTheHeadDecidesAndTheClassicalDecisionIsSkipped()
     {
         // A sideways page: the classical decision would turn it, the head says it is upright and sure, so it is read as it is.
-        Gray8[] turned = Turn(Gray(TextPage()), W, H, 1);
+        Gray8[] turned = Turn(Gray(SparseTextPage()), W, H, 1);
         Image image = Image.FromPixels<Gray8>(turned, H, W);
         var stub = new HeadStub(_ => Head(0, 0.99f));
         OcrPage page = Engine().WithDetector(stub).Ocr(image);
