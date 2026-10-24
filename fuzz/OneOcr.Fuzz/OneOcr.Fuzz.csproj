@@ -18,10 +18,12 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
+    <ProjectReference Include="../../src/OneOcr.Llm/OneOcr.Llm.csproj" />
     <!-- The test-only container writer builds the seed corpus. -->
     <Compile Include="../../tests/OneOcr.Tests/TestModels.cs" Link="TestModels.cs" />
     <Compile Include="../../tests/OneOcr.Tests/TestLm.cs" Link="TestLm.cs" />
     <Compile Include="../../tests/OneOcr.Tests/SamplePage.cs" Link="SamplePage.cs" />
+    <Compile Include="../../tests/OneOcr.Tests/LlmFixtures.cs" Link="LlmFixtures.cs" />
   </ItemGroup>
 
 </Project>

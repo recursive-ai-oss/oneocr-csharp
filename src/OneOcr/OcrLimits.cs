@@ -124,4 +124,16 @@ public sealed class OcrLimits
 
     /// <summary>Longest text of one word, line or diagnostic in a page-model document, in UTF-16 code units. Default 2^16.</summary>
     public int MaxPageStringLength { get; init; } = 1 << 16;
+
+    /// <summary>Most bytes of one language-model provider response that will be read. Checked against the declared length first, then while reading. Default 16 MiB.</summary>
+    public long MaxLlmResponseBytes { get; init; } = 16L * 1024 * 1024;
+
+    /// <summary>Deepest JSON nesting accepted in a provider response, in the model's answer and in a schema. Default 32.</summary>
+    public int MaxLlmJsonDepth { get; init; } = 32;
+
+    /// <summary>Most bytes of a JSON Schema handed to a provider. Default 256 KiB.</summary>
+    public int MaxLlmSchemaBytes { get; init; } = 256 * 1024;
+
+    /// <summary>Most bytes of one request to a provider (images as encoded, plus text). Checked before the request is built. Default 32 MiB.</summary>
+    public long MaxLlmRequestBytes { get; init; } = 32L * 1024 * 1024;
 }

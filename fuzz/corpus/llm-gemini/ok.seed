@@ -1,0 +1,1 @@
+{"candidates":[{"content":{"role":"model","parts":[{"text":"{\"vendor\":\"Acme\",\"total\":\"12.50\"}"}]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":900,"candidatesTokenCount":25,"totalTokenCount":925}}

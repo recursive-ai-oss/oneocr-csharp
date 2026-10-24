@@ -108,5 +108,73 @@ if (page.ToText() != t1)
     return 1;
 }
 
+// The LLM layer: a typed extraction through a fake handler, with the schema exported from source-generated type information.
+var ocrWord = new OneOcr.OcrWord("Total", new OneOcr.OcrBox(10, 10, 60, 30), 0.9f, 0.9f, OneOcr.OcrSource.Ocr, new System.Collections.Generic.List<OneOcr.OcrChar>());
+var ocrLine = new OneOcr.OcrLine("Total", new[] { ocrWord }, new[] { 0 }, ocrWord.Box, 0.9f, OneOcr.OcrSource.Ocr);
+var llmPage = new OneOcr.OcrPage(0, 600, 300, 72, new[] { new OneOcr.OcrBlock(OneOcr.OcrBlockRole.Body, false, ocrWord.Box, new[] { ocrLine }, 0.9f) });
+var llmHandler = new SmokeHandler();
+var anthropic = new OneOcr.Llm.AnthropicProvider("smoke-key", "smoke-model", http: new System.Net.Http.HttpClient(llmHandler));
+using (var llm = new OneOcr.Llm.LlmClient(anthropic, new OneOcr.Llm.LlmOptions { Cache = new OneOcr.Llm.LlmResultCache() }))
+{
+    var typed = llm.ExtractAsync(page, llmPage, "Read the total.", SmokeContext.Default.SmokeAnswer).GetAwaiter().GetResult();
+    var again = llm.ExtractAsync(page, llmPage, "Read the total.", SmokeContext.Default.SmokeAnswer).GetAwaiter().GetResult();
+    if (typed.Value.Total != "12.50" || !again.Details.FromCache || llmHandler.Calls != 1)
+    {
+        Console.Error.WriteLine("LLM extraction failed");
+        return 1;
+    }
+}
+
+using (var offline = new OneOcr.Llm.LlmClient(anthropic, new OneOcr.Llm.LlmOptions { Offline = true }))
+{
+    try
+    {
+        offline.ExtractAsync(page, llmPage, "x", SmokeContext.Default.SmokeAnswer).GetAwaiter().GetResult();
+        Console.Error.WriteLine("offline client sent a request");
+        return 1;
+    }
+    catch (OneOcr.OcrProviderException e) when (e.Failure == OneOcr.LlmFailure.Offline)
+    {
+    }
+}
+
+foreach (var provider in new OneOcr.Llm.LlmProvider[]
+{
+    new OneOcr.Llm.OpenAiProvider("k", "m", http: new System.Net.Http.HttpClient(llmHandler)),
+    new OneOcr.Llm.GeminiProvider("k", "m", http: new System.Net.Http.HttpClient(llmHandler)),
+    new OneOcr.Llm.AzureOpenAiProvider(new Uri("https://x.openai.azure.com"), "d", "k", http: new System.Net.Http.HttpClient(llmHandler)),
+    new OneOcr.Llm.OpenAiCompatibleProvider(new Uri("http://localhost:1/v1"), "m", http: new System.Net.Http.HttpClient(llmHandler)),
+})
+{
+    using var c = new OneOcr.Llm.LlmClient(provider);
+    var estimate = c.Estimate(new[] { new OneOcr.Llm.LlmPageInput(page, llmPage) }, "x", "{\"type\":\"object\",\"properties\":{\"a\":{\"type\":[\"string\",\"null\"]}}}");
+    if (estimate.InputTokens <= 0)
+    {
+        Console.Error.WriteLine("no estimate");
+        return 1;
+    }
+}
+
 Console.WriteLine($"ok: {a.Text.Length} characters, confidence {a.Confidence:F3}");
 return 0;
+
+internal sealed record SmokeAnswer(string? Total);
+
+[System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeAnswer))]
+internal sealed partial class SmokeContext : System.Text.Json.Serialization.JsonSerializerContext;
+
+internal sealed class SmokeHandler : System.Net.Http.HttpMessageHandler
+{
+    public int Calls;
+
+    protected override System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, System.Threading.CancellationToken cancellationToken)
+    {
+        Calls++;
+        const string Body = "{\"type\":\"message\",\"content\":[{\"type\":\"tool_use\",\"name\":\"extraction\",\"input\":{\"total\":\"12.50\"}}],\"stop_reason\":\"tool_use\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10}}";
+        return System.Threading.Tasks.Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new System.Net.Http.StringContent(Body, System.Text.Encoding.UTF8, "application/json"),
+        });
+    }
+}

@@ -1,0 +1,1 @@
+{"id":"chatcmpl-1","object":"chat.completion","model":"test-model","choices":[{"index":0,"message":{"role":"assistant","content":"{\"vendor\":\"Acme\",\"total\":\"12.50\"}","refusal":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":1200,"completion_tokens":30,"total_tokens":1230}}

@@ -1,0 +1,1 @@
+{"type":"object","properties":{"vendor":{"type":["string","null"]},"total":{"type":["string","null"],"format":"uuid"}},"required":["vendor"],"additionalProperties":false}
