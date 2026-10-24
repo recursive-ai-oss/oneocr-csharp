@@ -53,6 +53,9 @@ internal static class PagePreparation
     // The sharpest profile must beat the flat one by this much to count as evidence of a tilt.
     private const double MinGain = 1.03;
 
+    /// <summary>The slope a page is straightened by: the estimate when it is a clear tilt, otherwise 0.</summary>
+    public static int ActedSlope(SkewEstimate estimate) => Math.Abs(estimate.Slope) >= MinSlope && estimate.Gain >= MinGain ? estimate.Slope : 0;
+
     public static PreparedPage Prepare(
         Gray8[] gray, int width, int height, bool orient, bool deskew, IOrientationDetector detector, OcrLimits limits,
         BufferPool<Gray8> pool, int degree, CancellationToken cancellationToken)
@@ -85,11 +88,9 @@ internal static class PagePreparation
                 (int threshold, bool inkIsBright) = LineFinder.Binarize(bytes);
                 if (threshold >= 0)
                 {
-                    SkewEstimate estimate = SkewEstimator.Estimate(InkGrid.Build(bytes, w, h, threshold, inkIsBright));
-                    if (Math.Abs(estimate.Slope) >= MinSlope && estimate.Gain >= MinGain)
-                    {
-                        slope = estimate.Slope;
-                    }
+                    using InkGrid grid = InkGrid.Build(bytes, w, h, threshold, inkIsBright);
+                    SkewEstimate estimate = SkewEstimator.Estimate(grid);
+                    slope = ActedSlope(estimate);
                 }
             }
 

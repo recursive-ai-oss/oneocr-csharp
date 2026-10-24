@@ -1,17 +1,40 @@
+using System.Buffers;
+
 namespace OneOcr.Layout;
 
 /// <summary>
-/// The page's ink counted on a coarse grid (about 2400 cells on the long side at most): the input of skew estimation and of the
+/// The page's ink counted on a coarse grid (about 1200 cells on the long side at most): the input of skew estimation and of the
 /// sideways-text check. A cell holds the number of ink pixels in its block.
 /// </summary>
-internal sealed class InkGrid
+internal sealed class InkGrid : IDisposable
 {
-    public InkGrid(int width, int height, int factor, ushort[] counts)
+    private ushort[]? _rented;
+
+    // `counts` comes from the shared array pool: it can be longer than Width * Height, and Dispose gives it back.
+    private InkGrid(int width, int height, int factor, ushort[] counts)
     {
         Width = width;
         Height = height;
         Factor = factor;
         Counts = counts;
+        _rented = counts;
+    }
+
+    /// <summary>Gives the counts back to the pool; the grid must not be used afterwards.</summary>
+    public void Dispose()
+    {
+        if (_rented is not null)
+        {
+            ArrayPool<ushort>.Shared.Return(_rented);
+            _rented = null;
+        }
+    }
+
+    private static ushort[] Zeroed(int length)
+    {
+        ushort[] a = ArrayPool<ushort>.Shared.Rent(length);
+        Array.Clear(a, 0, length);
+        return a;
     }
 
     public int Width { get; }
@@ -21,17 +44,17 @@ internal sealed class InkGrid
     /// <summary>Pixels per cell side.</summary>
     public int Factor { get; }
 
-    /// <summary>Row-major ink pixel counts, at most <c>Factor * Factor</c> each.</summary>
+    /// <summary>Row-major ink pixel counts, at most <c>Factor * Factor</c> each; only the first <c>Width * Height</c> entries belong to the grid.</summary>
     public ushort[] Counts { get; }
 
-    private const int LongSide = 2400;
+    private const int LongSide = 1200;
 
     /// <summary>Counts the ink of a page (ink is the dark class, or the bright class when <paramref name="inkIsBright"/>).</summary>
     public static InkGrid Build(ReadOnlySpan<byte> gray, int width, int height, int threshold, bool inkIsBright)
     {
         int factor = Math.Max(1, (Math.Max(width, height) + LongSide - 1) / LongSide);
         int gw = (width + factor - 1) / factor, gh = (height + factor - 1) / factor;
-        var counts = new ushort[checked(gw * gh)];
+        ushort[] counts = Zeroed(checked(gw * gh));
         if (threshold < 0)
         {
             return new InkGrid(gw, gh, factor, counts);
@@ -70,7 +93,7 @@ internal sealed class InkGrid
     public InkGrid Shrink(int by)
     {
         int gw = (Width + by - 1) / by, gh = (Height + by - 1) / by;
-        var counts = new ushort[checked(gw * gh)];
+        ushort[] counts = Zeroed(checked(gw * gh));
         for (int y = 0; y < Height; y++)
         {
             for (int x = 0; x < Width; x++)
@@ -85,7 +108,7 @@ internal sealed class InkGrid
     /// <summary>The grid of the same page turned a quarter turn clockwise: cell (x, y) goes to (height - 1 - y, x).</summary>
     public InkGrid TurnClockwise()
     {
-        var turned = new ushort[Counts.Length];
+        ushort[] turned = Zeroed(Width * Height);
         for (int y = 0; y < Height; y++)
         {
             for (int x = 0; x < Width; x++)
@@ -137,13 +160,14 @@ internal static class SkewEstimator
 
     public static SkewEstimate Estimate(InkGrid grid)
     {
-        var fine = new Projector(grid);
+        using var fine = new Projector(grid);
         if (fine.Count < 32)
         {
             return new SkewEstimate(0, 0, 1, 1);
         }
 
-        var coarse = new Projector(grid.Shrink(CoarseShrink));
+        using InkGrid shrunk = grid.Shrink(CoarseShrink);
+        using var coarse = new Projector(shrunk);
         int center = 0;
         long best = -1;
         for (int k = -MaxSlope; k <= MaxSlope; k += CoarseStep)
@@ -173,9 +197,9 @@ internal static class SkewEstimator
     }
 
     // The ink cells of a grid (without the border and the solid areas) and the profile they project onto.
-    private sealed class Projector
+    private sealed class Projector : IDisposable
     {
-        private readonly int[] _x, _y, _w;
+        private ushort[]? _x, _y, _w;
         private readonly long[] _profile;
         private readonly int _offset;
 
@@ -184,46 +208,77 @@ internal static class SkewEstimator
             int gw = grid.Width, gh = grid.Height;
             int solid = Math.Max(1, (int)(SolidShare * grid.Factor * grid.Factor));
             int mx = (int)(gw * EdgeShare), my = (int)(gh * EdgeShare);
-            var xs = new List<int>();
-            var ys = new List<int>();
-            var ws = new List<int>();
+            ushort[] counts = grid.Counts;
+            // Two passes, so the cell lists are made once at their exact size (a text page has hundreds of thousands of ink cells).
+            int n = 0;
             for (int y = my; y < gh - my; y++)
             {
+                int row = y * gw;
                 for (int x = mx; x < gw - mx; x++)
                 {
-                    int c = grid.Counts[(y * gw) + x];
+                    int c = counts[row + x];
                     if (c > 0 && c <= solid)
                     {
-                        xs.Add(x);
-                        ys.Add(y);
-                        ws.Add(c);
-                        Total += c;
+                        n++;
                     }
                 }
             }
 
-            _x = [.. xs];
-            _y = [.. ys];
-            _w = [.. ws];
+            _x = ArrayPool<ushort>.Shared.Rent(Math.Max(n, 1));
+            _y = ArrayPool<ushort>.Shared.Rent(Math.Max(n, 1));
+            _w = ArrayPool<ushort>.Shared.Rent(Math.Max(n, 1));
+            int i = 0;
+            long total = 0;
+            for (int y = my; y < gh - my; y++)
+            {
+                int row = y * gw;
+                for (int x = mx; x < gw - mx; x++)
+                {
+                    int c = counts[row + x];
+                    if (c > 0 && c <= solid)
+                    {
+                        _x[i] = (ushort)x;
+                        _y[i] = (ushort)y;
+                        _w[i] = (ushort)c;
+                        i++;
+                        total += c;
+                    }
+                }
+            }
+
+            Count = n;
+            Total = total;
             GridHeight = gh;
             // Bin = floor(y - slope * x), shifted to be non-negative.
             _offset = (((MaxSlope * gw) + Scale - 1) / Scale) + 1;
             _profile = new long[gh + (2 * _offset) + 2];
         }
 
-        public int Count => _x.Length;
+        public int Count { get; }
 
         public long Total { get; }
 
         public int GridHeight { get; }
 
+        public void Dispose()
+        {
+            if (_x is not null)
+            {
+                ArrayPool<ushort>.Shared.Return(_x);
+                ArrayPool<ushort>.Shared.Return(_y!);
+                ArrayPool<ushort>.Shared.Return(_w!);
+                _x = _y = _w = null;
+            }
+        }
+
         public long Sharpness(int slope)
         {
             Array.Clear(_profile);
-            for (int i = 0; i < _x.Length; i++)
+            ushort[] xs = _x!, ys = _y!, ws = _w!;
+            for (int i = 0; i < Count; i++)
             {
-                int bin = ((Scale * _y[i]) - (slope * _x[i])) >> 10;
-                _profile[bin + _offset] += _w[i];
+                int bin = ((Scale * ys[i]) - (slope * xs[i])) >> 10;
+                _profile[bin + _offset] += ws[i];
             }
 
             long sum = 0;

@@ -33,6 +33,8 @@ public sealed class OcrEngine
         _orientation = new ClassicalOrientation(recognizer, pixels, masks, resizers, limits);
     }
 
+    internal IOrientationDetector OrientationDetector => _orientation;
+
     /// <summary>The bounds this engine enforces.</summary>
     public OcrLimits Limits => _limits;
 

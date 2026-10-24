@@ -30,7 +30,7 @@ internal static class StripFinder
 
     private readonly record struct Rect(int X, int Y, int W, int H);
 
-    /// <summary>Finds the lines. When the page has ruling lines, they are erased from <paramref name="gray"/> (in place).</summary>
+    /// <summary>Finds the lines. When the page has ruling lines, they are erased from <paramref name="gray"/> (in place) unless <paramref name="eraseRules"/> is false.</summary>
     /// <param name="gray">The page as 8-bit gray, row-major, <paramref name="width"/> by <paramref name="height"/>.</param>
     /// <param name="width">Page width.</param>
     /// <param name="height">Page height.</param>
@@ -40,9 +40,10 @@ internal static class StripFinder
     /// <param name="usedRegions">True when the page was cut into regions; false when the single-column finder alone was used.</param>
     /// <param name="threshold">The page's binarization threshold (negative when the page has no contrast).</param>
     /// <param name="inkIsBright">Whether ink is the bright side of the threshold.</param>
+    /// <param name="eraseRules">Whether ruling lines are erased from <paramref name="gray"/>; the lines found are the same either way.</param>
     /// <returns>The lines, leaf by leaf.</returns>
     public static List<StripLine> Find(
-        Gray8[] gray, int width, int height, int maxLines, BufferPool<byte> masks, int degree, out bool usedRegions, out int threshold, out bool inkIsBright)
+        Gray8[] gray, int width, int height, int maxLines, BufferPool<byte> masks, int degree, out bool usedRegions, out int threshold, out bool inkIsBright, bool eraseRules = true)
     {
         usedRegions = false;
         int count = checked(width * height);
@@ -74,7 +75,7 @@ internal static class StripFinder
             }
 
             usedRegions = true;
-            if (rules)
+            if (rules && eraseRules)
             {
                 EraseRules(gray, mask, inkIsBright);
             }
