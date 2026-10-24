@@ -91,4 +91,46 @@ public static class DocumentExtensions
         ArgumentNullException.ThrowIfNull(engine);
         return (extractor ?? OneOcr.DefaultExtractor).ExtractReceipt(engine.Ocr(image));
     }
+    /// <summary>Reads a page with <see cref="OneOcr.DefaultExtractor"/> (a custom model) and returns its fields as <typeparamref name="T"/>.</summary>
+    /// <typeparam name="T">The caller's type.</typeparam>
+    /// <param name="page">The page.</param>
+    /// <param name="typeInfo">Source-generated type information for <typeparamref name="T"/>.</param>
+    /// <returns>The value with per-field words, boxes and confidences; see <see cref="DocumentExtractor.Extract{T}"/>.</returns>
+    /// <exception cref="OcrModelException">No default extractor is configured.</exception>
+    public static ExtractionResult<T> Extract<T>(this OcrPage page, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo) =>
+        OneOcr.DefaultExtractor.Extract(page, typeInfo);
+
+    /// <summary>Reads a page with the given custom extractor and returns its fields as <typeparamref name="T"/>.</summary>
+    /// <typeparam name="T">The caller's type.</typeparam>
+    /// <param name="page">The page.</param>
+    /// <param name="typeInfo">Source-generated type information for <typeparamref name="T"/>.</param>
+    /// <param name="extractor">The extractor to use.</param>
+    /// <returns>The value with per-field words, boxes and confidences.</returns>
+    public static ExtractionResult<T> Extract<T>(this OcrPage page, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo, DocumentExtractor extractor)
+    {
+        ArgumentNullException.ThrowIfNull(extractor);
+        return extractor.Extract(page, typeInfo);
+    }
+
+    /// <summary>Reads an image with <see cref="OneOcr.Default"/>, then reads the page with <see cref="OneOcr.DefaultExtractor"/> (a custom model) into <typeparamref name="T"/>.</summary>
+    /// <typeparam name="T">The caller's type.</typeparam>
+    /// <param name="image">The page image.</param>
+    /// <param name="typeInfo">Source-generated type information for <typeparamref name="T"/>.</param>
+    /// <returns>The value with per-field words, boxes and confidences.</returns>
+    /// <exception cref="OcrModelException">No default engine or extractor is configured.</exception>
+    public static ExtractionResult<T> Extract<T>(this Image image, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo) =>
+        OneOcr.DefaultExtractor.Extract(OneOcr.Default.Ocr(image), typeInfo);
+
+    /// <summary>Reads an image with the given engine, then reads the page with a custom extractor into <typeparamref name="T"/>.</summary>
+    /// <typeparam name="T">The caller's type.</typeparam>
+    /// <param name="image">The page image.</param>
+    /// <param name="typeInfo">Source-generated type information for <typeparamref name="T"/>.</param>
+    /// <param name="engine">The engine that reads the image.</param>
+    /// <param name="extractor">The extractor; <see cref="OneOcr.DefaultExtractor"/> when null.</param>
+    /// <returns>The value with per-field words, boxes and confidences.</returns>
+    public static ExtractionResult<T> Extract<T>(this Image image, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo, OcrEngine engine, DocumentExtractor? extractor = null)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        return (extractor ?? OneOcr.DefaultExtractor).Extract(engine.Ocr(image), typeInfo);
+    }
 }
