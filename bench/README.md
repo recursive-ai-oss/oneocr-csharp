@@ -237,6 +237,50 @@ uv run python -m oneocr_bench score --hyp OUT
 classifier) for one line. `OneOcr.Bench randommodel --out F`
 writes a random-weight model for pipeline checks.
 
+## The gate table in one command
+
+```
+# quality + calibration (runs OneOcr.Bench on all six sets, scores, compares with the Tesseract results)
+uv run python -m oneocr_bench gate --model MODEL.onm --detector DETECTOR.onm \
+    --eval ~/oneocr/eval/bench-v2 --tess-results RESULTS_ROOT --out OUT
+
+# speed + memory: separate mode, needs the machine lock claimed by the same job (below)
+uv run python -m oneocr_bench gate --model MODEL.onm --detector DETECTOR.onm --timing --tess-results RESULTS_ROOT --out OUT
+```
+
+`--detector` is optional (without it the classical line finder runs). `--eval` is the frozen set directory (`<set>/pages`,
+`<set>/truth`; env `ONEOCR_EVAL`). `--tess-results` is a root holding `<set>/tesseract.json` and `<set>/hyp/` from `tess`
+(default `$ONEOCR_BENCH_DIR/results`); the table reuses them and runs Tesseract again only with `--rerun-tess` (into a
+writable directory under `--work`, since the frozen sets are read-only). `--sets` restricts the run, `--reuse` re-scores engine
+outputs already under `--work/out`.
+
+Accuracy mode runs `OneOcr.Bench run --words 1 --pagejson 1`, scores with the bench scorer (ink boxes) and writes
+`OUT/accuracy.json`; `--timing` writes `OUT/timing.json`. Both then rewrite `OUT/gate.md` and `OUT/gate.json`; the speed section
+appears once a timing run exists. Accuracy is not timing-sensitive and can run under `nice` when the machine is quiet.
+
+- **Quality verdict**, per category: ours must beat Tesseract best-of on CER, WER and reading order, where the baseline for each
+  metric is the best PSM for that metric of `tessdata_best` (the second table under *Tesseract 5.3.4 baselines*). Clean print may
+  tie: an error within 0.2 percentage points above the baseline counts as a tie and passes. Receipts are judged on recall-CER and
+  recall-WER (CORD truth is partial); their order is shown, not judged. Tesseract fast is shown beside it.
+- **Calibration verdict**: ECE (15 bins) ≤ 0.05. On receipts ECE is an upper bound; ECE-m is shown next to it.
+- **Detection**: ink-box F1@0.5 of ours, and of the selected Tesseract runs rescored with the same scorer.
+- **Speed and memory** (`--timing` only): per set at degree 1 and at the default degree min(4, cores), one process per run, three
+  runs, mean of the per-run mean ms/page and of peak RSS; Tesseract rows are its one-thread and default-threading timings from
+  `tesseract.json`. Speed passes when ours is faster than `tessdata_fast`; slower than fast but faster than best with the quality
+  row won is reported as an *exception*; memory passes when RSS is below both. Both sides are timed per process, start and model
+  load included (Tesseract pays them for every page, ours once per run, divided over the pages); our page-only ms/page is shown
+  as information. The table records the CPU, core count and
+  load average before, after every run, and after.
+- **The lock**: `--timing` exits with status 75 and does nothing else unless the lock file (`~/WORKER-BENCH.lock`, env `ONEOCR_LOCK`)
+  names one of its own ancestor processes as `pid=`. Claim it in the job's shell, so it is released however the job ends:
+
+```
+set -o noclobber; echo "gate pid=$$ $(date -Is)" > ~/WORKER-BENCH.lock || exit 75
+trap 'rm -f ~/WORKER-BENCH.lock' EXIT
+```
+
+The scorer is not touched by the gate: its CER/WER/order/F1/ECE numbers are those of `score`.
+
 ## Decoding evaluation
 
 `OneOcr.Bench decode --model M --lines DIR --lm charlm-v1.bin [--modes greedy,beam:8,lm:8:0.8:0] [--max N]` reads truth-line crops
