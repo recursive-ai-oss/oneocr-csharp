@@ -80,17 +80,19 @@ public class BufferPoolTests
     [Fact]
     public void GarbageIsCollectedAfterAPageWhenTheRuntimeHasNotDoneSo()
     {
-        // Allocates well past the threshold in small objects, then asks for the page-end check: some collection must have run.
+        // Pages that each leave more than the threshold behind: within a couple of page ends some collection has run, whether the
+        // runtime's or ours (the first call may only note the state the process is in).
         int before = GC.CollectionCount(0);
-        var keep = new List<byte[]>();
-        for (int i = 0; i < 4 * (int)(GarbageBound.Threshold / 65_536) + 8; i++)
+        for (int page = 0; page < 4; page++)
         {
-            keep.Add(new byte[65_536]);
-            keep.Clear();
+            for (int i = 0; i < (int)(2 * GarbageBound.Threshold / 65_536); i++)
+            {
+                GC.KeepAlive(new byte[65_536]);
+            }
+
+            GarbageBound.AfterPage();
         }
 
-        GarbageBound.AfterPage();
-        GarbageBound.AfterPage();
         Assert.True(GC.CollectionCount(0) > before);
     }
 }
