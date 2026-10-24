@@ -79,6 +79,20 @@ def _homography(src: np.ndarray, dst: np.ndarray) -> np.ndarray:
     return h / h[2, 2]
 
 
+def _cross(a, b, c) -> float:
+    return (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+
+
+def _convex(q: np.ndarray) -> bool:
+    s = [_cross(q[i], q[(i + 1) % 4], q[(i + 2) % 4]) for i in range(4)]
+    return all(v > 0 for v in s) or all(v < 0 for v in s)
+
+
+def _area(q: np.ndarray) -> float:
+    x, y = q[:, 0], q[:, 1]
+    return 0.5 * abs(float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
 def _smooth(g: torch.Generator, n: int, h: int, w: int, cells: int) -> torch.Tensor:
     """Smooth random field in [-1, 1], (h, w): a cells x cells grid of values, bicubically upsampled."""
     base = torch.rand(1, 1, cells, cells, generator=g) * 2 - 1
@@ -129,20 +143,24 @@ def apply(img: Image.Image, d: dict, render_dpi: float, device: str = "cpu") -> 
         ctr = np.array([wc / 2, hc / 2])
         dst = (dst - ctr) @ np.array([[c, -s], [s, c]]).T + ctr
     if d["persp"]:
-        jit = np.array([[rng.uniform(-1, 1) * d["persp"] * w1, rng.uniform(-1, 1) * d["persp"] * h1] for _ in range(4)])
-        # pull one edge in to get a keystone, as a tilted camera does
-        k = rng.uniform(0, d["persp"]) * w1 * rng.choice([-1, 1])
-        jit[0, 0] += k
-        jit[1, 0] -= k
-        dst = dst + jit
-        # rotation about the page centre, a few degrees
-        a = math.radians(rng.uniform(-4, 4))
         ctr = np.array([wc / 2, hc / 2])
-        dst = (dst - ctr) @ np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]]).T + ctr
-        # keep the page inside the canvas
-        lo, hi = dst.min(0), dst.max(0)
-        shift = np.array([max(0, 2 - lo[0]) - max(0, hi[0] - (wc - 2)), max(0, 2 - lo[1]) - max(0, hi[1] - (hc - 2))])
-        dst = dst + shift
+        for attempt in range(20):
+            amp = d["persp"] * (0.8**attempt)
+            jit = np.array([[rng.uniform(-1, 1) * amp * w1, rng.uniform(-1, 1) * amp * h1] for _ in range(4)])
+            # pull one edge in to get a keystone, as a tilted camera does
+            k = rng.uniform(0, amp) * w1 * rng.choice([-1, 1])
+            jit[0, 0] += k
+            jit[1, 0] -= k
+            a = math.radians(rng.uniform(-4, 4))
+            q = (dst + jit - ctr) @ np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]]).T
+            # shrink about the centre until the page fits in the canvas
+            ext = np.abs(q).max(0)
+            q = q * min(1.0, (wc / 2 - 2) / ext[0], (hc / 2 - 2) / ext[1]) + ctr
+            if _convex(q) and _area(q) > 0.35 * w1 * h1:
+                dst = q
+                break
+        else:
+            d["persp"] = 0.0  # no valid draw: fall back to the plain placement
     H1 = _homography(corners, dst)
     H = H1 @ S
     x = torch.from_numpy(np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0).permute(2, 0, 1)[None].to(device)

@@ -17,9 +17,22 @@ from .layouts import PageSpec
 
 DSFS = (1.0, 1.5625, 2.0833333, 3.125)  # 96, 150, 200 and 300 dpi
 
-JS_FIT = """() => {
+JS_FIT = r"""() => {
   const c = document.getElementById('flow'); let n = 0;
-  const over = () => c.scrollHeight > c.clientHeight + 1 || c.scrollWidth > c.clientWidth + 1;
+  // text that sticks out of the flow box (a table wider than its column, a block cut at a column break) is clipped by the page
+  const clipped = () => {
+    const fr = c.getBoundingClientRect(), tw = document.createTreeWalker(c, NodeFilter.SHOW_TEXT);
+    for (let nd = tw.nextNode(); nd; nd = tw.nextNode()) {
+      if (!/\S/.test(nd.data)) continue;
+      const r = document.createRange(); r.selectNodeContents(nd);
+      for (const q of r.getClientRects()) {
+        const tol = 0.3 * q.height;
+        if (q.left < fr.left - tol || q.right > fr.right + tol || q.bottom > fr.bottom + tol) return true;
+      }
+    }
+    return false;
+  };
+  const over = () => c.scrollHeight > c.clientHeight + 1 || c.scrollWidth > c.clientWidth + 1 || clipped();
   const items = () => [...c.querySelectorAll(':scope > [data-item]')];
   while (over() && items().length > 1) { items().pop().remove(); n++; }
   return n;
@@ -58,7 +71,17 @@ JS_EXTRACT = r"""() => {
     }
   }
   const flow = document.getElementById('flow');
-  return {
+  // words that lie (even partly) outside the clipped area of the flow are not fully visible; the page is redrawn instead
+  let clipped = 0;
+  if (flow) {
+    const fr = flow.getBoundingClientRect();
+    for (const w of words) {
+      const r = [w.r[0] + pr.left, w.r[1] + pr.top, w.r[2] + pr.left, w.r[3] + pr.top];
+      const tol = 0.3 * (r[3] - r[1]);
+      if (r[0] < fr.left - tol || r[2] > fr.right + tol || r[3] > fr.bottom + tol) clipped++;
+    }
+  }
+  return { clipped,
     size: [pr.width, pr.height], orphans, words,
     overflow: !!(flow && (flow.scrollHeight > flow.clientHeight + 1 || flow.scrollWidth > flow.clientWidth + 1)) || page.scrollHeight > page.clientHeight + 1 || page.scrollWidth > page.clientWidth + 1,
     blocks: blks.map(e => ({role: e.dataset.blk, r: R(e), tbl: tm.has(e) ? tm.get(e) : -1})),

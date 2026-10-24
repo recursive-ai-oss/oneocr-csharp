@@ -97,6 +97,9 @@ def render_page(i: int) -> dict:
         spec = build_spec(kind, ps, attempt, n_items)
         try:
             png, raw = g["renderer"].render(spec, dsf)
+            # a word box with no ink in the clean render means something hid or recoloured it: draw the page again
+            if ink_failures(Image.open(io.BytesIO(png)).convert("RGB"), raw, png_scale(png, raw), png_scale(png, raw, 1)):
+                raise Overflow
             break
         except Overflow:
             n_items = max(1, n_items - 3)
@@ -139,6 +142,11 @@ def make_page(i: int) -> dict:
     return {"id": r["pid"], "i": i, "kind": spec.kind, "words": len(r["flat"]), "profile": d["profile"],
             "template_split": r["doc"]["synthetic"]["templateSplit"], "image_sha256": sha256(r["data"]), "truth_sha256": sha256(r["truth"]),
             "ink_fail": ink_fail, "fonts": spec.fonts, "split_words": sum(1 for w in r["flat"] if w["split"])}  # fmt: skip
+
+
+def png_scale(png: bytes, raw: dict, axis: int = 0) -> float:
+    w, h = Image.open(io.BytesIO(png)).size
+    return (w, h)[axis] / raw["size"][axis]
 
 
 def ink_failures(clean: Image.Image, raw: dict, sx: float, sy: float) -> int:

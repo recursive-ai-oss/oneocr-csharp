@@ -110,7 +110,13 @@ the truth (`synthetic.degradation`), so evaluation can slice by it. `train` and 
 ones; the page's words in order equal the whitespace-separated tokens of the rendered text (`innerText`), so no word is missing,
 duplicated, reordered or differently cased; every word box holds ink in the clean render; every word box still differs from its
 surroundings in the stored degraded image; the structure rules of the `oneocr.page` reader hold; the template, fonts and books
-belong to the split. `jsoncheck` style reading by the C# `OcrPageJson.Read` was run over the sample set too.
+belong to the split.
+
+The generator itself redraws a page (new layout draw, up to 8 attempts) when text overflows or is clipped, or when a word box has no
+ink in the clean render, so "every word box holds ink" holds by construction and the checker confirms it independently. In the
+stored degraded image, `ink_final` reports the share of word boxes whose contrast is within the noise of their surroundings; it is
+a statistic (a few thin glyphs such as a middle dot, and the deliberately hard held-out degradations), not a pass/fail check.
+Reading every truth file with the C# `OcrPageJson.Read` is a further check, run outside this directory.
 
 ## Not covered
 

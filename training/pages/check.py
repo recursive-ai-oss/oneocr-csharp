@@ -95,7 +95,10 @@ def structure_errors(doc: dict) -> list[str]:
 def ink_final(img: Image.Image, doc: dict) -> tuple[int, int, list[str]]:
     a = np.asarray(img.convert("L"), dtype=np.float32)
     d = doc["synthetic"]["degradation"]
-    floor = max(14.0, 5.0 * (d["read_noise"] + d["shot_noise"] * 0.7) * 255 + 2.0 * d["blur"] * 3)
+    # a box with no ink varies only by noise (about 2 sigma between the 3rd and 97th percentile and the median); require 4 sigma,
+    # scaled by how much contrast the page kept and by the brightness of the local light
+    sigma = (d["read_noise"] + d["shot_noise"] * 0.7) * 255
+    floor = max(10.0, 4.0 * sigma)
     ok = bad = 0
     ex = []
     for b in doc["pages"][0]["blocks"]:
@@ -110,7 +113,7 @@ def ink_final(img: Image.Image, doc: dict) -> tuple[int, int, list[str]]:
                 c = a[y0:y1, x0:x1].ravel()
                 med = np.median(c)
                 spread = max(med - np.percentile(c, 3), np.percentile(c, 97) - med)
-                if spread >= floor * (1.0 if d["faint"] >= 1 else d["faint"] + 0.15):
+                if spread >= floor * min(1.0, d["faint"] + 0.15) * min(1.0, med / 160.0):
                     ok += 1
                 else:
                     bad += 1
