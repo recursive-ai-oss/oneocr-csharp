@@ -84,7 +84,16 @@ internal sealed class DbNetModel
     /// <summary>Per layout class, whether the model was trained on it; untrained classes are never reported.</summary>
     public required IReadOnlyList<bool> LayoutTrained { get; init; }
 
+    /// <summary>Post-processing values from <c>config.postprocess</c>, the defaults where the model gives none.</summary>
+    public DetectorPostprocess.Options Postprocess { get; init; } = DetectorPostprocess.Options.Default;
+
     public int Classes => LayoutClasses.Count;
+
+    private static double CheckProbability(double v, string name) =>
+        v > 0 && v < 1 ? v : throw new OcrModelException($"config.postprocess.{name} must be strictly between 0 and 1.");
+
+    private static double CheckExpand(double v, string name) =>
+        v > 0 && v <= 4 ? v : throw new OcrModelException($"config.postprocess.{name} must be in (0, 4].");
 
     public static DbNetModel FromContainer(ModelContainer container, OcrLimits limits)
     {
@@ -199,6 +208,16 @@ internal sealed class DbNetModel
             }
         }
 
+        DetectorPostprocess.Options post = DetectorPostprocess.Options.Default;
+        if (config.Postprocess is { } pp)
+        {
+            post = new DetectorPostprocess.Options(
+                CheckProbability(pp.TextThreshold ?? post.TextThreshold, "text_threshold"),
+                CheckExpand(pp.TextExpand ?? post.TextExpand, "text_expand"),
+                CheckProbability(pp.LayoutThreshold ?? post.LayoutThreshold, "layout_threshold"),
+                CheckExpand(pp.LayoutExpand ?? post.LayoutExpand, "layout_expand"));
+        }
+
         int stem = config.Stem;
         int stemP = DetectKernels.Padded(stem);
         float[] stemRaw = ReadChecked(container, "stem.weight", stem, 1, 3, 3);
@@ -258,6 +277,7 @@ internal sealed class DbNetModel
             OrientBias = ReadChecked(container, "orient.bias", 4),
             LayoutClasses = config.LayoutClasses,
             LayoutTrained = trained,
+            Postprocess = post,
         };
     }
 

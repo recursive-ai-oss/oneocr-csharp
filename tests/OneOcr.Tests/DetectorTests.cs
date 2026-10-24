@@ -335,7 +335,7 @@ public class DetectorTests
                     li++;
                 }
 
-                Assert.Equal(expectedLines.Count, d.Lines.Count);
+                Assert.True(expectedLines.Count == d.Lines.Count, $"{name}: {expectedLines.Count} reference lines, {d.Lines.Count} found");
                 for (int i = 0; i < d.Lines.Count; i++)
                 {
                     AssertBox(expectedLines[i].Box, d.Lines[i].Left, d.Lines[i].Top, d.Lines[i].Right, d.Lines[i].Bottom, $"{name} line {i}");
@@ -351,7 +351,7 @@ public class DetectorTests
                     }
                 }
 
-                Assert.Equal(expectedRegions.Count, d.Regions.Count);
+                Assert.True(expectedRegions.Count == d.Regions.Count, $"{name}: {expectedRegions.Count} reference regions, {d.Regions.Count} found");
                 for (int i = 0; i < d.Regions.Count; i++)
                 {
                     Assert.Equal(expectedRegions[i].Class, d.Regions[i].Class);

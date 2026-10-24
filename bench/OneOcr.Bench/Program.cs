@@ -56,6 +56,7 @@ internal static class Program
             "trainstep" => TrainBench.Run(options),
             "detect" => DetectBench.Run(options),
             "strips" => Strips(options),
+            "detlines" => DetLines(options),
             "skew" => Skew(options),
             _ => 2,
         };
@@ -125,6 +126,38 @@ internal static class Program
         foreach (StripLine s in strips)
         {
             Console.WriteLine($"leaf {s.Leaf,3}  x {s.Box.X,5} y {s.Box.Y,5} w {s.Box.Width,5} h {s.Box.Height,3}");
+        }
+
+        return 0;
+    }
+
+    // Prints what the page detector finds on one page and the ink strips made from it: OneOcr.Bench detlines --image FILE --detector FILE
+    private static int DetLines(Dictionary<string, string> o)
+    {
+        Image image = Image.Load(Need(o, "image"));
+        var gray = new Gray8[image.Width * image.Height];
+        image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+        var detector = new OneOcr.Detection.PageDetector(
+            OneOcr.Detection.DbNetModel.FromContainer(OneOcr.Model.ModelContainer.Load(Need(o, "detector"), null), OneOcr.OcrLimits.Default),
+            OneOcr.OcrLimits.Default, OneOcr.Kernels.Dispatch.Best);
+        var pixels = new OneOcr.BufferPool<Gray8>(1L << 28, 1);
+        var resizers = new ResizerPool();
+        OneOcr.Detection.PageDetection d = detector.Detect(gray, image.Width, image.Height, pixels, resizers, 1, System.Threading.CancellationToken.None);
+        Console.WriteLine($"{d.Lines.Count} lines, {d.Regions.Count} regions, quarter {d.Quarter} ({d.OrientationConfidence:F2})");
+        foreach (var l in d.Lines)
+        {
+            Console.WriteLine($"line x {l.Left,7:F1} y {l.Top,7:F1} w {l.Right - l.Left,6:F1} h {l.Bottom - l.Top,5:F1} score {l.Score:F2}");
+        }
+
+        foreach (var r in d.Regions)
+        {
+            Console.WriteLine($"region {r.Name,-13} x {r.Left,7:F1} y {r.Top,7:F1} w {r.Right - r.Left,6:F1} h {r.Bottom - r.Top,6:F1} score {r.Score:F2}");
+        }
+
+        LocatedPage located = DetectorLines.Locate(detector, gray, image.Width, image.Height, pixels, resizers, 1, System.Threading.CancellationToken.None, d, false);
+        foreach (StripLine s in located.Strips)
+        {
+            Console.WriteLine($"strip leaf {s.Leaf,7}  x {s.Box.X,5} y {s.Box.Y,5} w {s.Box.Width,5} h {s.Box.Height,3}");
         }
 
         return 0;

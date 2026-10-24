@@ -18,6 +18,31 @@ public sealed class BundledModelsTests
     }
 
     [Fact]
+    public void ThePinNamesThePageDetector()
+    {
+        BundledModel pin = BundledModels.Detector;
+        Assert.Equal("dbnet-lite-v0", pin.Name);
+        Assert.Equal("detector", pin.Role);
+        Assert.Equal("0.1.0", pin.Version);
+        Assert.Equal("ac663d83a0e35c84dd38742f76b2c7cbe58eca2ac4941f27a6b489d517f1284f", pin.Sha256);
+        Assert.Equal(629896, pin.Bytes);
+    }
+
+    [Fact]
+    public void BundledDetectorMatchesItsPinAndLoadsWhenPacked()
+    {
+        if (!BundledModels.HasDetector || !BundledModels.HasRecognizer)
+        {
+            Assert.False(BundledModels.HasDetector && OcrEngine.LoadBundled().HasDetector is false);
+            return;
+        }
+
+        Assert.Null(BundledModels.TryReadDetector(out byte[] data));
+        Assert.Equal(BundledModels.Detector.Sha256, Convert.ToHexStringLower(SHA256.HashData(data)));
+        Assert.True(OcrEngine.LoadBundled().HasDetector);
+    }
+
+    [Fact]
     public void BundledFileMatchesItsPinAndLoadsWhenPacked()
     {
         if (!BundledModels.HasRecognizer)
