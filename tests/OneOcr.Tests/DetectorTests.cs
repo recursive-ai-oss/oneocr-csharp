@@ -105,6 +105,7 @@ public class DetectorTests
         float[] input = TestDetectorModels.Normalize(TestDetectorModels.Image(736, 1024, 4));
         var pool = new BufferPool<float>(1 << 26, 4);
         DbNetForward.Run(model, Dispatch.Best, 1, pool, input, 736, 1024, OcrLimits.Default, null, CancellationToken.None);
+        Report($"SCRATCH v0 default A4 degree 1: {pool.PeakOutstandingBytes / 1048576.0:F2} MB");
         Assert.True(pool.PeakOutstandingBytes < 24L << 20, $"peak scratch {pool.PeakOutstandingBytes / 1048576.0:F1} MB");
     }
 
@@ -193,6 +194,101 @@ public class DetectorTests
         }
     }
 
+    // dbnet-lite-v1: the stride-16 layout branch and the two-scale orientation head. Sizes with an odd stride-32 map (3 x 5 and 5 x 3
+    // cells) put the branch's maps at 6 x 10 and 10 x 6, so the 2x upsample meets every row and column parity of the narrower maps.
+    private static readonly string[] V1Layers = [.. Layers, "p16", "layout16", "layout_mix"];
+
+    private static readonly Dictionary<string, (double Atol, double Rtol)> V1Tolerance = new()
+    {
+        ["p16"] = (4e-6, 1e-5),
+        ["layout16"] = (5e-6, 1e-5),
+        ["layout_mix"] = (5e-6, 1e-5),
+    };
+
+    [Theory]
+    [InlineData(false, 96, 160)]
+    [InlineData(true, 160, 96)]
+    [InlineData(true, 64, 64)]
+    public void V1ForwardMatchesTheFloat64ReferenceOnEveryPath(bool small, int h, int w)
+    {
+        TestDetectorModels.Shape shape = small ? TestDetectorModels.V1Small : TestDetectorModels.V1Default;
+        byte[] file = TestDetectorModels.Random(shape, 41);
+        var container = ModelContainer.Parse(file);
+        float[] input = TestDetectorModels.Normalize(TestDetectorModels.Image(h, w, 5));
+        var reference = new DetectorReference64(container, shape).Forward(input, h, w);
+        foreach (KernelPath path in Dispatch.Available())
+        {
+            var (_, trace, _) = Run(file, path, 1, input, h, w);
+            foreach (string layer in V1Layers)
+            {
+                var (gotShape, got) = trace.Layers[layer];
+                var (refShape, exact) = reference[layer];
+                Assert.Equal(refShape, gotShape);
+                var (atol, rtol) = V1Tolerance.TryGetValue(layer, out var t) ? t : Tolerance[layer];
+                double worst = 0, maxAbs = 0;
+                for (int i = 0; i < got.Length; i++)
+                {
+                    double diff = Math.Abs(got[i] - exact[i]);
+                    maxAbs = Math.Max(maxAbs, diff);
+                    worst = Math.Max(worst, diff / (atol + (rtol * Math.Abs(exact[i]))));
+                }
+
+                Report($"FLOAT64 v1 {(small ? "small" : "default")} {h}x{w} {path} {layer}: max abs {maxAbs:E2}, {worst:F2}x tolerance, max |ref| {exact.Max(Math.Abs):F2}");
+                Assert.True(worst <= 1, $"{path}/{layer}: error is {worst:F2}x the tolerance (atol {atol}, rtol {rtol}).");
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(true, 96, 160)]
+    [InlineData(true, 160, 96)]
+    [InlineData(false, 96, 160)]
+    public void V1OutputsAreBitIdenticalOnEveryPathDegreeAndBandHeight(bool small, int h, int w)
+    {
+        TestDetectorModels.Shape shape = small ? TestDetectorModels.V1Small : TestDetectorModels.V1Default;
+        byte[] file = TestDetectorModels.Random(shape, 42);
+        float[] input = TestDetectorModels.Normalize(TestDetectorModels.Image(h, w, 6));
+        var model = DbNetModel.FromContainer(ModelContainer.Parse(file), OcrLimits.Default);
+        DetectorMaps reference = DbNetForward.Run(model, KernelPath.Scalar, 1, new BufferPool<float>(1 << 24, 4), input, h, w, OcrLimits.Default, new ForwardTrace(), CancellationToken.None);
+        foreach (KernelPath path in Dispatch.Available())
+        {
+            foreach (int degree in new[] { 1, 4 })
+            {
+                foreach (int band in new[] { 0, 1, 3 })
+                {
+                    DetectorMaps maps = DbNetForward.Run(model, path, degree, new BufferPool<float>(1 << 24, 4), input, h, w, OcrLimits.Default, band == 0 && degree == 1 ? new ForwardTrace() : null, CancellationToken.None, band);
+                    AssertBitEqual(reference.Prob, maps.Prob, $"{path} degree {degree} band {band} prob");
+                    AssertBitEqual(reference.Layout, maps.Layout, $"{path} degree {degree} band {band} layout");
+                    AssertBitEqual(reference.Orientation, maps.Orientation, $"{path} degree {degree} band {band} orientation");
+                }
+            }
+        }
+    }
+
+    // The two switches change the output: a v1 model without the branch and one with it differ only through the added terms.
+    [Fact]
+    public void V1BranchAndTwoScaleOrientationAffectTheirOutputs()
+    {
+        TestDetectorModels.Shape on = TestDetectorModels.V1Small;
+        TestDetectorModels.Shape off = on with { Layout16Blocks = 0, Orient16 = false };
+        float[] input = TestDetectorModels.Normalize(TestDetectorModels.Image(96, 96, 7));
+        var (_, _, withBranch) = Run(TestDetectorModels.Random(on, 43), KernelPath.Scalar, 1, input, 96, 96);
+        var (_, _, without) = Run(TestDetectorModels.Random(off, 43), KernelPath.Scalar, 1, input, 96, 96);
+        Assert.NotEqual(without.Layout, withBranch.Layout);
+        Assert.NotEqual(without.Orientation, withBranch.Orientation);
+    }
+
+    [Fact]
+    public void V1LeanPassKeepsTheWorkingSetSmall()
+    {
+        var model = DbNetModel.FromContainer(ModelContainer.Parse(TestDetectorModels.Random(TestDetectorModels.V1Default, 3)), OcrLimits.Default);
+        float[] input = TestDetectorModels.Normalize(TestDetectorModels.Image(736, 1024, 4));
+        var pool = new BufferPool<float>(1 << 26, 4);
+        DbNetForward.Run(model, Dispatch.Best, 1, pool, input, 736, 1024, OcrLimits.Default, null, CancellationToken.None);
+        Report($"SCRATCH v1 0.2.0 widths A4 degree 1: {pool.PeakOutstandingBytes / 1048576.0:F2} MB");
+        Assert.True(pool.PeakOutstandingBytes < 26L << 20, $"peak scratch {pool.PeakOutstandingBytes / 1048576.0:F1} MB");
+    }
+
     [Fact]
     public void MatchesPyTorchFixturesWhenAvailable()
     {
@@ -259,7 +355,7 @@ public class DetectorTests
 
                     var (shape, got) = trace.Layers[name];
                     Assert.Equal(expected.Shape, shape);
-                    var (atol, rtol) = Tolerance[name];
+                    var (atol, rtol) = V1Tolerance.TryGetValue(name, out var extra) ? extra : Tolerance[name];
                     Compare($"{id}/{path}", name, got, expected.Data, 2 * atol, 2 * rtol, 2 * floors.GetValueOrDefault(name), worstByLayer);
                 }
             }
@@ -298,6 +394,12 @@ public class DetectorTests
 
         foreach (string dir in dirs.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
+            // Post-processing does not depend on the graph, so fixture directories made for graph checks alone may omit its cases.
+            if (!File.Exists(Path.Combine(dir, "postprocess.json")))
+            {
+                continue;
+            }
+
             using JsonDocument doc = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(dir, "postprocess.json")));
             string[] classes = doc.RootElement.GetProperty("classes").EnumerateArray().Select(e => e.GetString()!).ToArray();
             bool[] allTrained = classes.Select(_ => true).ToArray();

@@ -39,7 +39,7 @@ internal sealed class PointwiseConv
 }
 
 /// <summary>
-/// The validated, widened weights of a <c>dbnet-lite-v0</c> page detector (docs/spec/detector-v0.md): shapes are checked against the
+/// The validated, widened weights of a <c>dbnet-lite-v0</c> or <c>dbnet-lite-v1</c> page detector (docs/spec/detector-v0.md, detector-v1.md): shapes are checked against the
 /// configuration and widths against <see cref="OcrLimits"/> before anything is allocated from them.
 /// </summary>
 internal sealed class DbNetModel
@@ -67,6 +67,16 @@ internal sealed class DbNetModel
     public required DwBlock Smooth8 { get; init; }
     public required DwBlock Smooth4 { get; init; }
     public required DwBlock[] LayoutBlocks { get; init; }
+
+    /// <summary>The stride-16 context blocks of a <c>dbnet-lite-v1</c> layout head, on p16 (empty for v0 graphs and v1 files without the branch).</summary>
+    public DwBlock[] Layout16Blocks { get; init; } = [];
+
+    /// <summary>The 1x1 convolution (no ReLU) that takes the stride-16 branch to the layout width before it is upsampled and added; null without the branch.</summary>
+    public PointwiseConv? LayoutMix { get; init; }
+
+    /// <summary>Whether the orientation logits read the channel means of stage 2 followed by those of stage 3 (v1 <c>orient16</c>).</summary>
+    public bool OrientFromTwoScales { get; init; }
+
     public required PointwiseConv LayoutOut { get; init; }
     public required DwBlock Text4 { get; init; }
     public required PointwiseConv StemProjection { get; init; }
@@ -99,9 +109,9 @@ internal sealed class DbNetModel
     {
         ArgumentNullException.ThrowIfNull(container);
         ArgumentNullException.ThrowIfNull(limits);
-        if (container.Architecture != "dbnet-lite-v0")
+        if (container.Architecture is not ("dbnet-lite-v0" or "dbnet-lite-v1"))
         {
-            throw new OcrModelException($"Unknown architecture '{container.Architecture}'; this reader runs 'dbnet-lite-v0'.");
+            throw new OcrModelException($"Unknown architecture '{container.Architecture}'; this reader runs 'dbnet-lite-v0' and 'dbnet-lite-v1'.");
         }
 
         DbNetConfigDto config;
@@ -127,7 +137,7 @@ internal sealed class DbNetModel
 
         if (container.Input.Channels != 1 || container.Input.Height != 0)
         {
-            throw new OcrModelException("dbnet-lite-v0 reads grayscale input of any height: input.channels must be 1 and input.height 0.");
+            throw new OcrModelException("dbnet-lite reads grayscale input of any height: input.channels must be 1 and input.height 0.");
         }
 
         if (config.Widths.Count != 4 || config.Depths.Count != 4)
@@ -162,6 +172,27 @@ internal sealed class DbNetModel
         }
 
         blocks += config.LayoutBlocks;
+
+        // The v1 switches: absent or 0/false is exactly the v0 graph, which a v0 file may not leave.
+        int layout16Blocks = config.Layout16Blocks ?? 0;
+        bool orient16 = config.Orient16 ?? false;
+        if ((layout16Blocks != 0 || orient16 || config.Layout16 is not null) && container.Architecture != "dbnet-lite-v1")
+        {
+            throw new OcrModelException("layout16_blocks, layout16 and orient16 belong to architecture 'dbnet-lite-v1'.");
+        }
+
+        if (layout16Blocks < 0 || layout16Blocks > limits.MaxConvBlocks)
+        {
+            throw layout16Blocks < 0
+                ? new OcrModelException("config.layout16_blocks must not be negative.")
+                : new OcrLimitException(nameof(OcrLimits.MaxConvBlocks), limits.MaxConvBlocks, layout16Blocks);
+        }
+
+        if (layout16Blocks > 0)
+        {
+            CheckWidth(config.Layout16 ?? 0, limits);
+            blocks += layout16Blocks;
+        }
         if (blocks > limits.MaxConvBlocks)
         {
             throw new OcrLimitException(nameof(OcrLimits.MaxConvBlocks), limits.MaxConvBlocks, blocks);
@@ -256,7 +287,16 @@ internal sealed class DbNetModel
             cin = config.Layout;
         }
 
-        int last = config.Widths[3];
+        var layout16 = new DwBlock[layout16Blocks];
+        cin = config.Fpn;
+        for (int j = 0; j < layout16.Length; j++)
+        {
+            layout16[j] = ReadBlock(container, $"layout16.{j}", cin, config.Layout16!.Value);
+            cin = config.Layout16.Value;
+        }
+
+        PointwiseConv? layoutMix = layout16Blocks > 0 ? ReadPointwise(container, "layout_mix", config.Layout16!.Value, config.Layout) : null;
+        int last = config.Widths[3] + (orient16 ? config.Widths[2] : 0);
         return new DbNetModel
         {
             Input = new ModelInputView(container.Input.Mean, container.Input.Std, container.Input.Invert),
@@ -268,6 +308,9 @@ internal sealed class DbNetModel
             Smooth8 = ReadBlock(container, "smooth8", config.Fpn, config.Fpn),
             Smooth4 = ReadBlock(container, "smooth4", config.Fpn, config.Fpn),
             LayoutBlocks = layoutBlocks,
+            Layout16Blocks = layout16,
+            LayoutMix = layoutMix,
+            OrientFromTwoScales = orient16,
             LayoutOut = ReadPointwise(container, "layout_out", config.Layout, config.Classes),
             Text4 = ReadBlock(container, "text4", config.Fpn, config.Text),
             StemProjection = ReadPointwise(container, "stem_proj", stem, config.Text),

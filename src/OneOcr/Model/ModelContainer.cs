@@ -355,7 +355,7 @@ public sealed class ModelContainer
         }
 
         // Height 0 means "any multiple of 32" and is allowed only for the page detector, which has no fixed input height.
-        bool anyHeight = m.Architecture == "dbnet-lite-v0" && input.Height == 0;
+        bool anyHeight = m.Architecture is "dbnet-lite-v0" or "dbnet-lite-v1" && input.Height == 0;
         if ((input.Height < 1 && !anyHeight) || input.Channels < 1)
         {
             throw new OcrModelException("The input height and channel count must be positive.");

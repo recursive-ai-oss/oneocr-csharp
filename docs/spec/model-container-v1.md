@@ -95,6 +95,16 @@ The page detector: text lines, layout regions and page orientation from one page
   `arch` must be `dbnet-lite`; `widths` and `depths` have four entries each; every width is at least 1 and within the reader's layer-width limit, every depth at least 1; `classes` equals the number of `layout_classes`, whose names are non-empty and unique. **`layout_trained`** is optional: the names of the layout classes the model was trained on. A reader never reports a class that is not listed. When the member is absent, every class except `form_field` and `checkbox` counts as trained (those two had no training labels in the first model). A name that is not in `layout_classes` is an error. **`postprocess`** is optional, and so is each of its members: `text_threshold` and `layout_threshold` are probabilities strictly between 0 and 1, compared as float32 logits; `text_expand` and `layout_expand` are factors in (0, 4] on the growth of a text line or layout core ([detector-v0.md](detector-v0.md), "Post-processing"). Absent members take 0.3, 1.0, 0.6 and 0.85. A value out of range is an error.
 - Tensors (all `f16`, PyTorch layout, batch normalization folded in; names in [detector-v0.md](detector-v0.md)): `stem`, `stage<i>.<j>.dw`/`.pw`, `lat<i>`, `smooth8.dw`/`.pw`, `smooth4.dw`/`.pw`, `layout.<j>.dw`/`.pw`, `layout_out`, `text4.dw`/`.pw`, `stem_proj`, `text2.dw`/`.pw`, `prob_out` (each with `.weight` and `.bias`), and `orient.weight` `[4, widths[3]]`, `orient.bias` `[4]`. A depthwise weight is `[c, 1, 3, 3]`, a 1x1 weight `[out, in, 1, 1]`. Shapes are checked against `config`.
 
+## Architecture `dbnet-lite-v1`
+
+The page detector with the optional stride-16 layout branch and two-scale orientation head ([detector-v1.md](detector-v1.md)). The envelope, `input`, `charset`, `calibration`, `layout_trained`, `postprocess` and every tensor of `dbnet-lite-v0` are as in the section above, with `architecture` `dbnet-lite-v1`. `config` gains three members, all optional:
+
+- `layout16_blocks`: integer, 0 (the default) or the number of stride-16 blocks;
+- `layout16`: the width of those blocks, required and positive when `layout16_blocks` is above 0;
+- `orient16`: boolean, false by default; when true `orient.weight` is `[4, widths[2] + widths[3]]`.
+
+With the branch the file also carries `layout16.<j>.dw`/`.pw` (`j < layout16_blocks`) and `layout_mix` (`.weight` `[layout, layout16, 1, 1]`, `.bias`). The three members in a `dbnet-lite-v0` file are an error. Height 0 in `input` is allowed for both detector architectures.
+
 ## Architecture `docextract-v0`
 
 The document-extraction model: a small layout-aware transformer over the words of a page. It reads words (text and box), not pixels. The graph, the featurization and the assembly of labels into fields are in [docextract-v0.md](docextract-v0.md); this section is what the container carries.

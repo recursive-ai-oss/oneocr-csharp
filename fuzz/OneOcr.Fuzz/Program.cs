@@ -229,6 +229,12 @@ internal static class Program
         File.WriteAllBytes(Path.Combine(dir, "dbnet-odd-widths.seed"), TestDetectorModels.Random(oddDetector, 2));
         File.WriteAllBytes(Path.Combine(dir, "dbnet-trained-list.seed"), TestDetectorModels.Random(oddDetector, 3, trainedJson: "[\"text\",\"table\",\"checkbox\"]"));
 
+        // dbnet-lite-v1: the stride-16 layout branch with the two-scale orientation head, the head alone, and the branch alone.
+        TestDetectorModels.Shape v1 = TestDetectorModels.V1Small;
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-v1-branch.seed"), TestDetectorModels.Random(v1, 4));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-v1-orient16.seed"), TestDetectorModels.Random(v1 with { Layout16Blocks = 0, Layout16 = 0 }, 5));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-v1-branch-only.seed"), TestDetectorModels.Random(v1 with { Orient16 = false, Layout16Blocks = 1 }, 6));
+
         // Version 1: with calibration curves, with one curve and one-knot curves, and with a charset that has space entries.
         var tinyShape = variants[0].Shape;
         File.WriteAllBytes(Path.Combine(dir, "v1-all-scripts.seed"), TestModels.RandomContainerV1(tinyShape, 1,

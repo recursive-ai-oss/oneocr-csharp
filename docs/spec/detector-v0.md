@@ -1,5 +1,7 @@
 # Page detector `dbnet-lite-v0`
 
+(`dbnet-lite-v1` adds an optional stride-16 layout branch and a two-scale orientation head: [detector-v1.md](detector-v1.md).)
+
 One page image in; text lines, layout regions and the page's orientation out. The container section is in [model-container-v1.md](model-container-v1.md), the operation order in [numerics.md](numerics.md). The text branch is the probability-map branch of Liao et al., "Real-time Scene Text Detection with Differentiable Binarization" (AAAI 2020): the threshold map and the differentiable binarization exist only for training and are not in the file. The layout head applies the same shrink-and-recover idea to region boxes.
 
 ## Outputs

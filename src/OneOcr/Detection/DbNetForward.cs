@@ -37,7 +37,7 @@ internal sealed class DetectorMaps
 }
 
 /// <summary>
-/// The <c>dbnet-lite-v0</c> forward pass (docs/spec/detector-v0.md). Every output value is an independent sum in the library's
+/// The <c>dbnet-lite-v0</c> and <c>dbnet-lite-v1</c> forward pass (docs/spec/detector-v0.md, detector-v1.md). Every output value is an independent sum in the library's
 /// fixed order (<see cref="Gemm"/> for the 1x1 convolutions, <see cref="DetectKernels"/> for the rest), and parallel work is
 /// split by output rows, so the maps do not depend on the kernel path or the degree of parallelism.
 /// </summary>
@@ -66,6 +66,12 @@ internal static class DbNetForward
         CheckElements(limits, (long)(height / 4) * (width / 4) * Math.Max(fpn, DetectKernels.Padded(model.Stages[0][^1].Out)));
         CheckElements(limits, (long)(height / 8) * (width / 8) * Math.Max(DetectKernels.Padded(model.LayoutBlocks[0].Out), DetectKernels.Padded(model.Stages[1][^1].Out)));
         CheckElements(limits, (long)(height / 2) * (width / 2));
+        if (model.LayoutMix is { } mix)
+        {
+            // The stride-16 branch: its widest block output and the mixed map, both at stride 16.
+            int widest16 = Math.Max(DetectKernels.Padded(model.Layout16Blocks[0].Out), mix.OutPadded);
+            CheckElements(limits, (long)(height / 16) * (width / 16) * Math.Max(widest16, fpn));
+        }
     }
 
     /// <summary>
@@ -130,7 +136,7 @@ internal static class DbNetForward
             var lateral = new float[4][];
             float[]? current = stem;
             int h = h2, w = w2;
-            float[]? stage3 = null, stage0 = null;
+            float[]? stage3 = null, stage0 = null, means2 = null;
             for (int i = 0; i < 4; i++)
             {
                 for (int j = 0; j < model.Stages[i].Length; j++)
@@ -161,6 +167,13 @@ internal static class DbNetForward
                     lateral[i] = Pointwise(model.Lateral[i], path, degree, arena, current!, h * w, relu: false, model.Lateral[i].OutPadded, cancellationToken);
                 }
 
+                if (i == 2 && model.OrientFromTwoScales)
+                {
+                    // Stage 2 is dropped after its lateral; its channel means are all the orientation head reads of it.
+                    means2 = new float[outBlock.OutPadded];
+                    DetectKernels.ChannelMeans(path, current!, h * w, outBlock.OutPadded, means2);
+                }
+
                 if (i == 3)
                 {
                     stage3 = current;
@@ -168,7 +181,7 @@ internal static class DbNetForward
             }
 
             int h3 = h, w3 = w;
-            float[] orientation = Orientation(model, path, stage3!, h3 * w3);
+            float[] orientation = Orientation(model, path, stage3!, h3 * w3, means2);
             trace?.Add("orient", orientation, 4);
             Give(stage3);
 
@@ -176,8 +189,14 @@ internal static class DbNetForward
             int fpnP = model.Lateral[0].OutPadded;
             AddUp(lateral[2], h3 * 2, w3 * 2, fpnP, lateral[3], path, degree, cancellationToken);
             Give(lateral[3]);
+            float[]? p16 = model.Layout16Blocks.Length > 0 ? lateral[2] : null;
+            TraceMap(trace, "p16", lateral[2], h3 * 2, w3 * 2, model.Lateral[2].Out, fpnP);
             AddUp(lateral[1], h3 * 4, w3 * 4, fpnP, lateral[2], path, degree, cancellationToken);
-            Give(lateral[2]);
+            if (p16 is null)
+            {
+                Give(lateral[2]);
+            }
+
             float[] p8 = Block(model.Smooth8, path, degree, arena, lateral[1], h3 * 4, w3 * 4, 1, limits, cancellationToken, out int h8, out int w8);
             Give(lateral[1]);
             TraceMap(trace, "p8", p8, h8, w8, model.Smooth8.Out, model.Smooth8.OutPadded);
@@ -202,7 +221,27 @@ internal static class DbNetForward
                 TraceMap(trace, "text4", t4, h4, w4, model.Text4.Out, model.Text4.OutPadded);
             }
 
-            // Layout head on p8.
+            // Layout head on p8. With a stride-16 branch (v1) the first block's output also receives up2(layout_mix(branch(p16))).
+            float[]? mixed = null;
+            if (p16 is not null)
+            {
+                float[] g = p16;
+                int gh = h3 * 2, gw = w3 * 2;
+                foreach (DwBlock block16 in model.Layout16Blocks)
+                {
+                    float[] nextG = Block(block16, path, degree, arena, g, gh, gw, 1, limits, cancellationToken, out _, out _);
+                    Give(g);
+                    g = nextG;
+                }
+
+                DwBlock last16 = model.Layout16Blocks[^1];
+                TraceMap(trace, "layout16", g, gh, gw, last16.Out, last16.OutPadded);
+                PointwiseConv mix = model.LayoutMix!;
+                mixed = Pointwise(mix, path, degree, arena, g, gh * gw, relu: false, mix.OutPadded, cancellationToken);
+                Give(g);
+                TraceMap(trace, "layout_mix", mixed, gh, gw, mix.Out, mix.OutPadded);
+            }
+
             float[] feature = p8;
             int fh = h8, fw = w8;
             for (int j = 0; j < model.LayoutBlocks.Length; j++)
@@ -210,6 +249,11 @@ internal static class DbNetForward
                 float[] next = Block(model.LayoutBlocks[j], path, degree, arena, feature, fh, fw, 1, limits, cancellationToken, out _, out _);
                 Give(feature);
                 feature = next;
+                if (j == 0 && mixed is not null)
+                {
+                    AddUp(feature, fh, fw, model.LayoutBlocks[0].OutPadded, mixed, path, degree, cancellationToken);
+                    Give(mixed);
+                }
             }
 
             DwBlock lastLayout = model.LayoutBlocks[^1];
@@ -366,16 +410,25 @@ internal static class DbNetForward
         }, cancellationToken);
     }
 
-    private static float[] Orientation(DbNetModel model, KernelPath path, float[] stage3, int pixels)
+    // One linear layer over the channel means of stage 3, or (v1 orient16) over those of stage 2 followed by those of stage 3.
+    private static float[] Orientation(DbNetModel model, KernelPath path, float[] stage3, int pixels, float[]? means2)
     {
-        int c = model.Stages[3][^1].Out;
-        int cp = DetectKernels.Padded(c);
-        var means = new float[cp];
-        DetectKernels.ChannelMeans(path, stage3, pixels, cp, means);
+        int c3 = model.Stages[3][^1].Out;
+        int c2 = means2 is null ? 0 : model.Stages[2][^1].Out;
+        int c = c2 + c3;
+        var means = new float[DetectKernels.Padded(c3)];
+        DetectKernels.ChannelMeans(path, stage3, pixels, DetectKernels.Padded(c3), means);
+        var joined = new float[c];
+        if (means2 is not null)
+        {
+            Array.Copy(means2, joined, c2);
+        }
+
+        Array.Copy(means, 0, joined, c2, c3);
         var logits = new float[4];
         for (int k = 0; k < 4; k++)
         {
-            logits[k] = Gemm.Dot(path, model.OrientWeights.AsSpan(k * c, c), means.AsSpan(0, c)) + model.OrientBias[k];
+            logits[k] = Gemm.Dot(path, model.OrientWeights.AsSpan(k * c, c), joined) + model.OrientBias[k];
         }
 
         return logits;
