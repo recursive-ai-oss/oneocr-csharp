@@ -2,13 +2,13 @@
 # Orientation and deskew acceptance on the benchmark host, from the repository root.
 #   accept_orientation.sh <label> upright    text and orientation of every set, diffed against a reference text directory (REF=<dir>/<set>/pNNN.txt)
 #   accept_orientation.sh <label> rotated    angle and orientation on the rotated copies (ROT=<dir>), and their page CER against the upright truth
-# Rotated copies come from make_rotated.py. Outputs go to ~/oneocr/u27/acc/<label>/.
+# Rotated copies come from make_rotated.py. Outputs go to $ONEOCR_WORK/acc/<label>/ (default ~/oneocr/work).
 set -eu
 label=$1; mode=$2
 export PATH=~/dotnet10:$PATH DOTNET_ROOT=~/dotnet10 DOTNET_CLI_TELEMETRY_OPTOUT=1
-model=${MODEL:-~/oneocr/u9/exports/crnn-v2/model.onm}
-eval_dir=~/oneocr/eval/bench-v1
-out=~/oneocr/u27/acc/$label
+model=${MODEL:?set MODEL to a recognizer container}
+eval_dir=${ONEOCR_EVAL:-$HOME/oneocr/eval/bench-v1}
+out=${ONEOCR_WORK:-$HOME/oneocr/work}/acc/$label
 mkdir -p "$out"
 bin=$out/bin
 if [ ! -f "$bin/OneOcr.Bench.dll" ]; then
@@ -29,7 +29,7 @@ if [ "$mode" = upright ]; then
     echo "$s: pages $n; text differs from reference: ${changed:-none}; orientation/skew not zero: ${turned:-none}"
   done
 else
-  rot=${ROT:-~/oneocr/u27/rot}
+  rot=${ROT:?set ROT to the rotated copies}
   jobs=()
   for v in $(ls "$rot" | grep -v expected.json); do
     for s in $(ls "$rot/$v"); do jobs+=("$v/$s"); done
