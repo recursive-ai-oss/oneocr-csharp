@@ -135,6 +135,11 @@ internal static class PdfPageReader
             catch (ImageException e)
             {
                 canRender = false;
+                if (frame is not null)
+                {
+                    ctx.Renderer.Done();
+                }
+
                 frame = null;
                 PdfErrors.Fail(e, options, diagnostics, "The page could not be rendered, so image regions and garbled text are not read");
             }
@@ -218,29 +223,34 @@ internal static class PdfPageReader
         var groups = new List<Group>();
         if (canRender && frame is not null)
         {
-            var seen = new List<OcrBox>();
-            foreach (Region region in regions)
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
+                foreach (Region region in regions)
                 {
-                    Group? g = ReadRegion(region, frame, sx, sy, ctx, pageIndex, cancellationToken);
-                    if (g is not null)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
                     {
-                        groups.Add(g);
+                        Group? g = ReadRegion(region, frame, sx, sy, ctx, pageIndex, cancellationToken);
+                        if (g is not null)
+                        {
+                            groups.Add(g);
+                        }
+                    }
+                    catch (OcrLimitException e) when (!options.Strict)
+                    {
+                        diagnostics.Add($"A {region.Why} region was not read: {e.Message}");
+                    }
+                    catch (Exception e) when (PdfErrors.IsLibraryFailure(e))
+                    {
+                        PdfErrors.Fail(e, options, diagnostics, $"A {region.Why} region could not be rendered");
                     }
                 }
-                catch (OcrLimitException e) when (!options.Strict)
-                {
-                    diagnostics.Add($"A {region.Why} region was not read: {e.Message}");
-                }
-                catch (Exception e) when (PdfErrors.IsLibraryFailure(e))
-                {
-                    PdfErrors.Fail(e, options, diagnostics, $"A {region.Why} region could not be rendered");
-                }
             }
-
-            _ = seen;
+            finally
+            {
+                // The page's rendered pixels are not needed again.
+                ctx.Renderer.Done();
+            }
         }
 
         // 6. Merge.
