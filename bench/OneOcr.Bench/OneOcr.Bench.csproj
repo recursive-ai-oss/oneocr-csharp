@@ -17,6 +17,7 @@
     <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
     <!-- The test-only container writer makes a random-weight model for pipeline checks. -->
     <Compile Include="../../tests/OneOcr.Tests/TestModels.cs" Link="TestModels.cs" />
+    <Compile Include="../../tests/OneOcr.Tests/TestDetectorModels.cs" Link="TestDetectorModels.cs" />
   </ItemGroup>
 
 </Project>

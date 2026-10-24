@@ -55,6 +55,15 @@ if (t1 != t4 || t1.Split('\n').Length != 3)
     return 1;
 }
 
+// The page detector: a random-weight one finds lines, regions and an orientation; the page is the same at every degree.
+OcrEngine withDetector = engine.WithDetector(new System.IO.MemoryStream(TestDetectorModels.Random(TestDetectorModels.Small, 4)));
+OcrPage d1 = withDetector.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 1 }), d4 = withDetector.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 4 });
+if (!withDetector.HasDetector || engine.HasDetector || OcrPageJson.ToJson([d1]) != OcrPageJson.ToJson([d4]))
+{
+    Console.Error.WriteLine("the page detector path disagrees across degrees");
+    return 1;
+}
+
 // Beam search with a language model and a lexicon: same text at every degree of parallelism, and a model that fits the charset.
 string[] charset = TestModels.Charset(41);
 string[] alphabet = [.. charset.Skip(2).Take(12)];

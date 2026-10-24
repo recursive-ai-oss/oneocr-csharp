@@ -21,6 +21,8 @@ using OneOcr.Layout;
 //       synthetic image, at the given degree of parallelism.
 //   OneOcr.Bench trainstep --model FILE [--batch 16] [--width 400] [--chars 40] [--degree 1] [--repeat 5]
 //       median time of one training step (see TrainBench.cs).
+//   OneOcr.Bench detect [--model FILE] [--page 2480x3508] [--degree 1] [--repeat 15] [--path avx2]
+//       median time of the page detector (scaling, network, decoding) and of the network alone; see DetectBench.cs.
 //   OneOcr.Bench randommodel --out FILE
 //       writes a random-weight model of the intended size, to exercise the pipeline before trained weights exist (the text is garbage).
 //
@@ -49,6 +51,7 @@ internal static class Program
             "kernels" => Kernels(options),
             "decode" => DecodeBench.Run(options),
             "trainstep" => TrainBench.Run(options),
+            "detect" => DetectBench.Run(options),
             "strips" => Strips(options),
             _ => 2,
         };
