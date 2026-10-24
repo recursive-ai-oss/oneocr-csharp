@@ -84,13 +84,15 @@ def deskewed_words(words: list[dict], theta: float) -> list[dict]:
     return out
 
 
+# Intermediate images are written uncompressed (compress_level=0): the crop tool's PNG reader rejects some deflate streams the usual
+# encoder writes ("Too many length or distance codes").
 def turn_page(page: Path, theta: float, dst: Path) -> None:
     """Writes the page turned back by theta: output (u, v) samples the page at R(theta)(u, v), bicubic, paper-coloured fill."""
     with Image.open(page) as im:
         g = im.convert("L")
     fill = int(np.median(np.asarray(g)))
     c, s = math.cos(theta), math.sin(theta)
-    g.transform(g.size, Image.AFFINE, (c, -s, 0, s, c, 0), Image.BICUBIC, fillcolor=fill).save(dst)
+    g.transform(g.size, Image.AFFINE, (c, -s, 0, s, c, 0), Image.BICUBIC, fillcolor=fill).save(dst, compress_level=0)
 
 
 def word_patch(g: Image.Image, quad: list[float], dst: Path) -> list[float]:
@@ -104,7 +106,7 @@ def word_patch(g: Image.Image, quad: list[float], dst: Path) -> list[float]:
     ow, oh = int(math.ceil(w + 2 * m)), int(math.ceil(h + 2 * m))
     o = tl - m * ex - m * ey
     corners = [o, o + oh * ey, o + ow * ex + oh * ey, o + ow * ex]  # source corners for output (0,0), (0,H), (W,H), (W,0)
-    g.transform((ow, oh), Image.QUAD, tuple(float(v) for p in corners for v in p), Image.BICUBIC).save(dst)
+    g.transform((ow, oh), Image.QUAD, tuple(float(v) for p in corners for v in p), Image.BICUBIC).save(dst, compress_level=0)
     return [m, m, m + w, m + h]
 
 
