@@ -89,6 +89,16 @@ internal sealed class DbNetConfigDto
 
     public required int Classes { get; init; }
 
+    /// <summary>Blocks of the stride-16 layout context branch (<c>dbnet-lite-v1</c>); absent or 0 means none.</summary>
+    [JsonPropertyName("layout16_blocks")]
+    public int? Layout16Blocks { get; init; }
+
+    /// <summary>Width of the stride-16 branch; required when <c>layout16_blocks</c> is above 0.</summary>
+    public int? Layout16 { get; init; }
+
+    /// <summary>Whether the orientation head reads the channel means of stages 2 and 3 (<c>dbnet-lite-v1</c>); absent means false.</summary>
+    public bool? Orient16 { get; init; }
+
     [JsonPropertyName("layout_classes")]
     public required List<string> LayoutClasses { get; init; }
 

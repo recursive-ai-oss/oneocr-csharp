@@ -38,7 +38,7 @@ The page detector (`dbnet-lite-v0`, [detector-v0.md](detector-v0.md)) uses activ
 - **3x3 depthwise convolution** (zero padding 1, stride 1 or 2, one filter per channel): the nine products of a position and channel are the elements of one dot product, tap *k* = `ky * 3 + kx` in lane *k*: `p[k] = fma(w[k], x[k], +0)`, lanes 9 to 15 stay +0, then the tree above and the bias. A tap that falls outside the image multiplies a zero padding value and contributes `fma(w, 0, +0) = +0`, so it is simply +0. Vector paths hold the nine products for 4, 8 or 16 channels at a time; a channel is never split across lanes, so the width cannot change a result.
 - **Stem** (3x3, stride 2, one input channel, ReLU) follows the same rule per output channel.
 - **Nearest 2x upsampling plus addition**: `dst[y][x][k] = dst[y][x][k] + src[y / 2][x / 2][k]` (one fp32 addition; commutative).
-- **Global average** over a stage output of *n* positions, per channel: the positions are added one after the other in row-major order starting from +0 in fp32, then divided by *n* (IEEE division). The orientation logits are dot products of that vector with each row of `orient.weight`, plus the bias.
+- **Global average** over a stage output of *n* positions, per channel: the positions are added one after the other in row-major order starting from +0 in fp32, then divided by *n* (IEEE division). The orientation logits are dot products of that vector with each row of `orient.weight`, plus the bias; with `dbnet-lite-v1` `orient16` the vector is the stage-2 means followed by the stage-3 means, one dot product over the joined vector ([detector-v1.md](detector-v1.md)).
 - **ReLU** `v > 0 ? v : 0` (NaN and -0 give +0). Sigmoid and softmax appear only in post-processing, with the exp above; thresholds are compared on logits.
 
 Rows of an output are split across threads; no reduction crosses a thread boundary.
@@ -55,6 +55,7 @@ For each layer the C# fp32 result is compared with a float64 evaluation of the s
 | stage1, stage2, stage3 | 2e-6 | | text2 | 8e-6 |
 | p8 | 4e-6 | | prob | 5e-6 |
 | p4 | 5e-6 | | orient | 2e-7 |
+| p16 (v1) | 4e-6 | | layout16, layout_mix (v1) | 5e-6 |
 
 ## Tolerance against PyTorch
 

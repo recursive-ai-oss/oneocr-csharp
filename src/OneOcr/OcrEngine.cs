@@ -67,13 +67,13 @@ public sealed class OcrEngine
 
     /// <summary>
     /// An engine that shares this one's recognizer and finds text lines, layout regions and the page's orientation with a page detector
-    /// model (architecture <c>dbnet-lite-v0</c>) instead of the built-in classical line finding. Page methods (<see cref="Ocr"/>,
+    /// model (architecture <c>dbnet-lite-v0</c> or <c>dbnet-lite-v1</c>) instead of the built-in classical line finding. Page methods (<see cref="Ocr"/>,
     /// <see cref="ToText(Image, int, CancellationToken)"/>) use it: lines come from the detector, regions fill
     /// <see cref="OcrPage.Regions"/> and set header and footer blocks, and a page the detector is sure is rotated by 90, 180 or 270
     /// degrees is turned upright first (a diagnostic says so, and positions refer to the turned page). Layout classes the model was not
     /// trained on (<c>form_field</c> and <c>checkbox</c> unless the model's <c>layout_trained</c> lists them) are never reported.
     /// </summary>
-    /// <param name="detectorModelPath">A model container with architecture <c>dbnet-lite-v0</c>.</param>
+    /// <param name="detectorModelPath">A model container with architecture <c>dbnet-lite-v0</c> or <c>dbnet-lite-v1</c>.</param>
     /// <param name="limits">Bounds to enforce when reading the file; this engine's own limits when null.</param>
     /// <returns>The new engine; this one is unchanged.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="detectorModelPath"/> is null.</exception>
