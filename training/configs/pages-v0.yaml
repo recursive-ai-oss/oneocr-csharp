@@ -1,0 +1,58 @@
+# Page generator config. Degradation ranges: `train` and `heldout` are disjoint; the validation page split uses `heldout`.
+# ranges: lists of [lo, hi] (one entry picked uniformly, repeats weight it), then a value uniformly inside.
+#   dpi      resolution of the final image, in dots per CSS inch (96 = the page as laid out)
+#   rot      scan rotation, degrees, either sign;  persp: corner jitter as a fraction of the page size (photos)
+#   margin   canvas around the page as a fraction of the page size (scan bed / desk)
+#   light    uneven-light strength;  faint: ink-to-paper contrast kept (1 = full);  blur: gaussian sigma in pixels at 150 dpi (scaled with the final dpi, so text of any size is blurred alike)
+#   motion   box blur length in pixels at 150 dpi;  read / shot: read-noise sigma and signal-dependent noise factor (0..1 scale)
+#   jpeg_q   JPEG quality when the page is saved as JPEG
+mix: { prose: 0.30, table: 0.13, form: 0.12, invoice: 0.25, receipt: 0.20 }
+degrade:
+  train:
+    profiles: { clean: 0.25, scan: 0.30, photo: 0.25, screen: 0.20 }
+    ranges:
+      dpi: [[96, 130], [130, 200], [200, 290]]
+      rot: [0.0, 1.2]
+      persp: [0.0, 0.07]
+      margin: [0.03, 0.12]
+      light: [0.0, 0.35]
+      faint: [0.55, 1.0]
+      blur: [0.0, 1.2]
+      motion: [3, 6]
+      read: [0.0, 0.02]
+      shot: [0.0, 0.03]
+      jpeg_q: [[40, 60], [60, 95]]
+    p:
+      light: 0.6
+      shadow: 0.3
+      faint: 0.3
+      blur: 0.6
+      motion: 0.15
+      noise: 0.6
+      gray: 0.5
+      binarize: 0.04
+      jpeg: { clean: 0.3, scan: 0.6, photo: 0.8, screen: 0.4 }
+  heldout:
+    profiles: { clean: 0.25, scan: 0.30, photo: 0.25, screen: 0.20 }
+    ranges:
+      dpi: [[80, 96], [292, 300]]
+      rot: [1.2, 2.5]
+      persp: [0.07, 0.12]
+      margin: [0.03, 0.12]
+      light: [0.35, 0.55]
+      faint: [0.35, 0.55]
+      blur: [1.2, 2.0]
+      motion: [6, 9]
+      read: [0.02, 0.035]
+      shot: [0.03, 0.05]
+      jpeg_q: [[20, 40]]
+    p:
+      light: 0.6
+      shadow: 0.3
+      faint: 0.3
+      blur: 0.6
+      motion: 0.15
+      noise: 0.6
+      gray: 0.5
+      binarize: 0.04
+      jpeg: { clean: 0.3, scan: 0.6, photo: 0.8, screen: 0.4 }
