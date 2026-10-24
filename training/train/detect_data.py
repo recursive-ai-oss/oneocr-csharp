@@ -358,6 +358,60 @@ PAGE_ROLES = {
 }  # fmt: skip
 
 
+def split_line(ln: dict, gap: float = 1.2) -> list[list[float]]:
+    """Cut a generated line (a DOM line, possibly spanning table cells or form columns) wherever two words are more than
+    `gap` line heights apart, so each piece is one text run the recognizer reads as a line. Boxes for upright pages, quads
+    (cut along the line's own direction) for rotated or warped ones."""
+    words = ln["words"]
+    quad = ln.get("quad")
+    if quad is not None:
+        q = np.array(quad, np.float32).reshape(4, 2)
+    else:
+        x0, y0, x1, y1 = ln["bounds"]
+        q = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], np.float32)
+    e1, e2 = q[1] - q[0], q[3] - q[0]
+    length, height = float(np.hypot(*e1)), float(np.hypot(*e2))
+    if len(words) < 2 or length <= 0:
+        return [[round(float(v), 1) for v in q.reshape(-1)]] if quad is not None else [[round(v, 1) for v in ln["bounds"]]]
+    u = e1 / length
+    spans = []
+    for w in words:
+        pts = (
+            np.array(w["quad"], np.float32).reshape(4, 2)
+            if "quad" in w
+            else np.array(
+                [
+                    [w["bounds"][0], w["bounds"][1]],
+                    [w["bounds"][2], w["bounds"][1]],
+                    [w["bounds"][2], w["bounds"][3]],
+                    [w["bounds"][0], w["bounds"][3]],
+                ],
+                np.float32,
+            )
+        )
+        t = (pts - q[0]) @ u
+        spans.append((float(t.min()), float(t.max())))
+    spans.sort()
+    groups = [[spans[0][0], spans[0][1]]]
+    for a, b in spans[1:]:
+        if a - groups[-1][1] > gap * height:
+            groups.append([a, b])
+        else:
+            groups[-1][1] = max(groups[-1][1], b)
+    if len(groups) == 1:
+        return [[round(float(v), 1) for v in q.reshape(-1)]] if quad is not None else [[round(v, 1) for v in ln["bounds"]]]
+    out = []
+    for a, b in groups:
+        a, b = max(a, 0.0), min(b, length)
+        tl, tr = q[0] + u * a, q[0] + u * b
+        poly = np.array([tl, tr, tr + e2, tl + e2], np.float32)
+        if quad is None:
+            out.append([round(float(v), 1) for v in (poly[:, 0].min(), poly[:, 1].min(), poly[:, 0].max(), poly[:, 1].max())])
+        else:
+            out.append([round(float(v), 1) for v in poly.reshape(-1)])
+    return out
+
+
 def load_page_records(path: Path, split: str, cache: Path | None = None) -> list[dict]:
     """Synthetic pages (exact truth from the renderer's own layout): line boxes or quads, region boxes by role.
 
@@ -367,7 +421,7 @@ def load_page_records(path: Path, split: str, cache: Path | None = None) -> list
     root = path / split
     if cache is not None and cache.exists():
         c = json.loads(cache.read_text())
-        if isinstance(c, dict) and c.get("root") == str(root):  # a cache written for another page set is rebuilt
+        if isinstance(c, dict) and c.get("root") == str(root) and c.get("v") == 2:  # a cache written for another page set is rebuilt
             return c["recs"]
     recs = []
     for tf in sorted((root / "truth").glob("*.json")):
@@ -379,7 +433,7 @@ def load_page_records(path: Path, split: str, cache: Path | None = None) -> list
         lines = []
         for blk in pg["blocks"]:
             for ln in blk["lines"]:
-                lines.append([round(v, 1) for v in ln["quad"]] if "quad" in ln else [round(v, 1) for v in ln["bounds"]])
+                lines += split_line(ln)
         layout = [
             [CLASSES.index(PAGE_ROLES[r["role"]]), *[round(v, 1) for v in r["bounds"]]] for r in pg["regions"] if r["role"] in PAGE_ROLES
         ]
@@ -389,7 +443,7 @@ def load_page_records(path: Path, split: str, cache: Path | None = None) -> list
         )  # fmt: skip
     if cache is not None:
         cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps({"root": str(root), "recs": recs}))
+        cache.write_text(json.dumps({"root": str(root), "v": 2, "recs": recs}))
     return recs
 
 
