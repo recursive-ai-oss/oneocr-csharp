@@ -333,7 +333,9 @@ public sealed class ModelContainer
     private static List<TensorInfo> ValidateManifest(
         ManifestDto m, OcrLimits limits, long dataLength, out Dictionary<string, TensorInfo> byName)
     {
-        if (m.Input.Height < 1 || m.Input.Channels < 1)
+        // Height 0 means "any multiple of 32" and is allowed only for the page detector, which has no fixed input height.
+        bool anyHeight = m.Architecture == "dbnet-lite-v0" && m.Input.Height == 0;
+        if ((m.Input.Height < 1 && !anyHeight) || m.Input.Channels < 1)
         {
             throw new OcrModelException("The input height and channel count must be positive.");
         }

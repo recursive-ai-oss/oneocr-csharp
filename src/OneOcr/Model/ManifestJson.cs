@@ -60,6 +60,30 @@ internal sealed class LstmDto
     public required int Layers { get; init; }
 }
 
+internal sealed class DbNetConfigDto
+{
+    public required string Arch { get; init; }
+    public required int Stem { get; init; }
+    public required List<int> Widths { get; init; }
+    public required List<int> Depths { get; init; }
+    public required int Fpn { get; init; }
+    public required int Text { get; init; }
+    public required int Layout { get; init; }
+
+    [JsonPropertyName("layout_blocks")]
+    public required int LayoutBlocks { get; init; }
+
+    public required int Classes { get; init; }
+
+    [JsonPropertyName("layout_classes")]
+    public required List<string> LayoutClasses { get; init; }
+
+    /// <summary>Names of the layout classes the model was trained on; absent means every class except form_field and checkbox.</summary>
+    [JsonPropertyName("layout_trained")]
+    public List<string>? LayoutTrained { get; init; }
+}
+
+[JsonSerializable(typeof(DbNetConfigDto))]
 [JsonSerializable(typeof(ManifestDto))]
 [JsonSerializable(typeof(CrnnConfigDto))]
 [JsonSerializable(typeof(CalibrationDto))]

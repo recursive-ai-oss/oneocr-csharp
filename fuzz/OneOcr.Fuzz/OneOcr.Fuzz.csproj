@@ -23,6 +23,7 @@
     <ProjectReference Include="../../src/OneOcr.Pdf/OneOcr.Pdf.csproj" />
     <!-- The test-only container writer builds the seed corpus. -->
     <Compile Include="../../tests/OneOcr.Tests/TestModels.cs" Link="TestModels.cs" />
+    <Compile Include="../../tests/OneOcr.Tests/TestDetectorModels.cs" Link="TestDetectorModels.cs" />
     <Compile Include="../../tests/OneOcr.Tests/TestLm.cs" Link="TestLm.cs" />
     <Compile Include="../../tests/OneOcr.Tests/SamplePage.cs" Link="SamplePage.cs" />
     <Compile Include="../../tests/OneOcr.Tests/PdfFixtures.cs" Link="PdfFixtures.cs" />
