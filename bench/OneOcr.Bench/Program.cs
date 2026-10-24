@@ -8,7 +8,7 @@ using OneOcr.Layout;
 
 // Runs the OCR engine over a directory of page images for the scorer in bench/oneocr_bench, and checks line finding.
 //
-//   OneOcr.Bench run   --model FILE [--detector FILE] --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]] [--words 1] [--pagejson 1]
+//   OneOcr.Bench run   [--model FILE] [--detector FILE] --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]] [--words 1] [--pagejson 1]
 //       writes <page-id>.txt for every <page-id>.png and timing.json: the one-time model load, per page the image
 //       decode time and the median-of-K recognition time, and the process's peak working set. --degree 0 is the library default.
 //       --words 1 also writes <page-id>.json, the scorer's word sidecar {"words":[{"box":[x0,y0,x1,y1],"text":..,"conf":..,"conf_raw":..}]}
@@ -281,7 +281,7 @@ internal static class Program
 
         using AllocTrace? allocTrace = Int(o, "alloc", 0) != 0 ? new AllocTrace() : null;
         var clock = Stopwatch.StartNew();
-        OcrEngine engine = OcrEngine.Load(Need(o, "model"));
+        OcrEngine engine = o.ContainsKey("model") ? OcrEngine.Load(o["model"]) : OcrEngine.LoadBundled();
         if (o.TryGetValue("beam", out string? beamWidth))
         {
             // --beam W [--lm FILE]: beam search of width W, with the character model when one is named.
