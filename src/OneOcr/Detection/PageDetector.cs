@@ -126,8 +126,15 @@ internal sealed class PageDetector : IPageDetector
                 scaled = null;
             }
 
-            DetectorMaps maps = DbNetForward.Run(_model, _path, degree, _floats, canvas, paddedH, paddedW, _limits, null, cancellationToken);
-            return DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits);
+            DetectorMaps maps = DbNetForward.Run(_model, _path, degree, _floats, canvas, paddedH, paddedW, _limits, null, cancellationToken, pooledMaps: true);
+            try
+            {
+                return DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits);
+            }
+            finally
+            {
+                maps.Return(_floats);
+            }
         }
         finally
         {

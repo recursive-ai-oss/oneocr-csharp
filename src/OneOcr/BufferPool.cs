@@ -18,12 +18,19 @@ internal sealed class BufferPool<T>
     private readonly long _maxRetainedBytes;
     private readonly int _elementSize;
     private long _retainedBytes;
+    private long _outstandingBytes;
 
     public BufferPool(long maxRetainedBytes, int elementSize)
     {
         _maxRetainedBytes = Math.Max(0, maxRetainedBytes);
         _elementSize = elementSize;
     }
+
+    /// <summary>The most bytes that were handed out and not yet given back at any one time (for tests and measurements).</summary>
+    public long PeakOutstandingBytes { get; private set; }
+
+    /// <summary>Bytes of all arrays this pool has created so far (for tests and measurements).</summary>
+    public long CreatedBytes { get; private set; }
 
     /// <summary>An array of at least <paramref name="length"/> elements (more when a larger free one was reused). Contents are unspecified.</summary>
     public T[] Rent(long length)
@@ -51,11 +58,18 @@ internal sealed class BufferPool<T>
                 _free[best] = _free[^1];
                 _free.RemoveAt(_free.Count - 1);
                 _retainedBytes -= (long)hit.Length * _elementSize;
+                Rented(hit.Length);
                 return hit;
             }
         }
 
         int rounded = Round(needed);
+        lock (_gate)
+        {
+            Rented(rounded);
+            CreatedBytes += (long)rounded * _elementSize;
+        }
+
         // The contents are unspecified by contract, so large arrays skip the zeroing; the pages past what a request uses are never touched.
         return rounded >= Grid ? GC.AllocateUninitializedArray<T>(rounded) : new T[rounded];
     }
@@ -71,12 +85,20 @@ internal sealed class BufferPool<T>
         long bytes = (long)array.Length * _elementSize;
         lock (_gate)
         {
+            _outstandingBytes -= bytes;
             if (_retainedBytes + bytes <= _maxRetainedBytes)
             {
                 _free.Add(array);
                 _retainedBytes += bytes;
             }
         }
+    }
+
+    // Caller holds the gate.
+    private void Rented(int elements)
+    {
+        _outstandingBytes += (long)elements * _elementSize;
+        PeakOutstandingBytes = Math.Max(PeakOutstandingBytes, _outstandingBytes);
     }
 
     private static int Round(int length)

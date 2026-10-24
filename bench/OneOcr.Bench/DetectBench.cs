@@ -95,7 +95,7 @@ internal static class DetectBench
         Console.WriteLine(
             $"detect path={path} degree={degree} page={width}x{height} input={pw}x{ph} load={loadMs:F1} ms  " +
             $"whole(median/min)={whole[whole.Count / 2]:F1}/{whole[0]:F1} ms  network(median/min)={network[network.Count / 2]:F1}/{network[0]:F1} ms  peak={peak:F0} MB  " +
-            $"allocated={GC.GetTotalAllocatedBytes() / 1048576.0:F0} MB total  maps-hash={digest}");
+            $"allocated={GC.GetTotalAllocatedBytes() / 1048576.0:F0} MB total  maps-hash={digest}  network-scratch-peak={floats.PeakOutstandingBytes / 1048576.0:F1} MB created={floats.CreatedBytes / 1048576.0:F1} MB");
         return 0;
     }
 
