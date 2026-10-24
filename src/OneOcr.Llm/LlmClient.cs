@@ -144,7 +144,7 @@ public sealed class LlmClient : IDisposable
         }
         catch (JsonException e)
         {
-            throw new OcrProviderException(_provider.Name, LlmFailure.Malformed, "the answer does not fit the requested type: " + e.Message, e);
+            throw new OcrProviderException(_provider.Name, LlmFailure.Malformed, _provider.Scrub("the answer does not fit the requested type: " + e.Message));
         }
     }
 
@@ -327,8 +327,9 @@ public sealed class LlmClient : IDisposable
                 _spent += cost ?? 0m;
             }
 
+            string answer = ScrubAnswer(reply.Json);
             var result = new LlmExtraction(
-                reply.Json, new LlmUsage(inTok, outTok, reported), cost, fromCache: false, _provider.Name, _provider.Model, p.Words, p.Masked, p.Warnings);
+                answer, new LlmUsage(inTok, outTok, reported), cost, fromCache: false, _provider.Name, _provider.Model, p.Words, p.Masked, p.Warnings);
             _options.Cache?.Set(p.CacheKey, result);
             return result;
         }
@@ -363,13 +364,13 @@ public sealed class LlmClient : IDisposable
                 if (response.IsSuccessStatusCode)
                 {
                     byte[] bytes = await ResponseReader.ReadAsync(response.Content, _options.Limits.MaxLlmResponseBytes, cts.Token).ConfigureAwait(false);
-                    return _provider.ParseReply(bytes, _options.Limits);
+                    return Cleaned(() => _provider.ParseReply(bytes, _options.Limits));
                 }
 
                 // Error bodies are small; read at most 64 KiB of one for the message.
                 byte[] errorBody = await ResponseReader.ReadAtMostAsync(response.Content, 64 * 1024, cts.Token).ConfigureAwait(false);
                 int status = (int)response.StatusCode;
-                failure = new OcrProviderException(name, LlmFailure.Status, $"HTTP {status}: {ProviderJson.ErrorMessage(errorBody)}", status);
+                failure = new OcrProviderException(name, LlmFailure.Status, _provider.Scrub($"HTTP {status}: {ProviderJson.ErrorMessage(errorBody)}"), status);
                 if (!LlmProvider.IsTransient(response.StatusCode))
                 {
                     throw failure;
@@ -383,7 +384,8 @@ public sealed class LlmClient : IDisposable
             }
             catch (Exception e) when (e is HttpRequestException or IOException)
             {
-                failure = new OcrProviderException(name, LlmFailure.Transport, "the request failed: " + e.Message, e);
+                // The inner exception is not kept: its text can carry whatever the server or a proxy sent back.
+                failure = new OcrProviderException(name, LlmFailure.Transport, _provider.Scrub("the request failed: " + e.Message));
             }
 
             if (attempt >= _options.MaxRetries)
@@ -393,6 +395,45 @@ public sealed class LlmClient : IDisposable
 
             await Task.Delay(Backoff(attempt, retryAfter), _options.TimeProvider, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Runs a parser and re-throws its provider errors with the key scrubbed out of the text and without the inner exception, so
+    /// nothing a server echoed can reach a caller's log.
+    /// </summary>
+    private ProviderReply Cleaned(Func<ProviderReply> parse)
+    {
+        try
+        {
+            return parse();
+        }
+        catch (OcrProviderException e)
+        {
+            string prefix = e.Provider + ": ";
+            string text = e.Message.StartsWith(prefix, StringComparison.Ordinal) ? e.Message[prefix.Length..] : e.Message;
+            throw new OcrProviderException(e.Provider, e.Failure, _provider.Scrub(text), e.StatusCode);
+        }
+    }
+
+    /// <summary>A model that echoes the key in its answer must not get it into the result or the cache.</summary>
+    private string ScrubAnswer(string json)
+    {
+        string clean = _provider.ScrubKey(json);
+        if (ReferenceEquals(clean, json) || clean == json)
+        {
+            return json;
+        }
+
+        try
+        {
+            ProviderJson.CheckDepth(Encoding.UTF8.GetBytes(clean), _options.Limits.MaxLlmJsonDepth);
+        }
+        catch (JsonException)
+        {
+            throw new OcrProviderException(_provider.Name, LlmFailure.Malformed, "the answer repeated the API key and could not be cleaned.");
+        }
+
+        return clean;
     }
 
     private TimeSpan Backoff(int attempt, TimeSpan? retryAfter)

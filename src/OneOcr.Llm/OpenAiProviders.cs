@@ -151,9 +151,9 @@ internal static class OpenAiChatWire
 /// side to 768 pixels, and bills 85 tokens plus 170 per 512-pixel tile, so that is what the default shrinks to. Schemas are
 /// rewritten for strict mode: every property becomes required and extra properties are forbidden, so make optional values nullable.
 /// </summary>
+[System.Diagnostics.DebuggerDisplay("{Name} ({Model})")]
 public sealed class OpenAiProvider : LlmProvider
 {
-    private readonly string _apiKey;
     private readonly Uri _uri;
     private readonly string? _organization;
 
@@ -165,9 +165,9 @@ public sealed class OpenAiProvider : LlmProvider
     /// <param name="images">Image size overrides; default 2048 long side, 768 short side, 20 MB.</param>
     /// <param name="organization">Optional organization id, sent as <c>OpenAI-Organization</c>.</param>
     public OpenAiProvider(string apiKey, string model, Uri? baseAddress = null, HttpClient? http = null, LlmImageOptions? images = null, string? organization = null)
-        : base("openai", model, http, images, new LlmImageOptions { MaxLongEdge = 2048, MaxShortEdge = 768, MaxBytes = 20L * 1024 * 1024 })
+        : base("openai", model, http, images, new LlmImageOptions { MaxLongEdge = 2048, MaxShortEdge = 768, MaxBytes = 20L * 1024 * 1024 }, apiKey)
     {
-        _apiKey = RequireKey(apiKey);
+        RequireKey(apiKey);
         _organization = organization;
         _uri = new Uri(CheckBase(baseAddress ?? new Uri("https://api.openai.com/v1/"), allowPlainHttp: false), "chat/completions");
     }
@@ -190,7 +190,7 @@ public sealed class OpenAiProvider : LlmProvider
 
     internal override void AddHeaders(HttpRequestMessage request)
     {
-        request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _apiKey);
+        request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + ApiKey);
         if (_organization is not null)
         {
             request.Headers.TryAddWithoutValidation("OpenAI-Organization", _organization);
@@ -216,9 +216,9 @@ public sealed class OpenAiProvider : LlmProvider
 /// The default image bound (1536 pixels on the long side) is a guess that suits common vision encoders; pass
 /// image options to the constructor for the model in use.
 /// </summary>
+[System.Diagnostics.DebuggerDisplay("{Name} ({Model})")]
 public sealed class OpenAiCompatibleProvider : LlmProvider
 {
-    private readonly string? _apiKey;
     private readonly Uri _uri;
 
     /// <summary>Creates the provider.</summary>
@@ -228,7 +228,7 @@ public sealed class OpenAiCompatibleProvider : LlmProvider
     /// <param name="http">The client to send with; default a shared one that does not follow redirects.</param>
     /// <param name="images">Image size overrides.</param>
     public OpenAiCompatibleProvider(Uri baseAddress, string model, string? apiKey = null, HttpClient? http = null, LlmImageOptions? images = null)
-        : base("openai-compatible", model, http, images, new LlmImageOptions { MaxLongEdge = 1536, MaxBytes = 20L * 1024 * 1024 })
+        : base("openai-compatible", model, http, images, new LlmImageOptions { MaxLongEdge = 1536, MaxBytes = 20L * 1024 * 1024 }, apiKey)
     {
         Uri root = CheckBase(baseAddress, allowPlainHttp: true);
         if (!string.IsNullOrEmpty(apiKey) && root.Scheme == "http" && !root.IsLoopback)
@@ -236,7 +236,6 @@ public sealed class OpenAiCompatibleProvider : LlmProvider
             throw new ArgumentException("An API key is never sent over plain HTTP to a non-local host.", nameof(apiKey));
         }
 
-        _apiKey = string.IsNullOrEmpty(apiKey) ? null : apiKey;
         _uri = new Uri(root, "chat/completions");
     }
 
@@ -253,9 +252,9 @@ public sealed class OpenAiCompatibleProvider : LlmProvider
 
     internal override void AddHeaders(HttpRequestMessage request)
     {
-        if (_apiKey is not null)
+        if (ApiKey is not null)
         {
-            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _apiKey);
+            request.Headers.TryAddWithoutValidation("Authorization", "Bearer " + ApiKey);
         }
     }
 
@@ -277,12 +276,12 @@ public sealed class OpenAiCompatibleProvider : LlmProvider
 /// Azure does not store completions unless asked, so no <c>store</c> flag is sent and <see cref="LlmProvider.NoRetention"/>
 /// changes nothing. Image rules and strict structured output are as for <see cref="OpenAiProvider"/>.
 /// </summary>
+[System.Diagnostics.DebuggerDisplay("{Name} ({Model})")]
 public sealed class AzureOpenAiProvider : LlmProvider
 {
     /// <summary>The API version used when none is given: the generally available 2024-10-21 data-plane release, which supports strict <c>json_schema</c>.</summary>
     public const string DefaultApiVersion = "2024-10-21";
 
-    private readonly string _apiKey;
     private readonly Uri _uri;
 
     /// <summary>Creates the provider.</summary>
@@ -293,9 +292,9 @@ public sealed class AzureOpenAiProvider : LlmProvider
     /// <param name="http">The client to send with; default a shared one that does not follow redirects.</param>
     /// <param name="images">Image size overrides; default as OpenAI.</param>
     public AzureOpenAiProvider(Uri endpoint, string deployment, string apiKey, string apiVersion = DefaultApiVersion, HttpClient? http = null, LlmImageOptions? images = null)
-        : base("azure-openai", deployment, http, images, new LlmImageOptions { MaxLongEdge = 2048, MaxShortEdge = 768, MaxBytes = 20L * 1024 * 1024 })
+        : base("azure-openai", deployment, http, images, new LlmImageOptions { MaxLongEdge = 2048, MaxShortEdge = 768, MaxBytes = 20L * 1024 * 1024 }, apiKey)
     {
-        _apiKey = RequireKey(apiKey);
+        RequireKey(apiKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(apiVersion);
         Uri root = CheckBase(endpoint, allowPlainHttp: false);
         _uri = new Uri(root, $"openai/deployments/{Uri.EscapeDataString(deployment)}/chat/completions?api-version={Uri.EscapeDataString(apiVersion)}");
@@ -319,7 +318,7 @@ public sealed class AzureOpenAiProvider : LlmProvider
 
     internal override Uri RequestUri => _uri;
 
-    internal override void AddHeaders(HttpRequestMessage request) => request.Headers.TryAddWithoutValidation("api-key", _apiKey);
+    internal override void AddHeaders(HttpRequestMessage request) => request.Headers.TryAddWithoutValidation("api-key", ApiKey);
 
     internal override long EstimateImageTokens(int width, int height) => 85 + (170L * ((width + 511) / 512) * ((height + 511) / 512));
 

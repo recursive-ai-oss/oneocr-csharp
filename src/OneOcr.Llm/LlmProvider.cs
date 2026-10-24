@@ -19,8 +19,11 @@ internal readonly record struct ProviderReply(string Json, long InputTokens, lon
 /// holds its model string, its key and its <see cref="HttpClient"/>; policy (budgets, retries, privacy, caching) lives in
 /// <see cref="LlmClient"/>. Providers cannot be subclassed outside this assembly.
 /// </summary>
+[System.Diagnostics.DebuggerDisplay("{Name} ({Model})")]
 public abstract class LlmProvider
 {
+    private readonly Secret? _secret;
+
     private static readonly Lazy<HttpClient> SharedHttp = new(static () => new HttpClient(new SocketsHttpHandler
     {
         // A redirect would carry the API key header to another host.
@@ -31,8 +34,9 @@ public abstract class LlmProvider
         Timeout = System.Threading.Timeout.InfiniteTimeSpan,
     });
 
-    private protected LlmProvider(string name, string model, HttpClient? http, LlmImageOptions? images, LlmImageOptions defaults)
+    private protected LlmProvider(string name, string model, HttpClient? http, LlmImageOptions? images, LlmImageOptions defaults, string? apiKey)
     {
+        _secret = string.IsNullOrWhiteSpace(apiKey) ? null : new Secret(apiKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(model);
         Name = name;
         Model = model;
@@ -63,6 +67,19 @@ public abstract class LlmProvider
     /// <c>store: false</c>); a no-op for APIs without one (Anthropic, Gemini, Azure OpenAI, and servers that are not OpenAI).
     /// </summary>
     public bool NoRetention { get; init; } = true;
+
+    /// <summary>Shows the provider and model, never the key.</summary>
+    /// <returns>For example <c>anthropic (model-name)</c>.</returns>
+    public override string ToString() => $"{Name} ({Model})";
+
+    /// <summary>The key, for building request headers only.</summary>
+    private protected string? ApiKey => _secret?.Value;
+
+    /// <summary>Removes the key and any 8-character piece of it from text a server sent, and cuts the text to a few hundred characters.</summary>
+    internal string Scrub(string text) => _secret is null ? (text.Length <= 400 ? text : text[..400]) : _secret.Scrub(text);
+
+    /// <summary>Like <see cref="Scrub"/> but without cutting the text: for model answers, which are legitimately long.</summary>
+    internal string ScrubKey(string text) => _secret is null ? text : _secret.ScrubAll(text);
 
     internal HttpClient Http { get; }
 

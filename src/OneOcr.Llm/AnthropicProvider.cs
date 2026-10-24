@@ -13,10 +13,10 @@ namespace OneOcr.Llm;
 /// The API has no per-request retention switch, so <see cref="LlmProvider.NoRetention"/> changes nothing here; retention is an
 /// organisation-level agreement with Anthropic.
 /// </summary>
+[System.Diagnostics.DebuggerDisplay("{Name} ({Model})")]
 public sealed class AnthropicProvider : LlmProvider
 {
     private const string Version = "2023-06-01";
-    private readonly string _apiKey;
     private readonly Uri _uri;
 
     /// <summary>Creates the provider.</summary>
@@ -26,9 +26,9 @@ public sealed class AnthropicProvider : LlmProvider
     /// <param name="http">The client to send with; default a shared one that does not follow redirects. Supply your own for proxies or handlers.</param>
     /// <param name="images">Image size overrides; default 1568 pixels long side, 1.15 megapixels, 5 MB.</param>
     public AnthropicProvider(string apiKey, string model, Uri? baseAddress = null, HttpClient? http = null, LlmImageOptions? images = null)
-        : base("anthropic", model, http, images, new LlmImageOptions { MaxLongEdge = 1568, MaxPixels = 1_150_000, MaxBytes = 5L * 1024 * 1024 })
+        : base("anthropic", model, http, images, new LlmImageOptions { MaxLongEdge = 1568, MaxPixels = 1_150_000, MaxBytes = 5L * 1024 * 1024 }, apiKey)
     {
-        _apiKey = RequireKey(apiKey);
+        RequireKey(apiKey);
         _uri = new Uri(CheckBase(baseAddress ?? new Uri("https://api.anthropic.com/"), allowPlainHttp: false), "v1/messages");
     }
 
@@ -50,7 +50,7 @@ public sealed class AnthropicProvider : LlmProvider
 
     internal override void AddHeaders(HttpRequestMessage request)
     {
-        request.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
+        request.Headers.TryAddWithoutValidation("x-api-key", ApiKey);
         request.Headers.TryAddWithoutValidation("anthropic-version", Version);
     }
 

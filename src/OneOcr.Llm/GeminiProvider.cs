@@ -13,9 +13,9 @@ namespace OneOcr.Llm;
 /// request limit is 20 MB, so the per-image default is 15 MB. The API has no per-request retention switch, so
 /// <see cref="LlmProvider.NoRetention"/> changes nothing; use a paid-tier key, whose data is not used to improve Google's products.
 /// </summary>
+[System.Diagnostics.DebuggerDisplay("{Name} ({Model})")]
 public sealed class GeminiProvider : LlmProvider
 {
-    private readonly string _apiKey;
     private readonly Uri _uri;
 
     /// <summary>Creates the provider.</summary>
@@ -25,9 +25,9 @@ public sealed class GeminiProvider : LlmProvider
     /// <param name="http">The client to send with; default a shared one that does not follow redirects.</param>
     /// <param name="images">Image size overrides.</param>
     public GeminiProvider(string apiKey, string model, Uri? baseAddress = null, HttpClient? http = null, LlmImageOptions? images = null)
-        : base("gemini", model, http, images, new LlmImageOptions { MaxLongEdge = 2304, MaxBytes = 15L * 1024 * 1024 })
+        : base("gemini", model, http, images, new LlmImageOptions { MaxLongEdge = 2304, MaxBytes = 15L * 1024 * 1024 }, apiKey)
     {
-        _apiKey = RequireKey(apiKey);
+        RequireKey(apiKey);
         string id = model.StartsWith("models/", StringComparison.Ordinal) ? model["models/".Length..] : model;
         _uri = new Uri(CheckBase(baseAddress ?? new Uri("https://generativelanguage.googleapis.com/"), allowPlainHttp: false), $"v1beta/models/{Uri.EscapeDataString(id)}:generateContent");
     }
@@ -48,7 +48,7 @@ public sealed class GeminiProvider : LlmProvider
 
     internal override Uri RequestUri => _uri;
 
-    internal override void AddHeaders(HttpRequestMessage request) => request.Headers.TryAddWithoutValidation("x-goog-api-key", _apiKey);
+    internal override void AddHeaders(HttpRequestMessage request) => request.Headers.TryAddWithoutValidation("x-goog-api-key", ApiKey);
 
     // Gemini: 258 tokens up to 384 x 384, otherwise 258 per 768 x 768 tile.
     internal override long EstimateImageTokens(int width, int height) =>
