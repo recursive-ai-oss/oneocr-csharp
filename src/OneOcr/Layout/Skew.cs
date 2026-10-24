@@ -158,16 +158,24 @@ internal static class SkewEstimator
     // The outer share of the grid ignored on every side: scanner shadows and page borders.
     private const double EdgeShare = 0.02;
 
-    public static SkewEstimate Estimate(InkGrid grid)
+    public static SkewEstimate Estimate(InkGrid grid) => Estimate(grid, transposed: false);
+
+    /// <summary>
+    /// As <see cref="Estimate(InkGrid)"/> for the grid turned a quarter clockwise, without making that grid: cell <c>(x, y)</c> is
+    /// read as <c>(height − 1 − y, x)</c>.
+    /// </summary>
+    public static SkewEstimate EstimateTurned(InkGrid grid) => Estimate(grid, transposed: true);
+
+    private static SkewEstimate Estimate(InkGrid grid, bool transposed)
     {
-        using var fine = new Projector(grid);
+        var fine = new Projector(grid, transposed);
         if (fine.Count < 32)
         {
             return new SkewEstimate(0, 0, 1, 1);
         }
 
         using InkGrid shrunk = grid.Shrink(CoarseShrink);
-        using var coarse = new Projector(shrunk);
+        var coarse = new Projector(shrunk, transposed);
         int center = 0;
         long best = -1;
         for (int k = -MaxSlope; k <= MaxSlope; k += CoarseStep)
@@ -196,62 +204,59 @@ internal static class SkewEstimator
         return new SkewEstimate(bestSlope, top, zero == 0 ? 1 : (double)top / zero, top * (double)fine.GridHeight / ((double)fine.Total * fine.Total));
     }
 
-    // The ink cells of a grid (without the border and the solid areas) and the profile they project onto.
-    private sealed class Projector : IDisposable
+    // The ink cells of a grid (without the border and the solid areas), read in place, and the profile they project onto. A turned
+    // grid is read with swapped axes instead of being copied. Rows remember where their first and last ink cell are, so blank
+    // stretches are not visited for every slope.
+    private sealed class Projector
     {
-        private ushort[]? _x, _y, _w;
+        private readonly ushort[] _counts;
+        private readonly int _gw, _gh, _solid, _mx, _my;
+        private readonly bool _transposed;
+        private readonly int[] _first, _last;
         private readonly long[] _profile;
         private readonly int _offset;
 
-        public Projector(InkGrid grid)
+        public Projector(InkGrid grid, bool transposed)
         {
-            int gw = grid.Width, gh = grid.Height;
-            int solid = Math.Max(1, (int)(SolidShare * grid.Factor * grid.Factor));
-            int mx = (int)(gw * EdgeShare), my = (int)(gh * EdgeShare);
-            ushort[] counts = grid.Counts;
-            // Two passes, so the cell lists are made once at their exact size (a text page has hundreds of thousands of ink cells).
-            int n = 0;
-            for (int y = my; y < gh - my; y++)
-            {
-                int row = y * gw;
-                for (int x = mx; x < gw - mx; x++)
-                {
-                    int c = counts[row + x];
-                    if (c > 0 && c <= solid)
-                    {
-                        n++;
-                    }
-                }
-            }
-
-            _x = ArrayPool<ushort>.Shared.Rent(Math.Max(n, 1));
-            _y = ArrayPool<ushort>.Shared.Rent(Math.Max(n, 1));
-            _w = ArrayPool<ushort>.Shared.Rent(Math.Max(n, 1));
-            int i = 0;
+            _counts = grid.Counts;
+            _gw = grid.Width;
+            _gh = grid.Height;
+            _transposed = transposed;
+            _solid = Math.Max(1, (int)(SolidShare * grid.Factor * grid.Factor));
+            // Margins are 2% of the (possibly turned) grid's own width and height, which are this grid's height and width.
+            int turnedWidth = transposed ? _gh : _gw, turnedHeight = transposed ? _gw : _gh;
+            int mx = (int)(turnedWidth * EdgeShare), my = (int)(turnedHeight * EdgeShare);
+            (_mx, _my) = transposed ? (my, mx) : (mx, my);
+            _first = new int[_gh];
+            _last = new int[_gh];
             long total = 0;
-            for (int y = my; y < gh - my; y++)
+            int count = 0;
+            for (int y = _my; y < _gh - _my; y++)
             {
-                int row = y * gw;
-                for (int x = mx; x < gw - mx; x++)
+                int row = y * _gw;
+                int first = int.MaxValue, last = -1;
+                for (int x = _mx; x < _gw - _mx; x++)
                 {
-                    int c = counts[row + x];
-                    if (c > 0 && c <= solid)
+                    int c = _counts[row + x];
+                    if (c > 0 && c <= _solid)
                     {
-                        _x[i] = (ushort)x;
-                        _y[i] = (ushort)y;
-                        _w[i] = (ushort)c;
-                        i++;
+                        first = Math.Min(first, x);
+                        last = x;
                         total += c;
+                        count++;
                     }
                 }
+
+                _first[y] = first;
+                _last[y] = last;
             }
 
-            Count = n;
+            Count = count;
             Total = total;
-            GridHeight = gh;
+            GridHeight = turnedHeight;
             // Bin = floor(y - slope * x), shifted to be non-negative.
-            _offset = (((MaxSlope * gw) + Scale - 1) / Scale) + 1;
-            _profile = new long[gh + (2 * _offset) + 2];
+            _offset = (((MaxSlope * turnedWidth) + Scale - 1) / Scale) + 1;
+            _profile = new long[turnedHeight + (2 * _offset) + 2];
         }
 
         public int Count { get; }
@@ -260,25 +265,25 @@ internal static class SkewEstimator
 
         public int GridHeight { get; }
 
-        public void Dispose()
-        {
-            if (_x is not null)
-            {
-                ArrayPool<ushort>.Shared.Return(_x);
-                ArrayPool<ushort>.Shared.Return(_y!);
-                ArrayPool<ushort>.Shared.Return(_w!);
-                _x = _y = _w = null;
-            }
-        }
-
         public long Sharpness(int slope)
         {
             Array.Clear(_profile);
-            ushort[] xs = _x!, ys = _y!, ws = _w!;
-            for (int i = 0; i < Count; i++)
+            for (int y = _my; y < _gh - _my; y++)
             {
-                int bin = ((Scale * ys[i]) - (slope * xs[i])) >> 10;
-                _profile[bin + _offset] += ws[i];
+                int last = _last[y];
+                int row = y * _gw;
+                for (int x = _first[y]; x <= last; x++)
+                {
+                    int c = _counts[row + x];
+                    if (c == 0 || c > _solid)
+                    {
+                        continue;
+                    }
+
+                    // Turned grid: cell (x, y) is at (gh - 1 - y, x).
+                    int bin = _transposed ? ((Scale * x) - (slope * (_gh - 1 - y))) >> 10 : ((Scale * y) - (slope * x)) >> 10;
+                    _profile[bin + _offset] += c;
+                }
             }
 
             long sum = 0;

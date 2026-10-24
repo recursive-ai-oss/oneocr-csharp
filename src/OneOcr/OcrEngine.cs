@@ -249,7 +249,7 @@ public sealed class OcrEngine
             PageDetection? first = ReferenceEquals(prepared.Pixels, gray) ? evidence.Detection : null;
             OcrPage page = PageReader.Read(
                 _recognizer, _limits, _pixels, _masks, _resizers, _detector, prepared.Pixels, prepared.Width, prepared.Height, pageIndex, dpi, degree, includeChars,
-                first, turn: false, cancellationToken);
+                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken);
             return prepared.Finish(page);
         }
         finally

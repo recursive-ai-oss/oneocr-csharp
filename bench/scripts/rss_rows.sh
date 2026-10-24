@@ -16,7 +16,7 @@ for s in $sets; do
     python3 - "$out/$s-d$d/timing.json" "$label" "$s" "$d" <<'EOF'
 import json, sys
 t = json.load(open(sys.argv[1]))
-print(f"{sys.argv[2]} {sys.argv[3]} degree {sys.argv[4]}: peak RSS {t['peak_rss_mb']} MB, mean page {t['mean_page_ms']} ms, alloc {t.get('allocated_mb_per_page')} MB/page, gen2 {t.get('gen2_collections')}")
+print(f"{sys.argv[2]} {sys.argv[3]} degree {sys.argv[4]}: peak RSS {t['peak_rss_mb']} MB, mean page {t['mean_page_ms']} ms, allocated {t.get('allocated_mb_per_page')} MB/page, gen2 {t.get('gen2_collections')}")
 EOF
   done
 done

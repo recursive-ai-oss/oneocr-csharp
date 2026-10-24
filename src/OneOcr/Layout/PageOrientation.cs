@@ -17,7 +17,13 @@ internal sealed class OrientationEvidence
 {
     /// <summary>The page detector's reading of the page as given to <see cref="IOrientationDetector.Detect"/>, when that is what decided.</summary>
     public Detection.PageDetection? Detection { get; set; }
+
+    /// <summary>The page finder's strips on the page as given, when the classical decision already found them (ruling lines are then erased from those pixels, as the reader would).</summary>
+    public FoundStrips? Strips { get; set; }
 }
+
+/// <summary>The page finder's result on one page: the strips and the binarization they came from.</summary>
+internal sealed record FoundStrips(List<StripLine> Strips, int Threshold, bool InkIsBright);
 
 /// <summary>
 /// Decides how far a page must be turned clockwise to stand upright. This is the seam where a learned orientation head can replace
@@ -91,12 +97,11 @@ internal sealed class ClassicalOrientation : IOrientationDetector
             return 0;
         }
 
-        using InkGrid upright = InkGrid.Build(bytes, page.Width, page.Height, threshold, inkIsBright);
-        SkewEstimate flat = SkewEstimator.Estimate(upright);
-        SkewEstimate sideways;
-        using (InkGrid turnedGrid = upright.TurnClockwise())
+        SkewEstimate flat, sideways;
+        using (InkGrid upright = InkGrid.Build(bytes, page.Width, page.Height, threshold, inkIsBright))
         {
-            sideways = SkewEstimator.Estimate(turnedGrid);
+            flat = SkewEstimator.Estimate(upright);
+            sideways = SkewEstimator.EstimateTurned(upright);
         }
 
         if (flat.Sharpness == 0 && sideways.Sharpness == 0)
@@ -122,6 +127,13 @@ internal sealed class ClassicalOrientation : IOrientationDetector
             return firstReading.Degrees(first);
         }
 
+        // The other direction wins only by reading AxisMargin better than this one, which a reading above 1 - AxisMargin cannot be beaten
+        // by; skipping that read (and the turned copy of the page it needs) changes nothing.
+        if (firstReading.Best > 1 - AxisMargin)
+        {
+            return firstReading.Degrees(0);
+        }
+
         Reading otherReading = Read(page, 1, PagePreparation.ActedSlope(sideways), cancellationToken);
         trace?.Add($"axis 1: upright {otherReading.Upright:F3} turned {otherReading.Turned:F3} share {otherReading.TurnedShare:F2}");
         return otherReading.Best >= SureConfidence && otherReading.Best > firstReading.Best + AxisMargin ? otherReading.Degrees(1) : firstReading.Degrees(0);
@@ -133,8 +145,14 @@ internal sealed class ClassicalOrientation : IOrientationDetector
     // decided by reading.
     private bool AscendersAbove(OrientationInput page, CancellationToken cancellationToken)
     {
+        // The reader would find exactly these strips (and erase the same ruling lines) on this page, so they are handed on.
         List<StripLine> strips = StripFinder.Find(
-            page.Pixels, page.Width, page.Height, _limits.MaxLinesPerPage, _masks, page.Degree, out _, out int threshold, out bool inkIsBright, eraseRules: false);
+            page.Pixels, page.Width, page.Height, _limits.MaxLinesPerPage, _masks, page.Degree, out _, out int threshold, out bool inkIsBright);
+        if (page.Evidence is { } evidence)
+        {
+            evidence.Strips = new FoundStrips(strips, threshold, inkIsBright);
+        }
+
         if (threshold < 0)
         {
             return false;

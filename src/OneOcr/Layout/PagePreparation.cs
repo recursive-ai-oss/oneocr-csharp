@@ -116,8 +116,7 @@ internal static class PagePreparation
                     {
                         // A tilt is only a tilt when the lines run across the page: with the lines running up and down (an orientation
                         // decision that left a sideways page as it is) the "slope" is noise.
-                        using InkGrid sideways = grid.TurnClockwise();
-                        if (SkewEstimator.Estimate(sideways).Contrast > estimate.Contrast)
+                        if (SkewEstimator.EstimateTurned(grid).Contrast > estimate.Contrast)
                         {
                             slope = 0;
                         }

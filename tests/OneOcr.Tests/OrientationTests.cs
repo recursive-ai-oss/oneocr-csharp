@@ -78,6 +78,18 @@ public class OrientationTests
             : PageOrientation.Rotate(source, width, height, quarterTurns, new BufferPool<Gray8>(0, 1), out _, out _).AsSpan(0, width * height).ToArray();
 
     [Fact]
+    public void TheTurnedEstimateReadsTheGridWithSwappedAxes()
+    {
+        byte[] px = TextPage();
+        (int threshold, bool inkIsBright) = LineFinder.Binarize(px);
+        using InkGrid grid = InkGrid.Build(px, W, H, threshold, inkIsBright);
+        using InkGrid copy = grid.TurnClockwise();
+        SkewEstimate viaCopy = SkewEstimator.Estimate(copy), viaAxes = SkewEstimator.EstimateTurned(grid);
+        // Same cells, same bins: the contrast of the turned page is the same up to the coarse search's block alignment.
+        Assert.InRange(viaAxes.Contrast / viaCopy.Contrast, 0.9, 1.1);
+    }
+
+    [Fact]
     public void ASidewaysPageHasTheSharperProfileTurnedAQuarter()
     {
         byte[] px = TextPage();

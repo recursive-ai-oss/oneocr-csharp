@@ -6,19 +6,21 @@ machine, kernel path and degree of parallelism. A port reproduces the numbers be
 
 The steps run in this order, each on the 8-bit gray page:
 
-1. **Orientation** (a replaceable decision): how many quarter turns clockwise (0–3) make the text upright.
-2. **Quarter turn**: the page is turned by exactly that many quarter turns (pixel moves, no resampling).
+1. **Orientation** (one seam, two sources): how many quarter turns clockwise (0–3) make the text upright. With a page detector
+   loaded, its orientation head decides and the classical decision below is not run; without one, the classical decision runs.
+2. **Quarter turn**: the page is turned by exactly that many quarter turns (pixel moves, no resampling). Both sources use the same
+   rotation step (`(x, y) → (h − 1 − y, x)` per clockwise quarter).
 3. **Skew**: the tilt of the text lines is estimated on the turned page.
 4. **Deskew**: when the tilt is large enough to act on, the page is turned by it on a larger canvas, with bilinear sampling.
 5. The turned and straightened page is read as usual; every box is then carried back to the input image (below).
 
-`OcrOptions.DetectOrientation` and `OcrOptions.Deskew` (both default true) switch steps 1–2 and 3–4 off. A page that needs neither
+`OcrOptions.DetectOrientation` and `OcrOptions.Deskew` (both default true) switch steps 1–2 and 3–4 off (with a detector, `DetectOrientation = false` also stops the head from turning the page). A page that needs neither
 (no turn, tilt under 0.3°) is read from the very same pixels as with both switched off, so its text is the same.
 
 ## Ink grid
 
 The estimators work on a coarse count of ink pixels. Ink is the minority class of Otsu's threshold (the same binarization the line
-finder uses; a page with no contrast has no ink). With `f = ceil(max(width, height) / 2400)`, cell `(cx, cy)` holds the number of ink
+finder uses; a page with no contrast has no ink). With `f = ceil(max(width, height) / 1200)`, cell `(cx, cy)` holds the number of ink
 pixels in the `f × f` block at `(cx·f, cy·f)`. A grid shrunk by 4 adds up 4 × 4 cells. A quarter turn clockwise of a grid maps cell
 `(x, y)` to `(height − 1 − y, x)`.
 
@@ -34,7 +36,8 @@ sharpness of a candidate is the sum of squares of the bins; text lines pile ink 
 - **Fine search**: on the full grid, `k` from `coarse − 6` to `coarse + 6` in steps of 1 (and 0, to report the gain); same tie rule.
 - **Gain** = sharpness at the best `k` ÷ sharpness at 0. **Contrast** = `best · bins ÷ (Σ counts)²`, where `bins` is the grid height.
   Contrast is 1 for evenly spread ink and large for ruled lines; it is comparable between a page and the same page turned a quarter.
-- The tilt is acted on only when `|k| ≥ 5` (0.28°) and gain ≥ 1.03.
+- The tilt is acted on only when `|k| ≥ 5` (0.28°) and gain ≥ 1.03, and only when the lines run across the page: the contrast of
+  the grid turned a quarter must not exceed the grid's (otherwise the slope is noise from vertical text).
 
 The tilt in degrees is `atan(k / 1024) · 180/π`, computed with the series `x − x³/3 + x⁵/5 − …` (16 terms, in this order, doubles).
 It is reported as `OcrPage.SkewDegrees`: positive when the lines descend to the right (clockwise in y-down coordinates).
@@ -61,12 +64,18 @@ detector can replace the classical one behind this interface. The classical deci
 1. **Line direction.** Contrast of the grid and of the grid turned a quarter clockwise. If the turned grid's contrast is at least 3×
    the grid's, text runs vertically: the page is a quarter turn off (candidate axis 1). If the grid's is at least 3× the turned
    grid's, the lines are horizontal (axis 0). Otherwise the profiles do not decide.
-2. **Which way up** (on the axis chosen, turned and straightened by that axis's skew estimate): the page's strips are found with
-   the page finder (ruling lines removed, columns cut), the 24 biggest by area whose width is at least 3 times their height are taken,
+2. **Which way up.** If the lines are horizontal by the 3× rule, the page is not tilted enough to act on, and its strips (found
+   with the page finder, ruling lines left in place) have clearly more ink above their body band than below it, the page is upright
+   and nothing is read. Per strip at least 10 pixels tall and 3× as wide as tall, the body band is the rows with at least half the
+   ink of the densest row; over all such strips `above` and `below` are the ink above and below their bands. The test passes when
+   `above + below ≥ total/20` and `10·above ≥ 14·below` (ascenders and capitals against descenders; digits, capitals only and
+   upside-down text fail it and are read). Otherwise (on the axis chosen, turned and straightened by that axis's skew estimate, when
+   that is acted on): the page's strips are found with the page finder (ruling lines left in place), the 24 biggest by area whose width is at least 3 times their height are taken,
    those with a height between 0.6× and 1.7× of the median height of those are kept, and up to 8 are read twice by the recognizer:
    as cropped and with the crop turned half way round (the crop's pixel array reversed). The weight of a line is the longer reading's
    length. The page scores are the weighted means of the two confidences, and *share* is the weighted share of lines that read better
-   turned. The page is turned half way round when `turned > upright + 0.05`, `turned ≥ 0.75` and `share ≥ 0.6`.
+   turned. The first 3 lines are read first and the rest skipped when all 3 read better upright and the upright mean is at least
+   0.85. The page is turned half way round when `turned > upright + 0.05`, `turned ≥ 0.75` and `share ≥ 0.6`.
 3. **Undecided profiles** (neither contrast is 3× the other): axis 0 is read first; axis 1 is read too and wins only if its better
    reading is at least 0.75 and at least 0.15 above axis 0's. Photographs, receipts and forms end up here and are kept upright
    unless the recognizer clearly reads them better the other way.
@@ -75,9 +84,21 @@ The result is `quarter · 90` plus 180 when turned half way round, modulo 360. `
 turned clockwise from upright: 0, 90, 180 or 270 (a page whose text tops point to the right has 90, and is turned 270° clockwise,
 that is 90° counter-clockwise, to read).
 
+## Orientation from a page detector
+
+With a detector loaded (`OcrEngine.WithDetector`), step 1 is the detector's orientation head: the page is detected as given; when
+the head's winner is at least 0.9 confident the page is turned clockwise by the winning quarter count (the shared rotation step) and
+detected again on the turned page, otherwise the first detection is the one used. The classical decision is not run.
+
+How the turns compose: quarter turn (head) → skew estimate and deskew on the turned page → detection on the turned, straightened page.
+The detector's quarter turn is reported as it always was: the page model is in the *turned* frame (`Width`/`Height` are the turned
+page's), `Orientation` stays 0 and a diagnostic names the turn and the head's confidence. Deskew, when it acts, is carried back to
+that turned frame by the mapping below (so boxes get quads there) and reported in `SkewDegrees`. A page with neither a confident
+turn nor a tilt is detected once, exactly as without the orientation step.
+
 ## Mapping back
 
-The page model is in the input image's coordinates: `Width`/`Height` are the input's. A point `(u, v)` of the straightened frame
+Without a detector the page model is in the input image's coordinates: `Width`/`Height` are the input's. A point `(u, v)` of the straightened frame
 maps to the turned frame by `R(s)` about the canvas and page centers (the sampling formula above, `qx, qy`), then to the input by the
 inverse of the quarter turn: for 1 quarter `(x, y) = (qy, H − qx)`, for 2 `(W − qx, H − qy)`, for 3 `(W − qy, qx)` (`W`, `H` the input's
 size). Every box becomes the corner quad of its four mapped corners, in the order top-left, top-right, bottom-right, bottom-left of
