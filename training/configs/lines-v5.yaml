@@ -19,6 +19,9 @@ sets:
   # interface text (navigation bars, labels, names, dates, amounts, small running text) in sans and web-serif families, crisp at 8-16 px
   ui_train: { n: 300000, fonts: train, books: train, degrade: ui, mix: { ui: 1.0 }, families: &ui [arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans, manrope, firasans, rubik, jost, istokweb, notoserif, ptserif, cousine] }
   ui_val: { n: 3000, fonts: train, books: heldout, degrade: ui, mix: { ui: 1.0 }, families: *ui }
+  # running text with narrow word gaps, at the production degradation (the first fine-tune dropped spaces between close words)
+  tight_train: { n: 200000, fonts: train, books: train, degrade: page, mix: { tight: 1.0 } }
+  tight_val: { n: 3000, fonts: train, books: heldout, degrade: page, mix: { tight: 1.0 } }
 mix: { receipt: 0.85, numbers: 0.05, book: 0.05, codes: 0.05 }
 gpu_degrade:
   receipt:

@@ -290,6 +290,17 @@ def ui_cells(rng: np.random.Generator, s: Sampler, books) -> tuple[list[str], li
     return [w], [], "text"
 
 
+def tight_cells(rng: np.random.Generator, s: Sampler, books) -> tuple[list[str], list[float], str]:
+    """Running text whose word gaps are narrow (0.12-0.4 em between the glyph boxes, a normal space is about 0.25-0.3 em wide plus the
+    side bearings): screens and small type set words close together and a recognizer must still emit the space."""
+    w, _t = books.window(rng)
+    words = w.split()[: int(rng.integers(2, 16))]
+    if len(words) < 2:
+        words = words + ["a"]
+    g = float(rng.uniform(0.12, 0.4))
+    return words, [float(np.clip(g + rng.normal(0, 0.03), 0.1, 0.45)) for _ in words[1:]], "tight"
+
+
 _VI_KEEP = {0x1A0, 0x1A1, 0x1AF, 0x1B0, 0x102, 0x103, 0xC2, 0xE2, 0xCA, 0xEA, 0xD4, 0xF4}
 
 
@@ -406,11 +417,11 @@ def plan_shard(job) -> list[dict]:
         if kind == "book":
             text, src = books.window(rng)
             file = _pick_font(rng, fams, set(text) - {" "})
-        elif kind in ("gap", "ui"):
+        elif kind in ("gap", "ui", "tight"):
             file = _pick_font(rng, fams, set())
             if file is None:
                 continue
-            make = gap_cells if kind == "gap" else ui_cells
+            make = {"gap": gap_cells, "ui": ui_cells, "tight": tight_cells}[kind]
             cells, gaps, layout = make(rng, Sampler(charset, cov.of(file), rng), books)
             text, src = " ".join(c.strip() for c in cells), f"synthetic:{kind}-{layout}"
             # a line stays within the widths the recognizer is trained for
@@ -458,7 +469,9 @@ def plan_shard(job) -> list[dict]:
         broad = rng.random() < 0.15  # a minority of crops with margins far from the finder's convention
         vm = [rng.uniform(0.0, 0.45) if broad else rng.uniform(0.18, 0.32) for _ in range(2)]
         hm = [rng.uniform(0.05, 1.0) if broad else rng.uniform(0.35, 0.65) for _ in range(2)]
-        extra = {"cells": [c.strip() for c in cells], "gaps": [round(g, 2) for g in gaps]} if kind in ("gap", "ui") and gaps else {}
+        extra = (
+            {"cells": [c.strip() for c in cells], "gaps": [round(g, 2) for g in gaps]} if kind in ("gap", "ui", "tight") and gaps else {}
+        )
         out.append({
             "id": f"{name}-{shard:03d}{len(out):05d}",
             "set": name,
