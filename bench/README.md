@@ -267,8 +267,9 @@ appears once a timing run exists. Accuracy is not timing-sensitive and can run u
 - **Speed and memory** (`--timing` only): per set at degree 1 and at the default degree min(4, cores), one process per run, three
   runs, mean of the per-run mean ms/page and of peak RSS; Tesseract rows are its one-thread and default-threading timings from
   `tesseract.json`. Speed passes when ours is faster than `tessdata_fast`; slower than fast but faster than best with the quality
-  row won is reported as an *exception*; memory passes when RSS is below both. Tesseract's s/page includes process start and model
-  load for every page; ours is the page only, so the whole-process ms/page is printed too. The table records the CPU, core count and
+  row won is reported as an *exception*; memory passes when RSS is below both. Both sides are timed per process, start and model
+  load included (Tesseract pays them for every page, ours once per run, divided over the pages); our page-only ms/page is shown
+  as information. The table records the CPU, core count and
   load average before, after every run, and after.
 - **The lock**: `--timing` exits with status 75 and does nothing else unless the lock file (`~/WORKER-BENCH.lock`, env `ONEOCR_LOCK`)
   names one of its own ancestor processes as `pid=`. Claim it in the job's shell, so it is released however the job ends:

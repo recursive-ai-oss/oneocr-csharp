@@ -239,9 +239,11 @@ def speed_rows(timing: dict, tess_by_set: dict, quality_by_set: dict) -> dict:
                 best_ms = tb["models"]["best"][f"s_per_page_{sfx}"] * 1000
                 fast_rss, best_rss = tb["models"]["fast"][f"peak_rss_mb_{sfx}"], tb["models"]["best"][f"peak_rss_mb_{sfx}"]
                 won = quality_by_set.get(name, {}).get("pass", False)
-                if row["ours_ms"] < fast_ms:
+                # Tesseract is timed per process (start and model load included), so ours is too.
+                ours = row["ours_process_ms_per_page"]
+                if ours < fast_ms:
                     sv = "pass"
-                elif row["ours_ms"] < best_ms and won:
+                elif ours < best_ms and won:
                     sv = "exception"
                 else:
                     sv = "fail"
@@ -304,9 +306,9 @@ def render(out_dir: Path) -> None:
                f"min {min(tim['load']['during'])} / max {max(tim['load']['during'])}, after {tim['load']['after']}; lock held by the job: {tim['lock']}. "
                f"Each cell is the mean of {tim['repeats']} runs (one process per run, one pass over the set). Rule: faster than Tesseract fast, peak RSS below both; "
                "slower than fast but faster than best with the quality row won is an exception, not a pass. "
-               "Our ms/page is the page only (model loaded once); Tesseract's s/page includes process start and model load for every page, "
-               "so `process ms/page` (whole run over pages, load included) is shown for ours as well.", "",
-               "| category | config | ours ms/page | process ms/page | Tess fast | Tess best | speed | ours RSS MB | Tess fast | Tess best | memory |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+               "The verdict uses `process ms/page`: ours is the whole process (start and model load included) over the pages, as Tesseract is timed; "
+               "`page ms` (model loaded once) is information only.", "",
+               "| category | config | ours page ms (info) | ours process ms/page | Tess fast | Tess best | speed | ours RSS MB | Tess fast | Tess best | memory |", "|---|---|---|---|---|---|---|---|---|---|---|"]
         for name, rows in sp.items():
             for r in rows:
                 fm = "-" if "fast_ms" not in r else f"{r['fast_ms']:.0f}"
