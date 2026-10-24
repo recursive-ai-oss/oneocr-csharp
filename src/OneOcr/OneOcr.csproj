@@ -21,6 +21,7 @@
     <InternalsVisibleTo Include="$(LibName).Bench" />
     <InternalsVisibleTo Include="$(LibName).AotSmoke" />
     <InternalsVisibleTo Include="$(LibName).Training" />
+    <InternalsVisibleTo Include="$(LibName).Llm" />
   </ItemGroup>
 
 </Project>

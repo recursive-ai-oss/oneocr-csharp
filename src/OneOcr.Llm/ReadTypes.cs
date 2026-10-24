@@ -1,4 +1,5 @@
 using System.Text.Json;
+using OneOcr.Documents;
 
 namespace OneOcr.Llm;
 
@@ -163,11 +164,11 @@ public sealed class LlmReadOptions
     /// <summary>Re-ask once, in a second call, about ungrounded values. Default true. The second call counts against the cost bounds of the client like any call.</summary>
     public bool Reask { get; init; } = true;
 
-    /// <summary>How numbers with one separator are read. Default <see cref="LlmNumberStyle.Auto"/>.</summary>
-    public LlmNumberStyle NumberStyle { get; init; } = LlmNumberStyle.Auto;
+    /// <summary>How numbers with one separator are read. Default <see cref="NumberStyle.Auto"/>.</summary>
+    public NumberStyle NumberStyle { get; init; } = NumberStyle.Auto;
 
-    /// <summary>How numeric dates with day and month both 12 or less are read. Default <see cref="LlmDateOrder.Auto"/>.</summary>
-    public LlmDateOrder DateOrder { get; init; } = LlmDateOrder.Auto;
+    /// <summary>How numeric dates with day and month both 12 or less are read. Default <see cref="DateOrder.Auto"/>.</summary>
+    public DateOrder DateOrder { get; init; } = DateOrder.Auto;
 
     /// <summary>Whether words only the model has (the local reader found nothing) are kept in the merged text and page model. Default true; such words have a zero-width box at their neighbour's edge.</summary>
     public bool KeepLlmOnlyWords { get; init; } = true;

@@ -1,10 +1,10 @@
 using System.Globalization;
 using System.Text;
 
-namespace OneOcr.Llm;
+namespace OneOcr.Documents;
 
 /// <summary>How a number with a single separator and three digits after it (<c>1,234</c>) is read, and which character is the decimal mark.</summary>
-public enum LlmNumberStyle
+public enum NumberStyle
 {
     /// <summary>Decided from the page: the style the page's unambiguous numbers use; point when it has none.</summary>
     Auto = 0,
@@ -17,7 +17,7 @@ public enum LlmNumberStyle
 }
 
 /// <summary>How a numeric date whose first two parts are both 12 or less (<c>03/10/2026</c>) is read.</summary>
-public enum LlmDateOrder
+public enum DateOrder
 {
     /// <summary>Decided from the page: the order the page's unambiguous dates use; when it has none, both readings are accepted and the field's confidence is lowered.</summary>
     Auto = 0,
@@ -37,7 +37,7 @@ internal readonly record struct ParsedDate(int? Year, int Month, int Day, bool A
 /// The normalizations behind grounding, specified in <c>docs/spec/grounding.md</c>: text keys, amounts, dates and currency.
 /// Pure functions with invariant culture; nothing depends on the machine's locale.
 /// </summary>
-internal static class GroundingNormalize
+internal static class ValueNormalize
 {
     // ---- text ----
 
@@ -161,7 +161,7 @@ internal static class GroundingNormalize
     // ---- amounts ----
 
     /// <summary>Reads <c>€ 1.234,50</c>, <c>(12.50)</c>, <c>12.50-</c>, <c>USD 3</c> and similar; false when the text is not entirely an amount.</summary>
-    public static bool TryParseAmount(string text, LlmNumberStyle style, out ParsedAmount amount)
+    public static bool TryParseAmount(string text, NumberStyle style, out ParsedAmount amount)
     {
         amount = default;
         string s = text.Trim();
@@ -259,7 +259,7 @@ internal static class GroundingNormalize
             if (s.Count(ch => ch == sep) == 1)
             {
                 bool groupLike = after == 3 && last is >= 1 and <= 3 && s[0] != '0';
-                decimalMark = !groupLike || (style == LlmNumberStyle.CommaDecimal ? sep == ',' : sep == '.') ? sep : null;
+                decimalMark = !groupLike || (style == NumberStyle.CommaDecimal ? sep == ',' : sep == '.') ? sep : null;
             }
         }
 
@@ -328,7 +328,7 @@ internal static class GroundingNormalize
     }
 
     /// <summary>The style used by the page's unambiguous numbers: majority of "both marks present", "one mark followed by one, two or four or more digits".</summary>
-    public static LlmNumberStyle DetectStyle(IEnumerable<string> words)
+    public static NumberStyle DetectStyle(IEnumerable<string> words)
     {
         int point = 0, comma = 0;
         foreach (string w in words)
@@ -401,7 +401,7 @@ internal static class GroundingNormalize
             }
         }
 
-        return comma > point ? LlmNumberStyle.CommaDecimal : LlmNumberStyle.PointDecimal;
+        return comma > point ? NumberStyle.CommaDecimal : NumberStyle.PointDecimal;
     }
 
     // ---- dates ----
@@ -447,7 +447,7 @@ internal static class GroundingNormalize
     /// French, Spanish, Italian, Portuguese, Dutch and Turkish, ordinal suffixes, two-digit years (00–69 are 2000–2069), and
     /// day-and-month without a year. Returns every reading (two when day and month cannot be told apart and <paramref name="order"/> is Auto).
     /// </summary>
-    public static List<ParsedDate> ParseDate(string text, LlmDateOrder order)
+    public static List<ParsedDate> ParseDate(string text, DateOrder order)
     {
         var result = new List<ParsedDate>();
         string s = text.Trim().ToLowerInvariant();
@@ -574,11 +574,11 @@ internal static class GroundingNormalize
                 {
                     Add(year, x, y, false);
                 }
-                else if (order == LlmDateOrder.DayFirst)
+                else if (order == DateOrder.DayFirst)
                 {
                     Add(year, y, x, false);
                 }
-                else if (order == LlmDateOrder.MonthFirst)
+                else if (order == DateOrder.MonthFirst)
                 {
                     Add(year, x, y, false);
                 }
@@ -622,7 +622,7 @@ internal static class GroundingNormalize
     }
 
     /// <summary>The order used by the page's unambiguous numeric dates; Auto when there is no evidence either way.</summary>
-    public static LlmDateOrder DetectOrder(IEnumerable<string> words)
+    public static DateOrder DetectOrder(IEnumerable<string> words)
     {
         int dayFirst = 0, monthFirst = 0;
         foreach (string w in words)
@@ -650,7 +650,7 @@ internal static class GroundingNormalize
             }
         }
 
-        return dayFirst > monthFirst ? LlmDateOrder.DayFirst : monthFirst > dayFirst ? LlmDateOrder.MonthFirst : LlmDateOrder.Auto;
+        return dayFirst > monthFirst ? DateOrder.DayFirst : monthFirst > dayFirst ? DateOrder.MonthFirst : DateOrder.Auto;
     }
 
     public static string CanonicalDate(ParsedDate d) =>

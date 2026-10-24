@@ -22,6 +22,7 @@ internal static class Program
         return name switch
         {
             "container" => ContainerTarget.Run,
+            "docextract" => DocExtractTarget.Run,
             "charlm" => CharLmTarget.Run,
             "lexicon" => LexiconTarget.Run,
             "pagejson" => PageJsonTarget.Run,
@@ -138,7 +139,7 @@ internal static class Program
             }
         }
 
-        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer), no findings");
+        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
         return 0;
     }
 
@@ -146,6 +147,14 @@ internal static class Program
     {
         Directory.CreateDirectory(dir);
         string target = Environment.GetEnvironmentVariable("ONEOCR_FUZZ_TARGET") ?? "container";
+        if (target == "docextract")
+        {
+            File.WriteAllBytes(Path.Combine(dir, "small.seed"), TestDocModels.RandomContainer(TestDocModels.Small, 1));
+            File.WriteAllBytes(Path.Combine(dir, "two-windows.seed"), TestDocModels.RandomContainer(TestDocModels.SmallWindow with { MaxWords = 4 }, 2));
+            File.WriteAllBytes(Path.Combine(dir, "one-layer.seed"), TestDocModels.RandomContainer(TestDocModels.Small with { Layers = 1, Heads = 1, D = 16, Ffn = 16, Chars = 20 }, 3));
+            return;
+        }
+
         if (target == "charlm")
         {
             string[] alphabet = ["a", "b", "c", "d", "o", "\u00e9"];
