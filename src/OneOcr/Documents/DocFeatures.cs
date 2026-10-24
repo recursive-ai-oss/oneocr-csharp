@@ -1,5 +1,7 @@
 using System.Text;
 
+using OneOcr.Unicode;
+
 namespace OneOcr.Documents;
 
 /// <summary>
@@ -122,16 +124,8 @@ internal sealed class DocFeatures
     internal static void EncodeWord(DocExtractModel m, string text, Span<int> ids)
     {
         ids.Clear();
-        string nfc;
-        try
-        {
-            nfc = text.IsNormalized(NormalizationForm.FormC) ? text : text.Normalize(NormalizationForm.FormC);
-        }
-        catch (ArgumentException)
-        {
-            // Unpaired surrogates cannot be normalized; they read as U+FFFD below.
-            nfc = text;
-        }
+        // Our own NFC: the BCL's depends on the globalization mode. Unpaired surrogates pass through and read as U+FFFD below.
+        string nfc = TextNormalization.Nfc(text);
 
         int k = 0;
         foreach (Rune rune in nfc.EnumerateRunes())
