@@ -28,6 +28,21 @@ catch (OcrModelException)
 {
 }
 
+// The pinned recognizer: the manifest is readable and the bundled file is either absent (a clear model error) or matches its pin.
+if (OneOcr.Models.BundledModels.Recognizer.Sha256.Length != 64)
+{
+    Console.Error.WriteLine("bad pin");
+    return 1;
+}
+
+try
+{
+    OcrEngine.LoadBundled();
+}
+catch (OcrModelException) when (!OneOcr.Models.BundledModels.HasRecognizer)
+{
+}
+
 // A page of four text-like lines through the whole pipeline: line finding, scaling, recognition, and the default engine.
 var pageShape = new TestModels.Shape(32, [(8, 2, 2), (16, 2, 2), (16, 2, 1), (32, 2, 1), (32, 2, 1)], 24, 2, 41);
 OcrEngine engine = OcrEngine.Load(new System.IO.MemoryStream(TestModels.RandomContainer(pageShape, 3)));

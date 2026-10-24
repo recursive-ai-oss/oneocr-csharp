@@ -4,6 +4,7 @@ using OneOcr.Decoding;
 using OneOcr.Kernels;
 using OneOcr.Layout;
 using OneOcr.Model;
+using OneOcr.Models;
 using OneOcr.Recognition;
 
 namespace OneOcr;
@@ -67,6 +68,22 @@ public sealed class OcrEngine
     /// <exception cref="OcrLimitException">The model exceeds <paramref name="limits"/>.</exception>
     public static OcrEngine Load(Stream model, OcrLimits? limits = null) =>
         Create(ModelContainer.Load(model, limits), limits, Dispatch.Best);
+
+    /// <summary>Loads the recognizer that ships in the models package (pinned by SHA-256; checked on every load).</summary>
+    /// <param name="limits">Bounds to enforce; <see cref="OcrLimits.Default"/> when null.</param>
+    /// <returns>The engine.</returns>
+    /// <exception cref="OcrModelException">The package was built without its weights, or the embedded file does not match its pin.</exception>
+    /// <exception cref="OcrLimitException">The model exceeds <paramref name="limits"/>.</exception>
+    public static OcrEngine LoadBundled(OcrLimits? limits = null)
+    {
+        string? problem = BundledModels.TryReadRecognizer(out byte[] data);
+        if (problem is not null)
+        {
+            throw new OcrModelException(problem);
+        }
+
+        return Create(ModelContainer.Parse(data, limits), limits, Dispatch.Best);
+    }
 
     internal static OcrEngine Create(ModelContainer container, OcrLimits? limits, KernelPath path)
     {

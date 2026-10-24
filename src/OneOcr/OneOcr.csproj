@@ -11,6 +11,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../OneOcr.Models/OneOcr.Models.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="$(LibName).Tests" />
     <InternalsVisibleTo Include="$(LibName).Benchmarks" />
     <InternalsVisibleTo Include="$(LibName).Fuzz" />
