@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Fine-tuning for RecursiveAI.OneOcr recognition models from your own documents: an LLM labels the lines, lines the local reader agrees with train the model, the rest go to a review queue. Reaches the network only through RecursiveAI.OneOcr.Llm.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../OneOcr/OneOcr.csproj" />
+    <ProjectReference Include="../OneOcr.Llm/OneOcr.Llm.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="$(LibName).Tests" />
+    <InternalsVisibleTo Include="$(LibName).Fuzz" />
+    <InternalsVisibleTo Include="$(LibName).AotSmoke" />
+  </ItemGroup>
+
+</Project>

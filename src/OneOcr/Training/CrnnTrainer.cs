@@ -36,7 +36,8 @@ internal sealed class CrnnTrainer
     /// <param name="limits">Size limits; null means the defaults.</param>
     /// <param name="maxGradNorm">Clip the global gradient norm to this value; 0 turns clipping off.</param>
     /// <param name="decayBiases">Whether biases receive weight decay too; the default leaves them out.</param>
-    public CrnnTrainer(CrnnModel model, KernelPath path, AdamWOptions options, OcrLimits? limits = null, double maxGradNorm = 0, bool decayBiases = false)
+    /// <param name="poolBytes">How much scratch memory the trainer keeps for reuse between lines and steps (default <see cref="OcrLimits.MaxPooledBufferBytes"/>). Only memory that was in use at the same time can be kept, so a generous value does not raise the peak; a small one makes every line allocate its scratch afresh.</param>
+    public CrnnTrainer(CrnnModel model, KernelPath path, AdamWOptions options, OcrLimits? limits = null, double maxGradNorm = 0, bool decayBiases = false, long? poolBytes = null)
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(options);
@@ -49,8 +50,8 @@ internal sealed class CrnnTrainer
         _path = Dispatch.Require(path);
         _limits = limits ?? OcrLimits.Default;
         _maxGradNorm = maxGradNorm;
-        _floats = new BufferPool<float>(_limits.MaxPooledBufferBytes, sizeof(float));
-        _ints = new BufferPool<int>(_limits.MaxPooledBufferBytes, sizeof(int));
+        _floats = new BufferPool<float>(poolBytes ?? _limits.MaxPooledBufferBytes, sizeof(float));
+        _ints = new BufferPool<int>(poolBytes ?? _limits.MaxPooledBufferBytes, sizeof(int));
         for (int i = 0; i < model.Charset.Count; i++)
         {
             _classOf.TryAdd(model.Charset[i], i);
@@ -224,14 +225,24 @@ internal sealed class CrnnTrainer
             throw new ArgumentException("A batch needs at least one line.", nameof(batch));
         }
 
-        while (_lineGrads.Count < batch.Count)
+        // Lines run in waves of at most `degree`, each into its own gradient set, and every wave is added into the running sum in
+        // line order right away. The sum is ((g0 + g1) + g2) + ... whatever the wave size, so the result does not depend on the
+        // degree; only `degree` gradient sets are alive at once instead of one per line.
+        int wave = Math.Max(1, Math.Min(degree, batch.Count));
+        while (_lineGrads.Count < wave)
         {
             _lineGrads.Add(_parameters.Select(p => new float[p.Length]).ToArray());
         }
 
         WeightViews views = BuildViews();
         var losses = new double[batch.Count];
-        ParallelRun.For(batch.Count, degree, b => losses[b] = LineStep(batch[b], batch.Count, views, _lineGrads[b]), cancellationToken);
+        for (int first = 0; first < batch.Count; first += wave)
+        {
+            int count = Math.Min(wave, batch.Count - first);
+            int start = first;
+            ParallelRun.For(count, degree, s => losses[start + s] = LineStep(batch[start + s], batch.Count, views, _lineGrads[s]), cancellationToken);
+            AccumulateGradients(start, count, degree, cancellationToken);
+        }
 
         double total = 0;
         for (int b = 0; b < batch.Count; b++)
@@ -239,7 +250,14 @@ internal sealed class CrnnTrainer
             total += losses[b];
         }
 
-        ReduceGradients(batch.Count, degree, cancellationToken);
+        // Global norm: per-tensor sum of squares as a library-order dot product, tensors added in order in double precision.
+        double sum = 0;
+        foreach (float[] g in _grad)
+        {
+            sum += Gemm.Dot(_path, g, g);
+        }
+
+        LastGradNorm = Math.Sqrt(sum);
         return total;
     }
 
@@ -260,41 +278,60 @@ internal sealed class CrnnTrainer
         public required float[] FcT { get; init; }
     }
 
+    private WeightViews? _views;
+    private float[]? _viewScratch;
+
+    // Refills the transposed copies in place: the arrays are allocated once and rewritten after every optimizer step.
     private WeightViews BuildViews()
     {
         int hidden = _model.Hidden, gates = 4 * hidden;
-        var convT = new float[_model.Conv.Length][];
-        for (int i = 0; i < convT.Length; i++)
+        if (_views is null)
         {
-            ConvBlock b = _model.Conv[i];
-            convT[i] = new float[b.KPadded * b.Out];
-            Backward.Transpose(b.Weights, b.KPadded, b.Out, b.KPadded, convT[i]);
+            var convT = new float[_model.Conv.Length][];
+            for (int i = 0; i < convT.Length; i++)
+            {
+                convT[i] = new float[_model.Conv[i].KPadded * _model.Conv[i].Out];
+            }
+
+            var whhT = new float[_model.Lstm.Length][][];
+            var wihCatT = new float[_model.Lstm.Length][];
+            int widest = 0;
+            for (int l = 0; l < whhT.Length; l++)
+            {
+                LstmLayer layer = _model.Lstm[l];
+                whhT[l] = [new float[hidden * gates], new float[hidden * gates]];
+                wihCatT[l] = new float[layer.In * 2 * gates];
+                widest = Math.Max(widest, layer.In * gates);
+            }
+
+            _viewScratch = new float[widest];
+            _views = new WeightViews { ConvT = convT, WhhT = whhT, WihCatT = wihCatT, FcT = new float[_model.FcWeight.Length] };
         }
 
-        var whhT = new float[_model.Lstm.Length][][];
-        var wihCatT = new float[_model.Lstm.Length][];
-        for (int l = 0; l < whhT.Length; l++)
+        WeightViews v = _views;
+        for (int i = 0; i < v.ConvT.Length; i++)
+        {
+            ConvBlock b = _model.Conv[i];
+            Backward.Transpose(b.Weights, b.KPadded, b.Out, b.KPadded, v.ConvT[i]);
+        }
+
+        for (int l = 0; l < v.WhhT.Length; l++)
         {
             LstmLayer layer = _model.Lstm[l];
-            whhT[l] = new float[2][];
-            wihCatT[l] = new float[layer.In * 2 * gates];
             for (int d = 0; d < 2; d++)
             {
                 LstmDirection dir = d == 0 ? layer.Forward : layer.Reverse;
-                whhT[l][d] = new float[hidden * gates];
-                Backward.Transpose(dir.WeightHh, hidden, gates, hidden, whhT[l][d]);
-                var tmp = new float[layer.In * gates];
-                Backward.Transpose(dir.WeightIh, layer.In, gates, layer.In, tmp);
+                Backward.Transpose(dir.WeightHh, hidden, gates, hidden, v.WhhT[l][d]);
+                Backward.Transpose(dir.WeightIh, layer.In, gates, layer.In, _viewScratch!);
                 for (int i = 0; i < layer.In; i++)
                 {
-                    tmp.AsSpan(i * gates, gates).CopyTo(wihCatT[l].AsSpan((i * 2 * gates) + (d * gates), gates));
+                    _viewScratch.AsSpan(i * gates, gates).CopyTo(v.WihCatT[l].AsSpan((i * 2 * gates) + (d * gates), gates));
                 }
             }
         }
 
-        var fcT = new float[_model.FcWeight.Length];
-        Backward.Transpose(_model.FcWeight, 2 * hidden, _model.Classes, 2 * hidden, fcT);
-        return new WeightViews { ConvT = convT, WhhT = whhT, WihCatT = wihCatT, FcT = fcT };
+        Backward.Transpose(_model.FcWeight, 2 * hidden, _model.Classes, 2 * hidden, v.FcT);
+        return v;
     }
 
     // ---- Forward ----
@@ -456,8 +493,9 @@ internal sealed class CrnnTrainer
         return loss / batchSize;
     }
 
-    // Sums the per-line gradients in line order (plain additions starting from line 0), splitting the work by tensor range.
-    private void ReduceGradients(int lines, int degree, CancellationToken cancellationToken)
+    // Adds the gradient sets of lines first..first+count-1 into the running sum in line order (the first line starts it), splitting
+    // the work by tensor range.
+    private void AccumulateGradients(int first, int count, int degree, CancellationToken cancellationToken)
     {
         const int Chunk = 1 << 16;
         var work = new List<(int Tensor, int Start)>();
@@ -474,24 +512,20 @@ internal sealed class CrnnTrainer
             (int p, int s) = work[i];
             int n = Math.Min(Chunk, _grad[p].Length - s);
             Span<float> dst = _grad[p].AsSpan(s, n);
-            _lineGrads[0][p].AsSpan(s, n).CopyTo(dst);
-            for (int b = 1; b < lines; b++)
+            for (int k = 0; k < count; k++)
             {
-                ReadOnlySpan<float> src = _lineGrads[b][p].AsSpan(s, n);
+                ReadOnlySpan<float> src = _lineGrads[k][p].AsSpan(s, n);
+                if (first + k == 0)
+                {
+                    src.CopyTo(dst);
+                    continue;
+                }
+
                 for (int j = 0; j < n; j++)
                 {
                     dst[j] += src[j];
                 }
             }
         }, cancellationToken);
-
-        // Global norm: per-tensor sum of squares as a library-order dot product, tensors added in order in double precision.
-        double sum = 0;
-        foreach (float[] g in _grad)
-        {
-            sum += Gemm.Dot(_path, g, g);
-        }
-
-        LastGradNorm = Math.Sqrt(sum);
     }
 }

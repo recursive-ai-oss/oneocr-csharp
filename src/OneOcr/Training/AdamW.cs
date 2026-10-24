@@ -107,6 +107,38 @@ internal sealed class AdamW
         }
     }
 
+    /// <summary>
+    /// Restores the state saved by a checkpoint: the step count and the moments. The bias-correction powers are rebuilt by the same
+    /// running products as an uninterrupted run, so the next step is bit-identical to the one that would have followed.
+    /// </summary>
+    public void Restore(long steps, float[][] m, float[][] v)
+    {
+        if (steps < 0 || m.Length != _m.Length || v.Length != _v.Length)
+        {
+            throw new ArgumentException("The saved state does not match the tensors.");
+        }
+
+        for (int i = 0; i < _m.Length; i++)
+        {
+            if (m[i].Length != _m[i].Length || v[i].Length != _v[i].Length)
+            {
+                throw new ArgumentException("The saved state does not match the tensors.");
+            }
+
+            m[i].CopyTo(_m[i], 0);
+            v[i].CopyTo(_v[i], 0);
+        }
+
+        Steps = steps;
+        _beta1Power = 1.0;
+        _beta2Power = 1.0;
+        for (long s = 0; s < steps; s++)
+        {
+            _beta1Power *= Options.Beta1;
+            _beta2Power *= Options.Beta2;
+        }
+    }
+
     /// <summary>Copies of the first and second moment estimates, for tests and checkpoints.</summary>
     public (float[][] M, float[][] V) Moments() => (_m.Select(a => (float[])a.Clone()).ToArray(), _v.Select(a => (float[])a.Clone()).ToArray());
 }

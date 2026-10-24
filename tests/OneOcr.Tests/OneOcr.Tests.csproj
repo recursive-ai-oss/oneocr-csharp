@@ -26,6 +26,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
     <ProjectReference Include="../../src/OneOcr.Llm/OneOcr.Llm.csproj" />
+    <ProjectReference Include="../../src/OneOcr.Training/OneOcr.Training.csproj" />
   </ItemGroup>
 
 </Project>

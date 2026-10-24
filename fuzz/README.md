@@ -13,4 +13,6 @@ For a coverage-guided run, instrument `OneOcr.dll` with the `sharpfuzz` tool and
 
 `llm-anthropic`, `llm-openai` and `llm-gemini` run provider response bytes through that provider's parser (Azure OpenAI and OpenAI-compatible servers share the OpenAI parser); `llm-schema` runs JSON Schema text through the schema checks and the per-provider rewrites. Only `OcrProviderException`, `OcrLimitException` (and `ArgumentException` for schemas) may come out. Seeds are in `fuzz/corpus/llm-*/`, written by `ONEOCR_FUZZ_TARGET=llm-openai OneOcr.Fuzz seeds <dir>`. The first mutation run found that a string read out of invalid UTF-8 threw `InvalidOperationException`; response bodies are now checked for valid UTF-8 first.
 
+`review` runs a review-import file through the parser (`docs/spec/review-queue.md`) under tight limits; only `OcrFormatException` and `OcrLimitException` may come out. Seeds are in `fuzz/corpus/review/`. The first mutation run found that invalid UTF-8 inside a string threw `InvalidOperationException`; the whole input is now checked for valid UTF-8 first.
+
 A minimized reproducer of a finding goes to `testdata/` with a regression test asserting a typed error.
