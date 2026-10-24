@@ -16,6 +16,8 @@ using OneOcr.Layout;
 //       --noorient 1 reads with orientation detection and deskew off (the text of a page that needs neither is the same either way).
 //       --metaonly 1 skips the timed text run and its .txt (with --meta 1: orientation and skew only).
 //       --meta 1 also writes <page-id>.meta.json {"orientation":..,"skew":..} as the engine reports them.
+//       --trace 1 prints resident and heap size after every page, the engine pools, the largest mappings and the live heap at the end;
+//       --alloc 1 totals allocations by type and size class (ALLOC_SIZES=1 splits large ones by size); --gc N collects generation N-1 after every page.
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
 //       compares found text lines with lines derived from the truth word boxes (precision and recall at IoU >= 0.5) and times
 //       grayscale conversion, line finding and line preprocessing per page.
@@ -277,6 +279,7 @@ internal static class Program
         int degree = Int(o, "degree", 0), repeat = Math.Max(1, Int(o, "repeat", 1));
         Directory.CreateDirectory(outDir);
 
+        using AllocTrace? allocTrace = Int(o, "alloc", 0) != 0 ? new AllocTrace() : null;
         var clock = Stopwatch.StartNew();
         OcrEngine engine = OcrEngine.Load(Need(o, "model"));
         if (o.TryGetValue("beam", out string? beamWidth))
@@ -295,6 +298,11 @@ internal static class Program
         }
 
         double loadMs = clock.Elapsed.TotalMilliseconds;
+        if (Int(o, "trace", 0) != 0)
+        {
+            Console.WriteLine($"  live after load: {GC.GetTotalMemory(true) / 1048576.0:F1} MB, rss {Process.GetCurrentProcess().WorkingSet64 / 1048576.0:F0} MB");
+        }
+
 
         bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
@@ -350,6 +358,25 @@ internal static class Program
 
                 results.Add((id, decodeMs, Median(times), text.Length));
                 Console.WriteLine($"{id}: {Median(times):F0} ms, {text.Length} chars");
+                if (Int(o, "gc", 0) != 0)
+                {
+                    GC.Collect(Int(o, "gc", 0) - 1, GCCollectionMode.Forced, true, Int(o, "gc", 0) == 3);
+                }
+
+                if (Int(o, "trace", 0) != 0)
+                {
+                    var proc = Process.GetCurrentProcess();
+                    Console.WriteLine($"  rss {proc.WorkingSet64 / 1048576.0:F0} peak {proc.PeakWorkingSet64 / 1048576.0:F0} MB, heap {GC.GetGCMemoryInfo().HeapSizeBytes / 1048576.0:F0} MB, committed {GC.GetGCMemoryInfo().TotalCommittedBytes / 1048576.0:F0} MB");
+                    foreach (string line in File.ReadLines("/proc/self/smaps_rollup"))
+                    {
+                        if (line.StartsWith("Rss", StringComparison.Ordinal) || line.StartsWith("Anonymous", StringComparison.Ordinal))
+                        {
+                            Console.Write("  " + line.Replace(" ", "").Replace("kB", ""));
+                        }
+                    }
+
+                    Console.WriteLine();
+                }
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
@@ -357,6 +384,56 @@ internal static class Program
                 errors.Add((id, e.GetType().Name + ": " + e.Message));
                 Console.Error.WriteLine($"{id}: ERROR {e.GetType().Name}: {e.Message}");
                 File.WriteAllText(Path.Combine(outDir, id + ".error.txt"), e + "\n", new UTF8Encoding(false));
+            }
+        }
+
+        allocTrace?.Print();
+        if (Int(o, "trace", 0) != 0)
+        {
+            foreach (var field in typeof(OcrEngine).GetFields(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+            {
+                if (field.FieldType.IsGenericType && field.FieldType.GetGenericTypeDefinition().Name.StartsWith("BufferPool", StringComparison.Ordinal))
+                {
+                    object pool = field.GetValue(engine)!;
+                    long retained = (long)pool.GetType().GetField("_retainedBytes", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(pool)!;
+                    long created = (long)pool.GetType().GetProperty("CreatedBytes")!.GetValue(pool)!;
+                    long peak = (long)pool.GetType().GetProperty("PeakOutstandingBytes")!.GetValue(pool)!;
+                    Console.WriteLine($"  pool {field.Name} {field.FieldType.GenericTypeArguments[0].Name}: retained {retained / 1048576.0:F1} MB, created {created / 1048576.0:F1} MB, peak outstanding {peak / 1048576.0:F1} MB");
+                }
+            }
+
+            {
+                object rec = typeof(OcrEngine).GetField("_recognizer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(engine)!;
+                object pool = rec.GetType().GetProperty("ScratchPool", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(rec)!;
+                long retained = (long)pool.GetType().GetField("_retainedBytes", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(pool)!;
+                long created = (long)pool.GetType().GetProperty("CreatedBytes")!.GetValue(pool)!;
+                long peak = (long)pool.GetType().GetProperty("PeakOutstandingBytes")!.GetValue(pool)!;
+                Console.WriteLine($"  pool scratch float: retained {retained / 1048576.0:F1} MB, created {created / 1048576.0:F1} MB, peak outstanding {peak / 1048576.0:F1} MB");
+            }
+
+            Console.WriteLine($"  live after full collection: {GC.GetTotalMemory(true) / 1048576.0:F1} MB");
+        }
+
+        if (Int(o, "trace", 0) != 0)
+        {
+            // Largest resident mappings, to tell managed heap from native allocations and mapped files.
+            string? header = null;
+            var regions = new List<(long Kb, string Name)>();
+            foreach (string line in File.ReadLines("/proc/self/smaps"))
+            {
+                if (line.Length > 0 && Uri.IsHexDigit(line[0]) && line.Contains('-', StringComparison.Ordinal) && line.Contains(' ', StringComparison.Ordinal) && !line.StartsWith("Rss", StringComparison.Ordinal))
+                {
+                    header = line;
+                }
+                else if (line.StartsWith("Rss:", StringComparison.Ordinal) && header is not null)
+                {
+                    regions.Add((long.Parse(line.AsSpan(4, line.Length - 6).Trim(), CultureInfo.InvariantCulture), header));
+                }
+            }
+
+            foreach (var (kb, name) in regions.OrderByDescending(r => r.Kb).Take(14))
+            {
+                Console.WriteLine($"  map {kb / 1024.0:F1} MB {name}");
             }
         }
 

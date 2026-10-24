@@ -42,11 +42,11 @@ public class BufferPoolTests
         Assert.Equal(0, big % (1 << 16));
         Assert.True(big >= (1 << 20) + 1);
 
-        // Sizes round up to a quarter-octave class: never more than a quarter too large, and equal for requests of one class.
+        // Sizes round up to a half-octave class: never more than half too large, and equal for requests of one class.
         foreach (int n in new[] { 70_000, 100_000, 300_001, 1_000_000, 8_700_000, 30_000_000 })
         {
             int size = pool.Rent(n).Length;
-            Assert.InRange(size, n, n + (n / 4) + 1);
+            Assert.InRange(size, n, n + (n / 2) + 1);
         }
 
         Assert.Equal(pool.Rent(8_400_001).Length, pool.Rent(9_000_000).Length);
@@ -75,5 +75,24 @@ public class BufferPoolTests
         byte[] narrower = TestModels.RandomImage(r.InputHeight, 200, 6);
         _ = r.Recognize(narrower, 200, 1);
         Assert.Equal(first, r.Recognize(image, 300, 1));
+    }
+
+    [Fact]
+    public void GarbageIsCollectedAfterAPageWhenTheRuntimeHasNotDoneSo()
+    {
+        // Pages that each leave more than the threshold behind: within a couple of page ends some collection has run, whether the
+        // runtime's or ours (the first call may only note the state the process is in).
+        int before = GC.CollectionCount(0);
+        for (int page = 0; page < 4; page++)
+        {
+            for (int i = 0; i < (int)(2 * GarbageBound.Threshold / 65_536); i++)
+            {
+                GC.KeepAlive(new byte[65_536]);
+            }
+
+            GarbageBound.AfterPage();
+        }
+
+        Assert.True(GC.CollectionCount(0) > before);
     }
 }
