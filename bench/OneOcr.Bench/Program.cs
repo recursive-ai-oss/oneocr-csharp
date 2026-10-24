@@ -13,6 +13,9 @@ using OneOcr.Layout;
 //       decode time and the median-of-K recognition time, and the process's peak working set. --degree 0 is the library default.
 //       --words 1 also writes <page-id>.json, the scorer's word sidecar {"words":[{"box":[x0,y0,x1,y1],"text":..,"conf":..,"conf_raw":..}]}
 //       from OcrEngine.Ocr (greedy; word boxes are ink extents; calibrated and raw word confidence). It runs after the timed loop, so timings are unaffected.
+//       --noorient 1 reads with orientation detection and deskew off (the text of a page that needs neither is the same either way).
+//       --metaonly 1 skips the timed text run and its .txt (with --meta 1: orientation and skew only).
+//       --meta 1 also writes <page-id>.meta.json {"orientation":..,"skew":..} as the engine reports them.
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
 //       compares found text lines with lines derived from the truth word boxes (precision and recall at IoU >= 0.5) and times
 //       grayscale conversion, line finding and line preprocessing per page.
@@ -50,6 +53,7 @@ internal static class Program
             "decode" => DecodeBench.Run(options),
             "trainstep" => TrainBench.Run(options),
             "strips" => Strips(options),
+            "skew" => Skew(options),
             _ => 2,
         };
     }
@@ -123,6 +127,36 @@ internal static class Program
         return 0;
     }
 
+    // Prints the skew search of one page, and with --model the orientation evidence: OneOcr.Bench skew --image FILE [--model FILE]
+    private static int Skew(Dictionary<string, string> o)
+    {
+        Image image = Image.Load(Need(o, "image"));
+        var gray = new Gray8[image.Width * image.Height];
+        image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+        ReadOnlySpan<byte> bytes = OneOcr.Kernels.PixelSpans.AsBytes(gray);
+        (int threshold, bool inkIsBright) = LineFinder.Binarize(bytes);
+        InkGrid grid = InkGrid.Build(bytes, image.Width, image.Height, threshold, inkIsBright);
+        SkewEstimate flat = SkewEstimator.Estimate(grid), sideways = SkewEstimator.Estimate(grid.TurnClockwise());
+        Console.WriteLine($"threshold {threshold} inkIsBright {inkIsBright} grid {grid.Width}x{grid.Height} factor {grid.Factor}");
+        Console.WriteLine($"flat     slope {flat.Slope,4} gain {flat.Gain:F3} contrast {flat.Contrast:F2}");
+        Console.WriteLine($"sideways slope {sideways.Slope,4} gain {sideways.Gain:F3} contrast {sideways.Contrast:F2}");
+        if (o.TryGetValue("model", out string? model))
+        {
+            var recognizer = OneOcr.Recognition.LineRecognizer.Load(model);
+            var detector = new ClassicalOrientation(recognizer, new OneOcr.BufferPool<Gray8>(1L << 28, 1), new OneOcr.BufferPool<byte>(1L << 28, 1), new ResizerPool(), OneOcr.OcrLimits.Default);
+            var trace = new List<string>();
+            int degrees = detector.Detect(new OrientationInput(gray, image.Width, image.Height, 4), trace, System.Threading.CancellationToken.None);
+            foreach (string line in trace)
+            {
+                Console.WriteLine(line);
+            }
+
+            Console.WriteLine($"turn {degrees}");
+        }
+
+        return 0;
+    }
+
     private static int RandomModel(Dictionary<string, string> o)
     {
         File.WriteAllBytes(Need(o, "out"), OneOcr.Tests.TestModels.RandomContainer(OneOcr.Tests.TestModels.Full, 1));
@@ -149,7 +183,7 @@ internal static class Program
         }
         double loadMs = clock.Elapsed.TotalMilliseconds;
 
-        bool writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
+        bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
         foreach (string path in Directory.GetFiles(pages).Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal))
         {
@@ -161,14 +195,24 @@ internal static class Program
             double decodeMs = clock.Elapsed.TotalMilliseconds;
             var times = new List<double>();
             string text = string.Empty;
-            for (int r = 0; r < repeat; r++)
+            for (int r = 0; r < (metaOnly ? 0 : repeat); r++)
             {
                 clock.Restart();
-                text = engine.ToText(image, degree);
+                text = noOrient
+                    ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false }).ToText()
+                    : engine.ToText(image, degree);
                 times.Add(clock.Elapsed.TotalMilliseconds);
             }
 
-            File.WriteAllText(Path.Combine(outDir, id + ".txt"), text, new UTF8Encoding(false));
+            if (metaOnly)
+            {
+                times.Add(0);
+            }
+            else
+            {
+                File.WriteAllText(Path.Combine(outDir, id + ".txt"), text, new UTF8Encoding(false));
+            }
+
             if (writeWords || writePageJson)
             {
                 OcrPage page = engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
@@ -177,6 +221,15 @@ internal static class Program
                 {
                     File.WriteAllText(Path.Combine(outDir, id + ".page.json"), OcrPageJson.ToJson([page]), new UTF8Encoding(false));
                 }
+            }
+
+            if (Int(o, "meta", 0) != 0)
+            {
+                // The orientation and skew the page reports, for checking against a known rotation.
+                OcrPage found = engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
+                File.WriteAllText(
+                    Path.Combine(outDir, id + ".meta.json"),
+                    string.Create(CultureInfo.InvariantCulture, $"{{\"orientation\":{found.Orientation},\"skew\":{found.SkewDegrees:0.####}}}"));
             }
 
             results.Add((id, decodeMs, Median(times), text.Length));

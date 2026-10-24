@@ -218,12 +218,25 @@ public sealed class OcrPage
     /// <param name="keyValues">Key–value pairs; null for none.</param>
     /// <param name="diagnostics">Notes about the page; null for none.</param>
     /// <param name="toPdf">For pages from a PDF, the map back to PDF user space; otherwise null.</param>
+    /// <param name="orientation">How far the content is turned clockwise from upright: 0, 90, 180 or 270.</param>
+    /// <param name="skewDegrees">The tilt of the text lines in degrees, positive when they descend to the right; within 45.</param>
+    /// <exception cref="ArgumentException"><paramref name="orientation"/> is not a quarter turn or <paramref name="skewDegrees"/> is out of range.</exception>
     public OcrPage(
         int index, double width, double height, double unitsPerInch, IReadOnlyList<OcrBlock> blocks,
         IReadOnlyList<OcrRegion>? regions = null, IReadOnlyList<OcrTable>? tables = null, IReadOnlyList<OcrKeyValue>? keyValues = null,
-        IReadOnlyList<string>? diagnostics = null, OcrMatrix? toPdf = null)
+        IReadOnlyList<string>? diagnostics = null, OcrMatrix? toPdf = null, int orientation = 0, double skewDegrees = 0)
     {
         ArgumentNullException.ThrowIfNull(blocks);
+        if (orientation is not (0 or 90 or 180 or 270))
+        {
+            throw new ArgumentException("Orientation must be 0, 90, 180 or 270.", nameof(orientation));
+        }
+
+        if (!(Math.Abs(skewDegrees) <= 45))
+        {
+            throw new ArgumentException("SkewDegrees must be within 45 degrees.", nameof(skewDegrees));
+        }
+
         Index = index;
         Width = width;
         Height = height;
@@ -234,6 +247,8 @@ public sealed class OcrPage
         KeyValues = keyValues ?? [];
         Diagnostics = diagnostics ?? [];
         ToPdf = toPdf;
+        Orientation = orientation;
+        SkewDegrees = skewDegrees;
     }
 
     /// <summary>Zero-based index of the page in its document.</summary>
@@ -253,6 +268,18 @@ public sealed class OcrPage
 
     /// <summary>The map from page units back to PDF user space; null unless the page came from a PDF.</summary>
     public OcrMatrix? ToPdf { get; }
+
+    /// <summary>
+    /// How far the page content is turned clockwise from upright when the image was read: 0, 90, 180 or 270 (90 means the tops of
+    /// the lines point to the right). Coordinates stay in the image as given; rotated elements carry a quad. 0 for PDF pages.
+    /// </summary>
+    public int Orientation { get; }
+
+    /// <summary>
+    /// The tilt in degrees of the text lines that was removed before reading, positive when lines descend to the right (clockwise
+    /// in y-down coordinates). 0 when the page was not tilted or the tilt was too small to act on.
+    /// </summary>
+    public double SkewDegrees { get; }
 
     /// <summary>Blocks in reading order.</summary>
     public IReadOnlyList<OcrBlock> Blocks { get; }

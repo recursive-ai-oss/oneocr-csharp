@@ -171,6 +171,7 @@ internal static class Program
             File.WriteAllText(Path.Combine(dir, "full.seed"), OcrPageJson.ToJson([sample, new OcrPage(1, 100, 50, 300, [])]));
             File.WriteAllText(Path.Combine(dir, "indented.seed"), OcrPageJson.ToJson([sample], new OcrPageJsonOptions { Indented = true, IncludeChars = false }));
             File.WriteAllText(Path.Combine(dir, "empty.seed"), OcrPageJson.ToJson([]));
+            File.WriteAllText(Path.Combine(dir, "turned.seed"), OcrPageJson.ToJson([new OcrPage(0, 200, 100, 300, sample.Blocks, null, null, null, null, null, 90, -2.5)]));
             return;
         }
 

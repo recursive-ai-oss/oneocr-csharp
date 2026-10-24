@@ -1,0 +1,85 @@
+# Page orientation and deskew, version 1
+
+What the local reader does to a page image before it looks for text lines, so that scans fed in sideways, upside down or crooked
+are read like upright ones. Every step uses integers or the IEEE basic operations (`+ − × ÷ √`), so the result is the same on every
+machine, kernel path and degree of parallelism. A port reproduces the numbers below.
+
+The steps run in this order, each on the 8-bit gray page:
+
+1. **Orientation** (a replaceable decision): how many quarter turns clockwise (0–3) make the text upright.
+2. **Quarter turn**: the page is turned by exactly that many quarter turns (pixel moves, no resampling).
+3. **Skew**: the tilt of the text lines is estimated on the turned page.
+4. **Deskew**: when the tilt is large enough to act on, the page is turned by it on a larger canvas, with bilinear sampling.
+5. The turned and straightened page is read as usual; every box is then carried back to the input image (below).
+
+`OcrOptions.DetectOrientation` and `OcrOptions.Deskew` (both default true) switch steps 1–2 and 3–4 off. A page that needs neither
+(no turn, tilt under 0.3°) is read from the very same pixels as with both switched off, so its text is the same.
+
+## Ink grid
+
+The estimators work on a coarse count of ink pixels. Ink is the minority class of Otsu's threshold (the same binarization the line
+finder uses; a page with no contrast has no ink). With `f = ceil(max(width, height) / 2400)`, cell `(cx, cy)` holds the number of ink
+pixels in the `f × f` block at `(cx·f, cy·f)`. A grid shrunk by 4 adds up 4 × 4 cells. A quarter turn clockwise of a grid maps cell
+`(x, y)` to `(height − 1 − y, x)`.
+
+## Skew (projection profile)
+
+After Postl (1986) and Baird (1987). The ink of cells that are not solid (`0 < count ≤ max(1, ⌊0.6 · f²⌋)`) and lie outside a 2%
+border on every side is projected on the axis perpendicular to a candidate line direction. For a slope `k / 1024` (lines descend by
+`k` per 1024 across), the cell `(x, y)` goes into bin `⌊(1024·y − k·x) / 1024⌋` (arithmetic shift) and adds its count. The
+sharpness of a candidate is the sum of squares of the bins; text lines pile ink into few bins, a wrong direction smears it.
+
+- **Coarse search**: on the grid shrunk by 4, `k = −280 … 280` in steps of 2 (±15.3°); the best sharpness wins, ties go to the
+  smaller `|k|`.
+- **Fine search**: on the full grid, `k` from `coarse − 6` to `coarse + 6` in steps of 1 (and 0, to report the gain); same tie rule.
+- **Gain** = sharpness at the best `k` ÷ sharpness at 0. **Contrast** = `best · bins ÷ (Σ counts)²`, where `bins` is the grid height.
+  Contrast is 1 for evenly spread ink and large for ruled lines; it is comparable between a page and the same page turned a quarter.
+- The tilt is acted on only when `|k| ≥ 5` (0.28°) and gain ≥ 1.03.
+
+The tilt in degrees is `atan(k / 1024) · 180/π`, computed with the series `x − x³/3 + x⁵/5 − …` (16 terms, in this order, doubles).
+It is reported as `OcrPage.SkewDegrees`: positive when the lines descend to the right (clockwise in y-down coordinates).
+
+## Deskew
+
+With `t = k / 1024`: `cos = 1 / √(1 + t²)`, `sin = t · cos`. The turned page `Wq × Hq` is put on a canvas of
+`⌈Wq·cos + Hq·|sin|⌉ × ⌈Wq·|sin| + Hq·cos⌉`; canvas pixel `(i, j)` samples the page at
+
+```
+dx = i + 0.5 − Wd/2           dy = j + 0.5 − Hd/2
+qx = dx·cos − dy·sin + Wq/2   qy = dx·sin + dy·cos + Hq/2
+```
+
+with bilinear interpolation between the four pixel centers around `(qx − 0.5, qy − 0.5)` (the page edge is clamped), the result
+rounded half up to 8 bits. Points outside the page take the page's most common gray value (lowest value on ties). If the canvas
+would exceed `OcrLimits.MaxImagePixels` the page is read as it is and a diagnostic says so.
+
+## Orientation: the classical decision
+
+`IOrientationDetector.Detect` returns 0, 90, 180 or 270 (degrees clockwise to turn the page upright). A model-provided
+detector can replace the classical one behind this interface. The classical decision:
+
+1. **Line direction.** Contrast of the grid and of the grid turned a quarter clockwise. If the turned grid's contrast is at least 3×
+   the grid's, text runs vertically: the page is a quarter turn off (candidate axis 1). If the grid's is at least 3× the turned
+   grid's, the lines are horizontal (axis 0). Otherwise the profiles do not decide.
+2. **Which way up** (on the axis chosen, turned and straightened by that axis's skew estimate): the page's strips are found with
+   the page finder (ruling lines removed, columns cut), the 24 biggest by area whose width is at least 3 times their height are taken,
+   those with a height between 0.6× and 1.7× of the median height of those are kept, and up to 8 are read twice by the recognizer:
+   as cropped and with the crop turned half way round (the crop's pixel array reversed). The weight of a line is the longer reading's
+   length. The page scores are the weighted means of the two confidences, and *share* is the weighted share of lines that read better
+   turned. The page is turned half way round when `turned > upright + 0.05`, `turned ≥ 0.75` and `share ≥ 0.6`.
+3. **Undecided profiles** (neither contrast is 3× the other): axis 0 is read first; axis 1 is read too and wins only if its better
+   reading is at least 0.75 and at least 0.15 above axis 0's. Photographs, receipts and forms end up here and are kept upright
+   unless the recognizer clearly reads them better the other way.
+
+The result is `quarter · 90` plus 180 when turned half way round, modulo 360. `OcrPage.Orientation` reports how far the content was
+turned clockwise from upright: 0, 90, 180 or 270 (a page whose text tops point to the right has 90, and is turned 270° clockwise,
+that is 90° counter-clockwise, to read).
+
+## Mapping back
+
+The page model is in the input image's coordinates: `Width`/`Height` are the input's. A point `(u, v)` of the straightened frame
+maps to the turned frame by `R(s)` about the canvas and page centers (the sampling formula above, `qx, qy`), then to the input by the
+inverse of the quarter turn: for 1 quarter `(x, y) = (qy, H − qx)`, for 2 `(W − qx, H − qy)`, for 3 `(W − qy, qx)` (`W`, `H` the input's
+size). Every box becomes the corner quad of its four mapped corners, in the order top-left, top-right, bottom-right, bottom-left of
+the text's own frame, plus the axis-aligned box around that quad. Words, characters, lines, blocks, regions and tables carry the
+quad (`quad` in the JSON); table cells and key–value pairs keep only the bounding box. A page that needed no turn has no quads.
