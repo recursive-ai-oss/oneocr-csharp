@@ -9,8 +9,10 @@ namespace OneOcr.Tests;
 /// <summary>Builds random <c>dbnet-lite-v0</c> containers (the layer sizes of the shipped architecture or smaller ones).</summary>
 internal static class TestDetectorModels
 {
-    public sealed record Shape(int Stem, int[] Widths, int[] Depths, int Fpn, int Text, int Layout, int LayoutBlocks, string[] Classes)
+    public sealed record Shape(int Stem, int[] Widths, int[] Depths, int Fpn, int Text, int Layout, int LayoutBlocks, string[] Classes,
+        int Layout16Blocks = 0, int Layout16 = 0, bool Orient16 = false)
     {
+        public bool IsV1 => Layout16Blocks > 0 || Orient16;
         public int ClassCount => Classes.Length;
     }
 
@@ -22,9 +24,20 @@ internal static class TestDetectorModels
     /// <summary>Fewer, narrower blocks, with widths that are not multiples of 16, for quick tests.</summary>
     public static Shape Small { get; } = new(16, [16, 24, 40, 56], [1, 2, 1, 1], 20, 12, 28, 2, AllClasses);
 
+    /// <summary>The 0.2.0 training configuration's widths and depths with both v1 switches on.</summary>
+    public static Shape V1Default { get; } = new(16, [32, 72, 176, 288], [2, 3, 6, 4], 48, 32, 96, 3, AllClasses, 4, 160, true);
+
+    /// <summary>Narrow v1 sizes that are not multiples of 16, for quick tests.</summary>
+    public static Shape V1Small { get; } = new(16, [16, 24, 40, 56], [1, 2, 1, 1], 20, 12, 28, 2, AllClasses, 2, 18, true);
+
     public static string ConfigJson(Shape s, string? trainedJson = null)
     {
         string trained = trainedJson is null ? string.Empty : $",\"layout_trained\":{trainedJson}";
+        if (s.IsV1)
+        {
+            trained += $",\"layout16_blocks\":{s.Layout16Blocks},\"layout16\":{s.Layout16},\"orient16\":{(s.Orient16 ? "true" : "false")}";
+        }
+
         return $"{{\"arch\":\"dbnet-lite\",\"stem\":{s.Stem},\"widths\":[{string.Join(',', s.Widths)}],\"depths\":[{string.Join(',', s.Depths)}]," +
             $"\"fpn\":{s.Fpn},\"text\":{s.Text},\"layout\":{s.Layout},\"layout_blocks\":{s.LayoutBlocks},\"classes\":{s.ClassCount}," +
             $"\"layout_classes\":[{string.Join(',', s.Classes.Select(c => $"\"{c}\""))}]{trained}}}";
@@ -92,12 +105,25 @@ internal static class TestDetectorModels
             cin = s.Layout;
         }
 
+        cin = s.Fpn;
+        for (int j = 0; j < s.Layout16Blocks; j++)
+        {
+            Dw($"layout16.{j}", cin, s.Layout16);
+            cin = s.Layout16;
+        }
+
+        if (s.Layout16Blocks > 0)
+        {
+            Plain("layout_mix", s.Layout16, s.Layout);
+        }
+
         Plain("layout_out", s.Layout, s.ClassCount);
         Dw("text4", s.Fpn, s.Text);
         Plain("stem_proj", s.Stem, s.Text);
         Dw("text2", s.Text, s.Text);
         Plain("prob_out", s.Text, 1);
-        Add("orient.weight", 1.0 / Math.Sqrt(s.Widths[3]), 0, 4, s.Widths[3]);
+        int orientIn = s.Widths[3] + (s.Orient16 ? s.Widths[2] : 0);
+        Add("orient.weight", 1.0 / Math.Sqrt(orientIn), 0, 4, orientIn);
         Add("orient.bias", 0.1, 0, 4);
         return list;
     }
@@ -106,7 +132,7 @@ internal static class TestDetectorModels
 
     public static byte[] Random(Shape s, int seed, string? trainedJson = null, IReadOnlyList<TestTensor>? tensors = null) =>
         TestContainerWriter.Write(
-            "dbnet-lite-v0", 0, Charset(s), ConfigJson(s, trainedJson), tensors ?? RandomTensors(s, seed),
+            s.IsV1 ? "dbnet-lite-v1" : "dbnet-lite-v0", 0, Charset(s), ConfigJson(s, trainedJson), tensors ?? RandomTensors(s, seed),
             calibrationJson: "{\"raw\":\"word-mean-max-run\",\"scripts\":{}}");
 
     /// <summary>A gray image with smooth structure and noise, <c>[height][width]</c>.</summary>
@@ -250,12 +276,33 @@ internal sealed class DetectorReference64
         double[] p4 = Block("smooth4", Add(lat[0], Up2(p8, _s.Fpn, dims[1].H, dims[1].W)), _s.Fpn, _s.Fpn, dims[0].H, dims[0].W, 1, out _, out _);
         o["p4"] = ([_s.Fpn, dims[0].H, dims[0].W], p4);
 
+        o["p16"] = ([_s.Fpn, dims[2].H, dims[2].W], p16);
+        double[]? mixed = null;
+        if (_s.Layout16Blocks > 0)
+        {
+            double[] g = p16;
+            int gin = _s.Fpn;
+            for (int j = 0; j < _s.Layout16Blocks; j++)
+            {
+                g = Block($"layout16.{j}", g, gin, _s.Layout16, dims[2].H, dims[2].W, 1, out _, out _);
+                gin = _s.Layout16;
+            }
+
+            o["layout16"] = ([_s.Layout16, dims[2].H, dims[2].W], g);
+            mixed = Conv(g, _s.Layout16, dims[2].H, dims[2].W, T("layout_mix.weight"), T("layout_mix.bias"), _s.Layout, 1, 1, 1, false, out _, out _);
+            o["layout_mix"] = ([_s.Layout, dims[2].H, dims[2].W], mixed);
+        }
+
         double[] f = p8;
         int fin = _s.Fpn;
         for (int j = 0; j < _s.LayoutBlocks; j++)
         {
             f = Block($"layout.{j}", f, fin, _s.Layout, dims[1].H, dims[1].W, 1, out _, out _);
             fin = _s.Layout;
+            if (j == 0 && mixed is not null)
+            {
+                f = Add(f, Up2(mixed, _s.Layout, dims[2].H, dims[2].W));
+            }
         }
 
         o["layout_feat"] = ([_s.Layout, dims[1].H, dims[1].W], f);
@@ -269,21 +316,31 @@ internal sealed class DetectorReference64
         o["text2"] = ([_s.Text, sh, sw], t2);
         o["prob"] = ([1, sh, sw], Conv(t2, _s.Text, sh, sw, T("prob_out.weight"), T("prob_out.bias"), 1, 1, 1, 1, false, out _, out _));
 
-        int c3 = _s.Widths[3], px = dims[3].H * dims[3].W;
+        // Channel means of the stage-3 map, preceded by those of stage 2 when the orientation head reads two scales.
+        var means = new List<double>();
+        foreach (int stage in _s.Orient16 ? new[] { 2, 3 } : new[] { 3 })
+        {
+            int px = dims[stage].H * dims[stage].W;
+            for (int c = 0; c < _s.Widths[stage]; c++)
+            {
+                double mean = 0;
+                for (int p = 0; p < px; p++)
+                {
+                    mean += feats[stage][(c * px) + p];
+                }
+
+                means.Add(mean / px);
+            }
+        }
+
         double[] ow = T("orient.weight"), ob = T("orient.bias");
         var logits = new double[4];
         for (int k = 0; k < 4; k++)
         {
             double sum = ob[k];
-            for (int c = 0; c < c3; c++)
+            for (int c = 0; c < means.Count; c++)
             {
-                double mean = 0;
-                for (int p = 0; p < px; p++)
-                {
-                    mean += feats[3][(c * px) + p];
-                }
-
-                sum += ow[(k * c3) + c] * (mean / px);
+                sum += ow[(k * means.Count) + c] * means[c];
             }
 
             logits[k] = sum;

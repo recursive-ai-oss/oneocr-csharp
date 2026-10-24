@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using OneImage;
+using OneOcr.Documents;
 using OneOcr.Llm;
 
 namespace OneOcr.Tests;
@@ -60,22 +61,22 @@ public class GroundingTests
     [InlineData("0,125", "0.125", true)]
     public void Amounts_parse_and_canonicalize(string text, string canonical, bool ok)
     {
-        Assert.Equal(ok, GroundingNormalize.TryParseAmount(text, LlmNumberStyle.Auto, out ParsedAmount a));
+        Assert.Equal(ok, ValueNormalize.TryParseAmount(text, NumberStyle.Auto, out ParsedAmount a));
         if (ok)
         {
-            Assert.Equal(canonical, GroundingNormalize.CanonicalAmount(a.Value));
+            Assert.Equal(canonical, ValueNormalize.CanonicalAmount(a.Value));
         }
     }
 
     [Fact]
     public void A_single_separator_with_three_digits_follows_the_page_style()
     {
-        Assert.True(GroundingNormalize.TryParseAmount("1,234", LlmNumberStyle.PointDecimal, out ParsedAmount a));
+        Assert.True(ValueNormalize.TryParseAmount("1,234", NumberStyle.PointDecimal, out ParsedAmount a));
         Assert.Equal(1234m, a.Value);
-        Assert.True(GroundingNormalize.TryParseAmount("1,234", LlmNumberStyle.CommaDecimal, out a));
+        Assert.True(ValueNormalize.TryParseAmount("1,234", NumberStyle.CommaDecimal, out a));
         Assert.Equal(1.234m, a.Value);
-        Assert.Equal(LlmNumberStyle.CommaDecimal, GroundingNormalize.DetectStyle(["12,50", "3,99", "1.000,00"]));
-        Assert.Equal(LlmNumberStyle.PointDecimal, GroundingNormalize.DetectStyle(["12.50", "1,000.00"]));
+        Assert.Equal(NumberStyle.CommaDecimal, ValueNormalize.DetectStyle(["12,50", "3,99", "1.000,00"]));
+        Assert.Equal(NumberStyle.PointDecimal, ValueNormalize.DetectStyle(["12.50", "1,000.00"]));
     }
 
     [Theory]
@@ -91,20 +92,20 @@ public class GroundingTests
     [InlineData("Oct 3", "--10-03")]
     public void Dates_are_read_into_iso(string text, string iso)
     {
-        List<ParsedDate> d = GroundingNormalize.ParseDate(text, LlmDateOrder.Auto);
+        List<ParsedDate> d = ValueNormalize.ParseDate(text, DateOrder.Auto);
         Assert.Single(d);
-        Assert.Equal(iso, GroundingNormalize.CanonicalDate(d[0]));
+        Assert.Equal(iso, ValueNormalize.CanonicalDate(d[0]));
     }
 
     [Fact]
     public void An_ambiguous_numeric_date_has_both_readings_unless_the_order_is_known()
     {
-        Assert.Equal(2, GroundingNormalize.ParseDate("03/10/2026", LlmDateOrder.Auto).Count);
-        Assert.Equal("2026-10-03", GroundingNormalize.CanonicalDate(GroundingNormalize.ParseDate("03/10/2026", LlmDateOrder.DayFirst).Single()));
-        Assert.Equal("2026-03-10", GroundingNormalize.CanonicalDate(GroundingNormalize.ParseDate("03/10/2026", LlmDateOrder.MonthFirst).Single()));
-        Assert.Empty(GroundingNormalize.ParseDate("31.02.2026", LlmDateOrder.Auto));
-        Assert.Empty(GroundingNormalize.ParseDate("Invoice date", LlmDateOrder.Auto));
-        Assert.Equal(LlmDateOrder.DayFirst, GroundingNormalize.DetectOrder(["13.10.2026", "03/10/2026"]));
+        Assert.Equal(2, ValueNormalize.ParseDate("03/10/2026", DateOrder.Auto).Count);
+        Assert.Equal("2026-10-03", ValueNormalize.CanonicalDate(ValueNormalize.ParseDate("03/10/2026", DateOrder.DayFirst).Single()));
+        Assert.Equal("2026-03-10", ValueNormalize.CanonicalDate(ValueNormalize.ParseDate("03/10/2026", DateOrder.MonthFirst).Single()));
+        Assert.Empty(ValueNormalize.ParseDate("31.02.2026", DateOrder.Auto));
+        Assert.Empty(ValueNormalize.ParseDate("Invoice date", DateOrder.Auto));
+        Assert.Equal(DateOrder.DayFirst, ValueNormalize.DetectOrder(["13.10.2026", "03/10/2026"]));
     }
 
     [Fact]

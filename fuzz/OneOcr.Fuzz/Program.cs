@@ -22,6 +22,7 @@ internal static class Program
         return name switch
         {
             "container" => ContainerTarget.Run,
+            "docextract" => DocExtractTarget.Run,
             "charlm" => CharLmTarget.Run,
             "lexicon" => LexiconTarget.Run,
             "pagejson" => PageJsonTarget.Run,
@@ -138,7 +139,7 @@ internal static class Program
             }
         }
 
-        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer), no findings");
+        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
         return 0;
     }
 
@@ -146,6 +147,14 @@ internal static class Program
     {
         Directory.CreateDirectory(dir);
         string target = Environment.GetEnvironmentVariable("ONEOCR_FUZZ_TARGET") ?? "container";
+        if (target == "docextract")
+        {
+            File.WriteAllBytes(Path.Combine(dir, "small.seed"), TestDocModels.RandomContainer(TestDocModels.Small, 1));
+            File.WriteAllBytes(Path.Combine(dir, "two-windows.seed"), TestDocModels.RandomContainer(TestDocModels.SmallWindow with { MaxWords = 4 }, 2));
+            File.WriteAllBytes(Path.Combine(dir, "one-layer.seed"), TestDocModels.RandomContainer(TestDocModels.Small with { Layers = 1, Heads = 1, D = 16, Ffn = 16, Chars = 20 }, 3));
+            return;
+        }
+
         if (target == "charlm")
         {
             string[] alphabet = ["a", "b", "c", "d", "o", "\u00e9"];
@@ -219,6 +228,12 @@ internal static class Program
         File.WriteAllBytes(Path.Combine(dir, "dbnet-tiny.seed"), TestDetectorModels.Random(tinyDetector, 1));
         File.WriteAllBytes(Path.Combine(dir, "dbnet-odd-widths.seed"), TestDetectorModels.Random(oddDetector, 2));
         File.WriteAllBytes(Path.Combine(dir, "dbnet-trained-list.seed"), TestDetectorModels.Random(oddDetector, 3, trainedJson: "[\"text\",\"table\",\"checkbox\"]"));
+
+        // dbnet-lite-v1: the stride-16 layout branch with the two-scale orientation head, the head alone, and the branch alone.
+        TestDetectorModels.Shape v1 = TestDetectorModels.V1Small;
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-v1-branch.seed"), TestDetectorModels.Random(v1, 4));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-v1-orient16.seed"), TestDetectorModels.Random(v1 with { Layout16Blocks = 0, Layout16 = 0 }, 5));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-v1-branch-only.seed"), TestDetectorModels.Random(v1 with { Orient16 = false, Layout16Blocks = 1 }, 6));
 
         // Version 1: with calibration curves, with one curve and one-knot curves, and with a charset that has space entries.
         var tinyShape = variants[0].Shape;

@@ -95,6 +95,28 @@ The page detector: text lines, layout regions and page orientation from one page
   `arch` must be `dbnet-lite`; `widths` and `depths` have four entries each; every width is at least 1 and within the reader's layer-width limit, every depth at least 1; `classes` equals the number of `layout_classes`, whose names are non-empty and unique. **`layout_trained`** is optional: the names of the layout classes the model was trained on. A reader never reports a class that is not listed. When the member is absent, every class except `form_field` and `checkbox` counts as trained (those two had no training labels in the first model). A name that is not in `layout_classes` is an error. **`postprocess`** is optional, and so is each of its members: `text_threshold` and `layout_threshold` are probabilities strictly between 0 and 1, compared as float32 logits; `text_expand` and `layout_expand` are factors in (0, 4] on the growth of a text line or layout core ([detector-v0.md](detector-v0.md), "Post-processing"). Absent members take 0.3, 1.0, 0.6 and 0.85. A value out of range is an error.
 - Tensors (all `f16`, PyTorch layout, batch normalization folded in; names in [detector-v0.md](detector-v0.md)): `stem`, `stage<i>.<j>.dw`/`.pw`, `lat<i>`, `smooth8.dw`/`.pw`, `smooth4.dw`/`.pw`, `layout.<j>.dw`/`.pw`, `layout_out`, `text4.dw`/`.pw`, `stem_proj`, `text2.dw`/`.pw`, `prob_out` (each with `.weight` and `.bias`), and `orient.weight` `[4, widths[3]]`, `orient.bias` `[4]`. A depthwise weight is `[c, 1, 3, 3]`, a 1x1 weight `[out, in, 1, 1]`. Shapes are checked against `config`.
 
+## Architecture `dbnet-lite-v1`
+
+The page detector with the optional stride-16 layout branch and two-scale orientation head ([detector-v1.md](detector-v1.md)). The envelope, `input`, `charset`, `calibration`, `layout_trained`, `postprocess` and every tensor of `dbnet-lite-v0` are as in the section above, with `architecture` `dbnet-lite-v1`. `config` gains three members, all optional:
+
+- `layout16_blocks`: integer, 0 (the default) or the number of stride-16 blocks;
+- `layout16`: the width of those blocks, required and positive when `layout16_blocks` is above 0;
+- `orient16`: boolean, false by default; when true `orient.weight` is `[4, widths[2] + widths[3]]`.
+
+With the branch the file also carries `layout16.<j>.dw`/`.pw` (`j < layout16_blocks`) and `layout_mix` (`.weight` `[layout, layout16, 1, 1]`, `.bias`). The three members in a `dbnet-lite-v0` file are an error. Height 0 in `input` is allowed for both detector architectures.
+
+## Architecture `docextract-v0`
+
+The document-extraction model: a small layout-aware transformer over the words of a page. It reads words (text and box), not pixels. The graph, the featurization and the assembly of labels into fields are in [docextract-v0.md](docextract-v0.md); this section is what the container carries.
+
+- `architecture`: `docextract-v0`; `name`: `document-extraction`.
+- `input` has no image members. It is `{"kind": "words", "max_words": 512, "max_chars": 32, "bins": 128, "features": 8}`: the most words in one window (`MaxWordsPerWindow` bounds it), the characters kept per word (`MaxCharsPerWord`), the cells per axis of the position grid (`MaxPositionBins`) and the numeric features per word (always 8). Every other architecture needs the image members (`height`, `channels`, `mean`, `std`, `invert`) and no `kind`.
+- `charset`: the alphabet of the character embedding, charset-v1 (entry 0 `<blank>` is padding and never a text character). The embedding table has one more row than the charset: the last row is the unknown character.
+- `calibration`: `{"raw": "word-mean-max-run", "scripts": {}}`. The model has no calibrated confidences; field confidence is the mean softmax probability of the chosen tags.
+- `config`, all integers unless stated: `d`, `layers`, `heads`, `ffn`, `char_dim`, `char_conv`, `pair_hidden`, `rel_dim`, `max_words` (equal to `input.max_words`), `classes`, `tags` (`1 + 2 * classes`), `roles` (5), `doc_types`, `unk_char` (equal to the charset length); and the string lists `classes_list` (`classes` unique, non-empty names), `roles_list` (`O, B-KEY, I-KEY, B-VAL, I-VAL`) and `doc_types_list`. `d` is a multiple of `heads`. Widths are bounded by `MaxLayerWidth`, `layers` by `MaxTransformerLayers`, the three list lengths by `MaxExtractionClasses`, and `(layers * heads + 2) * max_words^2` by `MaxActivationElements`, all before any tensor is read.
+- Tensors (names and shapes exactly; a reader checks each against the configuration before reading it): `char_emb.weight [charset + 1, char_dim]`, `char_conv.weight [char_conv, char_dim, 3]`, `char_conv.bias`, `char_proj.{weight [d, char_conv], bias}`, `pos_x0 / pos_y0 / pos_x1 / pos_y1 .weight [bins, d]`, `feat_proj.{weight [d, 8], bias}`, `emb_ln.{weight, bias} [d]`, per block `blocks.<l>.{ln1, ln2}.{weight, bias} [d]`, `blocks.<l>.qkv.{weight [3d, d], bias}`, `blocks.<l>.proj.{weight [d, d], bias}`, `blocks.<l>.fc1.{weight [ffn, d], bias}`, `blocks.<l>.fc2.{weight [d, ffn], bias}`, `pair1.{weight [pair_hidden, 13], bias}`, `pair2.{weight [layers * heads + 2, pair_hidden], bias}`, `final_ln.{weight, bias}`, `tag_head.{weight [tags, d], bias}`, `role_head.{weight [5, d], bias}`, `doc_head.{weight [doc_types, d], bias}`, `rel_q.{weight [2 * rel_dim, d], bias}`, `rel_k.{weight [2 * rel_dim, d], bias}`.
+- A model trained for another schema (a fine-tuned head) is the same architecture with its own `classes_list` and `tag_head`.
+
 ## Calibration (version 1)
 
 A recognizer says how sure it is per character; users want the probability that a **word** is exactly right. The model file carries the map from one to the other, fitted by the trainer on a held-out calibration split.

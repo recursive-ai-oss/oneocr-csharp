@@ -40,7 +40,7 @@ internal static class ContainerTarget
         {
             ModelContainer container = ModelContainer.Parse(data, Limits);
             Parsed++;
-            if (container.Architecture == "dbnet-lite-v0")
+            if (container.Architecture is "dbnet-lite-v0" or "dbnet-lite-v1")
             {
                 RunDetector(container);
                 return;

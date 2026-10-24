@@ -1,4 +1,5 @@
 using System.Text;
+using OneOcr.Documents;
 
 namespace OneOcr.Llm;
 
@@ -93,7 +94,7 @@ internal static class TextMerge
         return toks;
     }
 
-    private static string Key(string s) => GroundingNormalize.TrimPunct(GroundingNormalize.Fold(s));
+    private static string Key(string s) => ValueNormalize.TrimPunct(ValueNormalize.Fold(s));
 
     private static int SubCost(string a, string b)
     {
@@ -108,7 +109,7 @@ internal static class TextMerge
             return 0;
         }
 
-        int d = GroundingNormalize.BoundedDistance(a, b, max);
+        int d = ValueNormalize.BoundedDistance(a, b, max);
         return 400 + (int)(1600L * d / max);
     }
 

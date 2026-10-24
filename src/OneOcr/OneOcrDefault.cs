@@ -1,4 +1,5 @@
 using OneImage;
+using OneOcr.Documents;
 
 namespace OneOcr;
 
@@ -9,6 +10,7 @@ namespace OneOcr;
 public static class OneOcr
 {
     private static OcrEngine? s_default;
+    private static DocumentExtractor? s_extractor;
 
     /// <summary>The configured default engine.</summary>
     /// <exception cref="OcrModelException">No engine has been configured.</exception>
@@ -33,6 +35,25 @@ public static class OneOcr
     /// <exception cref="OcrModelException">The package carries no weights, or they do not match their pin.</exception>
     /// <exception cref="InvalidOperationException">A default engine was already configured.</exception>
     public static void Configure() => Configure(OcrEngine.LoadBundled());
+
+    /// <summary>The configured default document extractor, used by the extraction extension methods that take none.</summary>
+    /// <exception cref="OcrModelException">No extractor has been configured.</exception>
+    public static DocumentExtractor DefaultExtractor =>
+        Volatile.Read(ref s_extractor) ?? throw new OcrModelException(
+            "No document extraction model is configured. Call OneOcr.ConfigureExtractor(DocumentExtractor.Load(modelPath)) once at startup (the RecursiveAI.OneOcr.Models.Documents package offers the bundled model), or pass an extractor explicitly.");
+
+    /// <summary>Sets <see cref="DefaultExtractor"/>. May be called once.</summary>
+    /// <param name="extractor">The extractor to use by default.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="extractor"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A default extractor was already configured.</exception>
+    public static void ConfigureExtractor(DocumentExtractor extractor)
+    {
+        ArgumentNullException.ThrowIfNull(extractor);
+        if (Interlocked.CompareExchange(ref s_extractor, extractor, null) is not null)
+        {
+            throw new InvalidOperationException("OneOcr.DefaultExtractor is already configured.");
+        }
+    }
 
     /// <summary>Loads a model file and sets it as <see cref="Default"/>. May be called once.</summary>
     /// <param name="modelPath">A model container file.</param>
