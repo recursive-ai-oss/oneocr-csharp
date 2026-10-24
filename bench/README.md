@@ -248,3 +248,137 @@ per line, so beam search with the model adds 3 to 7 % to a line. On the 30 `clea
 
 Page level on `clean300-v1` (`OneOcr.Bench run ... --beam 8 --lm charlm-v1.bin`, scored with the page scorer): CER 0.171 %, WER 0.337 %
 greedy; CER 0.157 %, WER 0.271 % with the model.
+
+## Competitor baselines (information rows)
+
+Released competitors run as black boxes on the same pages as Tesseract and scored with the same scorer. Nothing of theirs is
+read, loaded or reused by our code; their output is only compared with our exact truth. They are information, not gates.
+The page files used on the Mac were checked against the manifests first (`scripts/verify_pages.py PAGES`).
+
+### Apple Vision
+
+`vision/main.swift` is a small Swift program over the public Vision API (`VNRecognizeTextRequest`, English, automatic language
+detection off). It writes `<id>.txt` with the lines in the order Vision returns them and `<id>.json` with one box per word
+(`VNRecognizedText.boundingBox(for:)` on each whitespace-separated word, converted to pixels, y down).
+
+```
+bash vision/run.sh PAGES OUT [cpu]     # builds the CLI with swiftc, then runs accurate/fast x language correction off/on over PAGES/<set>/
+uv run python -m oneocr_bench competitors-report OUT --eval EVAL_DIR     # where the truth directories are (the worker)
+```
+
+Mac mini (Mac14,3, Apple M2, 8 cores, 8 GB), macOS 27.0.1 (26A434), Swift 6.4. Vision gives no control over threads, so there is
+one timing column: mean wall seconds per page inside one process (request and results included; the first page of a set also pays
+the one-time model load, so the mean is a little high for small sets). `usesCPUOnly` gave identical text and the same speed, so only
+the default rows are shown. The Mac's load average was 1.2 before the runs and about 4 during them. `fast` is a different, much weaker
+recognizer, shown for completeness. Configuration names: `accurate`/`fast` is the recognition level, `corroff`/`corron` language correction.
+
+| category (set) | engine / configuration | CER % | WER % | order % | recall-CER % | recall-WER % | F1@0.5 | s/page | peak RSS MB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| clean 300 DPI print (clean300-v1) | accurate-corroff | 0.29 | 0.70 | 0.70 | 0.24 | 0.63 | 0.992 | 0.18 (n=30) | 121 |
+| clean 300 DPI print (clean300-v1) | accurate-corron | 0.33 | 0.67 | 0.67 | 0.25 | 0.56 | 0.987 | 0.21 (n=30) | 138 |
+| clean 300 DPI print (clean300-v1) | fast-corroff | 1.18 | 2.56 | 2.69 | 1.08 | 2.33 | 0.737 | 0.07 (n=30) | 119 |
+| clean 300 DPI print (clean300-v1) | fast-corron | 1.29 | 2.56 | 2.69 | 1.19 | 2.33 | 0.751 | 0.15 (n=30) | 166 |
+| degraded scans (degraded-v1) | accurate-corroff | 0.42 | 1.22 | 1.25 | 0.36 | 1.13 | 0.984 | 0.15 (n=40) | 105 |
+| degraded scans (degraded-v1) | accurate-corron | 0.38 | 1.05 | 1.06 | 0.30 | 0.90 | 0.975 | 0.17 (n=40) | 124 |
+| degraded scans (degraded-v1) | fast-corroff | 10.34 | 16.48 | 16.91 | 8.83 | 15.38 | 0.678 | 0.05 (n=40) | 106 |
+| degraded scans (degraded-v1) | fast-corron | 10.40 | 16.13 | 16.56 | 8.92 | 15.03 | 0.712 | 0.13 (n=40) | 182 |
+| screenshots and UI (screenshot-v1) | accurate-corroff | 0.45 | 1.86 | 33.01 | 0.35 | 1.30 | 0.983 | 0.09 (n=40) | 113 |
+| screenshots and UI (screenshot-v1) | accurate-corron | 0.28 | 1.46 | 32.78 | 0.17 | 0.86 | 0.977 | 0.11 (n=40) | 126 |
+| screenshots and UI (screenshot-v1) | fast-corroff | 31.29 | 37.89 | 44.07 | 25.81 | 37.76 | 0.642 | 0.03 (n=40) | 104 |
+| screenshots and UI (screenshot-v1) | fast-corron | 31.55 | 37.26 | 43.57 | 25.91 | 37.13 | 0.642 | 0.05 (n=40) | 130 |
+| complex layout (layout-v1) | accurate-corroff | 0.48 | 1.14 | 15.25 | 0.39 | 1.00 | 0.986 | 0.20 (n=40) | 124 |
+| complex layout (layout-v1) | accurate-corron | 0.48 | 1.08 | 15.27 | 0.37 | 0.91 | 0.980 | 0.24 (n=40) | 151 |
+| complex layout (layout-v1) | fast-corroff | 2.48 | 3.86 | 50.12 | 2.40 | 3.74 | 0.730 | 0.08 (n=40) | 141 |
+| complex layout (layout-v1) | fast-corron | 2.51 | 3.86 | 50.14 | 2.43 | 3.74 | 0.731 | 0.18 (n=40) | 203 |
+| phone photos (phone-v1) | accurate-corroff | 0.67 | 1.17 | 1.57 | 0.60 | 1.09 | 0.990 | 0.16 (n=40) | 97 |
+| phone photos (phone-v1) | accurate-corron | 0.65 | 1.13 | 1.54 | 0.56 | 1.03 | 0.985 | 0.19 (n=40) | 120 |
+| phone photos (phone-v1) | fast-corroff | 37.46 | 47.04 | 47.47 | 37.17 | 46.97 | 0.528 | 0.06 (n=40) | 95 |
+| phone photos (phone-v1) | fast-corron | 37.42 | 46.04 | 46.47 | 37.13 | 45.97 | 0.577 | 0.13 (n=40) | 148 |
+| receipts (receipts-v1) | accurate-corroff | 12.55 | 23.48 | 61.38 | 7.06 | 18.22 | 0.869 | 0.09 (n=100) | 175 |
+| receipts (receipts-v1) | accurate-corron | 13.75 | 25.15 | 63.22 | 7.45 | 18.31 | 0.854 | 0.09 (n=100) | 197 |
+| receipts (receipts-v1) | fast-corroff | 52.98 | 70.64 | 80.98 | 46.88 | 66.26 | 0.612 | 0.04 (n=100) | 240 |
+| receipts (receipts-v1) | fast-corron | 52.81 | 69.56 | 80.40 | 46.64 | 65.18 | 0.615 | 0.05 (n=100) | 253 |
+
+### PaddleOCR and docTR
+
+Installed with `competitors/setup.sh` into two virtual environments under `~/oneocr/bench/competitors/` (apart from this project's),
+CPU only, stock models downloaded by the packages themselves. Versions (`versions.txt`): paddleocr 3.7.0, paddlepaddle 3.3.1,
+paddlex 3.7.2, python-doctr 1.1.0, torch 2.14.1 (CPU), CPython 3.13.
+
+```
+bash competitors/setup.sh                          # once
+bash competitors/run_all.sh                        # accuracy rows (every page) and a first timing pass; claims the worker lock
+bash competitors/timing_chunks.sh                  # timing/RSS rows in short chunks that each claim and release the lock
+uv run python -m oneocr_bench competitors-report ~/oneocr/bench/competitors/out --eval ~/oneocr/eval/bench-v1 [--timing .../out-timing]
+```
+
+`competitors/run.py` is the runner (one process per configuration, thread setting and set; see its docstring):
+
+- **paddle-v5-mobile** = PP-OCRv5_mobile_det + PP-OCRv5_mobile_rec; **paddle-v5-server** = PP-OCRv5_server_det + PP-OCRv5_server_rec.
+  Document orientation, unwarping and text-line orientation steps are off (the sets are upright). Detection input is capped at 1920 px
+  on the longer side (`text_det_limit_type=max`): with the stock setting the server model took 21 GB and over a minute on a screenshot page.
+  `enable_mkldnn=False`, because the default oneDNN path raised an error in the pinned paddlepaddle on the worker. Paddle returns text
+  lines; its word boxes are the line boxes cut in proportion to character counts, so F1 is approximate, and low on `phone-v1`, where
+  lines are rotated. The server model drops spaces on degraded and phone pages (`acceptedthechallenge`), which is most of its CER/WER there.
+- **doctr-default** = `ocr_predictor(pretrained=True)` (db_resnet50 + crnn_vgg16_bn at this version); **doctr-mobile** = db_mobilenet_v3_large +
+  crnn_mobilenet_v3_small. Word boxes are docTR's. Its detector resizes pages to a fixed square input, which costs it on large pages.
+- Reading order is each engine's own line order. Receipts: read the recall columns, as for Tesseract.
+
+Ryzen 9 7950X3D (16 cores, 32 threads), Linux. `s/page 1 thread` is the first n=8 pages with one CPU thread (`cpu_threads=1`,
+`torch.set_num_threads(1)`); `s/page default` is every page with the engine's own threading (Paddle 10 threads, torch all). Times include
+reading the file and exclude model load (1 to 2 s, in each `timing.json`); peak RSS includes model load.
+
+**These timings are not publishable.** The first pass ran for 5 hours on a shared worker; the load average before and after each run is in
+the last column (up to 11), and other jobs on the machine overlapped part of it. The accuracy columns do not depend on load. The
+timing-only rerun in short lock-claiming chunks (`timing_chunks.sh`) did not get the lock: other long jobs kept re-claiming it.
+Rerun `bash competitors/timing_chunks.sh` on a free worker and pass `--timing` to the report.
+
+| category (set) | engine / configuration | CER % | WER % | order % | recall-CER % | recall-WER % | F1@0.5 | s/page 1 thread | s/page default | peak RSS MB (1t / default) | load1 before / after (default run) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| clean 300 DPI print (clean300-v1) | doctr-default | 0.89 | 2.49 | 2.59 | 0.82 | 2.42 | 0.979 | 10.10 (n=8) | 1.98 (n=30) | 1589 / 1963 | 1.2 / 8.8 |
+| clean 300 DPI print (clean300-v1) | doctr-mobile | 0.97 | 2.55 | 2.63 | 0.89 | 2.49 | 0.975 | 1.59 (n=8) | 0.53 (n=30) | 1379 / 1702 | 5.5 / 7.8 |
+| clean 300 DPI print (clean300-v1) | paddle-v5-mobile | 0.41 | 0.82 | 0.83 | 0.24 | 0.55 | 0.764 | 13.22 (n=8) | 12.08 (n=30) | 1439 / 1472 | 1.8 / 9.8 |
+| clean 300 DPI print (clean300-v1) | paddle-v5-server | 2.07 | 2.85 | 2.98 | 1.67 | 2.36 | 0.721 | 76.63 (n=8) | 36.90 (n=30) | 13932 / 13930 | 7.9 / 7.2 |
+| degraded scans (degraded-v1) | doctr-default | 2.62 | 6.07 | 14.20 | 2.55 | 6.06 | 0.968 | 9.62 (n=8) | 1.68 (n=40) | 1554 / 1946 | 2.9 / 9.9 |
+| degraded scans (degraded-v1) | doctr-mobile | 1.79 | 5.13 | 14.28 | 1.71 | 5.07 | 0.977 | 1.44 (n=8) | 0.47 (n=40) | 1363 / 1742 | 6.3 / 5.9 |
+| degraded scans (degraded-v1) | paddle-v5-mobile | 2.46 | 4.12 | 4.62 | 2.36 | 4.06 | 0.517 | 10.29 (n=8) | 8.32 (n=40) | 1420 / 1432 | 2.5 / 10.0 |
+| degraded scans (degraded-v1) | paddle-v5-server | 63.75 | 53.87 | 54.29 | 47.69 | 53.87 | 0.374 | 68.96 (n=8) | 30.70 (n=40) | 13883 / 13971 | 1.1 / 6.4 |
+| screenshots and UI (screenshot-v1) | doctr-default | 2.92 | 7.57 | 20.89 | 2.85 | 7.57 | 0.959 | 3.98 (n=8) | 0.63 (n=40) | 1407 / 1529 | 3.4 / 7.7 |
+| screenshots and UI (screenshot-v1) | doctr-mobile | 1.67 | 5.51 | 19.89 | 1.55 | 5.38 | 0.970 | 1.19 (n=8) | 0.38 (n=40) | 1294 / 1378 | 4.8 / 7.1 |
+| screenshots and UI (screenshot-v1) | paddle-v5-mobile | 1.53 | 3.79 | 17.87 | 1.43 | 3.49 | 0.820 | 5.39 (n=8) | 3.98 (n=40) | 1463 / 1543 | 3.2 / 9.6 |
+| screenshots and UI (screenshot-v1) | paddle-v5-server | 9.72 | 11.23 | 24.18 | 7.35 | 11.06 | 0.826 | 43.95 (n=8) | 18.79 (n=40) | 14823 / 14887 | 1.1 / 6.6 |
+| complex layout (layout-v1) | doctr-default | 1.49 | 4.16 | 63.74 | 1.37 | 4.08 | 0.970 | 14.88 (n=8) | 2.25 (n=40) | 1616 / 2135 | 4.7 / 11.6 |
+| complex layout (layout-v1) | doctr-mobile | 1.54 | 4.05 | 63.66 | 1.35 | 3.95 | 0.972 | 1.72 (n=8) | 0.55 (n=40) | 1391 / 1843 | 6.1 / 9.5 |
+| complex layout (layout-v1) | paddle-v5-mobile | 0.52 | 0.96 | 62.93 | 0.36 | 0.73 | 0.837 | 18.69 (n=8) | 13.99 (n=40) | 1452 / 1486 | 5.1 / 10.0 |
+| complex layout (layout-v1) | paddle-v5-server | 1.91 | 2.92 | 63.93 | 1.66 | 2.65 | 0.817 | 94.22 (n=8) | 39.35 (n=40) | 13927 / 13931 | 1.8 / 7.4 |
+| phone photos (phone-v1) | doctr-default | 3.83 | 9.60 | 41.52 | 3.64 | 9.57 | 0.951 | 10.84 (n=8) | 1.87 (n=40) | 1515 / 1965 | 2.5 / 9.9 |
+| phone photos (phone-v1) | doctr-mobile | 3.10 | 8.71 | 43.14 | 2.87 | 8.57 | 0.975 | 1.56 (n=8) | 0.49 (n=40) | 1358 / 1734 | 7.6 / 10.0 |
+| phone photos (phone-v1) | paddle-v5-mobile | 3.08 | 5.62 | 5.71 | 2.96 | 5.60 | 0.213 | 10.55 (n=8) | 8.95 (n=40) | 1476 / 1489 | 1.9 / 9.8 |
+| phone photos (phone-v1) | paddle-v5-server | 90.59 | 71.25 | 71.29 | 64.54 | 71.25 | 0.182 | 73.87 (n=8) | 34.68 (n=40) | 14823 / 14877 | 1.0 / 7.1 |
+| receipts (receipts-v1) | doctr-default | 11.60 | 24.06 | 27.94 | 3.97 | 9.55 | 0.895 | 2.33 (n=8) | 0.44 (n=100) | 1403 / 1466 | 3.0 / 7.8 |
+| receipts (receipts-v1) | doctr-mobile | 24.10 | 60.01 | 64.64 | 5.37 | 13.89 | 0.758 | 1.16 (n=8) | 0.37 (n=100) | 1263 / 1367 | 8.0 / 10.5 |
+| receipts (receipts-v1) | paddle-v5-mobile | 15.26 | 29.11 | 38.16 | 10.34 | 25.56 | 0.826 | 2.13 (n=8) | 1.94 (n=100) | 1154 / 1741 | 3.2 / 9.8 |
+| receipts (receipts-v1) | paddle-v5-server | 14.44 | 24.27 | 34.45 | 8.98 | 20.18 | 0.841 | 23.11 (n=8) | 11.90 (n=100) | 11295 / 19505 | 1.1 / 6.1 |
+
+Reading the rows: Apple Vision accurate is the strongest engine on the five page sets (CER 0.3 to 0.7 %); on receipts docTR default has
+the best recall-CER (3.97 %, Vision 7.06 %). PP-OCRv5 mobile is next on clean print (0.41 %) and layout (0.52 %); docTR is 1 to 4 % CER.
+PaddleOCR's word-box F1 is low partly because of the line-box splitting described above.
+
+## Using the eval sets from another project
+
+- **Tag:** git tag `bench-v1` is the scorer and the generators; the worker data `~/oneocr/eval/bench-v1/<set>/` (for example
+  `~/oneocr/eval/bench-v1/clean300-v1/`) are the sets: frozen copies of the generated sets with a `SHA256SUMS` file, chmod read-only.
+- **Rules:** never modify either. Any change to a set or to the scorer becomes `bench-v2`.
+- **Pinning:** other projects may vendor `bench/` pinned to the tag.
+- **Scoring:** `score` takes a truth directory and an output directory, needs no environment variable and writes nothing to either:
+
+```
+uv run python -m oneocr_bench score ~/oneocr/eval/bench-v1/clean300-v1 OUTPUT_DIR [--json result.json]
+```
+
+  The first argument is a set directory (its `truth/` is used) or a `truth/` directory itself; `truth/<id>.txt` is the reading-order
+  truth and `truth/<id>.json` the word boxes. `OUTPUT_DIR` holds `<id>.txt` and, optionally, `<id>.json` box sidecars (format above); a
+  missing `<id>.txt` scores as empty output. The `--set`/`--hyp` and `--hyp-root` forms still work and read the data under
+  `ONEOCR_BENCH_DIR`. Checked on the worker with nothing written to the published copy: the Tesseract outputs for `clean300-v1` give
+  CER 0.2427 %, WER 0.7300 %, order 0.7394 % (best, PSM 11) and 0.2586 % / 0.8329 % / 0.8517 % (fast, PSM 6), the numbers in the
+  baseline table above.

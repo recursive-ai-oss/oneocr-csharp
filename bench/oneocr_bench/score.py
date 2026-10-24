@@ -145,6 +145,8 @@ def score_dir(truth_dir: Path, hyp_dir: Path) -> dict:
             det["tp"] += box_matches(tb, hb)
             det["truth"] += len(tb)
             det["hyp"] += len(hb)
+    if not pages:
+        raise SystemExit(f"no truth pages (<id>.txt) in {truth_dir}")
     tot = {k: sum(p[k] for p in pages.values()) for k in next(iter(pages.values()))}
     r = {
         "pages": len(pages),
