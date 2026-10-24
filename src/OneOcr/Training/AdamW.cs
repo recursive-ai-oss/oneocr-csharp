@@ -32,11 +32,16 @@ internal sealed class AdamW
     private readonly bool[] _decay;
     private readonly float[][] _m;
     private readonly float[][] _v;
+    private readonly double[]? _scales;
     private double _beta1Power = 1.0;
     private double _beta2Power = 1.0;
 
-    /// <summary>Creates the optimizer over tensors it updates in place; <paramref name="decay"/> flags which receive weight decay.</summary>
-    public AdamW(float[][] parameters, bool[] decay, AdamWOptions options)
+    /// <summary>
+    /// Creates the optimizer over tensors it updates in place; <paramref name="decay"/> flags which receive weight decay and the optional
+    /// <paramref name="learningRateScales"/> multiplies the learning rate of each tensor (a lower rate for a pretrained backbone).
+    /// Without scales every tensor takes the step's rate as it is.
+    /// </summary>
+    public AdamW(float[][] parameters, bool[] decay, AdamWOptions options, double[]? learningRateScales = null)
     {
         ArgumentNullException.ThrowIfNull(parameters);
         ArgumentNullException.ThrowIfNull(decay);
@@ -47,6 +52,12 @@ internal sealed class AdamW
             throw new ArgumentException("One decay flag per tensor is required.", nameof(decay));
         }
 
+        if (learningRateScales is not null && (learningRateScales.Length != parameters.Length || learningRateScales.Any(static x => !(x >= 0))))
+        {
+            throw new ArgumentException("One non-negative rate scale per tensor is required.", nameof(learningRateScales));
+        }
+
+        _scales = learningRateScales;
         Options = options;
         _parameters = parameters;
         _decay = decay;
@@ -79,10 +90,8 @@ internal sealed class AdamW
         double correction2 = 1.0 - _beta2Power;
         float beta2 = (float)Options.Beta2;
         float oneMinusBeta1 = (float)(1.0 - Options.Beta1), oneMinusBeta2 = (float)(1.0 - Options.Beta2);
-        float stepSize = (float)(learningRate / correction1);
         float sqrtCorrection2 = (float)Math.Sqrt(correction2);
         float epsilon = (float)Options.Epsilon;
-        float decayFactor = (float)(1.0 - (learningRate * Options.WeightDecay));
 
         for (int i = 0; i < _parameters.Length; i++)
         {
@@ -93,6 +102,9 @@ internal sealed class AdamW
             }
 
             bool decays = _decay[i];
+            double rate = _scales is null ? learningRate : learningRate * _scales[i];
+            float stepSize = (float)(rate / correction1);
+            float decayFactor = (float)(1.0 - (rate * Options.WeightDecay));
             for (int j = 0; j < p.Length; j++)
             {
                 float w = decays ? p[j] * decayFactor : p[j];
