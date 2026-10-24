@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 
-from . import assets, score, sets, tess
+from . import assets, competitors, score, sets, tess
 
 
 def main() -> None:
@@ -24,6 +25,7 @@ def main() -> None:
     d.add_argument("page")
 
     s = sub.add_parser("score", help="score hypotheses: <id>.txt (and optional <id>.json boxes) per page")
+    s.add_argument("dirs", nargs="*", metavar="DIR", help="TRUTH_DIR OUTPUT_DIR: a set directory (or its truth/ directory) and a directory of <id>.txt")
     s.add_argument("--set", choices=names, help="truth set (default clean300-v1 unless --truth is given)")
     s.add_argument("--truth", default=None, help="explicit truth directory")
     s.add_argument("--hyp", help="directory of hypotheses for one set")
@@ -37,6 +39,11 @@ def main() -> None:
     t.add_argument("--tess", default=os.path.expanduser("~/tools/tesseract/tess"))
     t.add_argument("--results")
 
+    c = sub.add_parser("competitors-report", help="one table over competitor run directories (Apple Vision, PaddleOCR, docTR)")
+    c.add_argument("root")
+    c.add_argument("--timing", default=None, help="take timing.json from this tree instead of ROOT")
+    c.add_argument("--eval", default=None, help="directory with <set>/truth (default: the benchmark data directory)")
+
     sub.add_parser("tess-report", help="merge per-set Tesseract results into one table")
 
     a = ap.parse_args()
@@ -48,7 +55,12 @@ def main() -> None:
     elif a.cmd == "draw":
         sets.draw(a.set, a.page)
     elif a.cmd == "score":
-        if a.hyp_root:
+        if a.dirs:
+            if len(a.dirs) != 2 or a.hyp or a.hyp_root or a.truth or a.set:
+                ap.error("score takes either TRUTH_DIR OUTPUT_DIR or --hyp/--hyp-root options")
+            t = Path(a.dirs[0])
+            score.main(str(t / "truth" if (t / "truth").is_dir() else t), a.dirs[1], a.json)
+        elif a.hyp_root:
             score.main_root(a.hyp_root, a.json)
         else:
             if not a.hyp:
@@ -57,6 +69,8 @@ def main() -> None:
             score.main(truth, a.hyp, a.json)
     elif a.cmd == "tess":
         tess.main(a.set, a.models, a.psms, a.tess, a.results)
+    elif a.cmd == "competitors-report":
+        print(competitors.report(a.root, a.eval, a.timing))
     elif a.cmd == "tess-report":
         tess.report()
 
