@@ -116,6 +116,10 @@ def main() -> None:
         best = ck.get("best", float("inf"))
         print(f"resumed from step {step}", flush=True)
 
+    if step == 0 and cfg.get("init_from"):  # a second stage starts from an earlier checkpoint's weights (optimizer and schedule are fresh)
+        model.load_state_dict(torch.load(cfg["init_from"], map_location=dev, weights_only=False)["model"])
+        print(f"initialised from {cfg['init_from']}", flush=True)
+
     train = sets["train"]
     steps_per_epoch = math.ceil(len(train) / tc["batch"])
     log = open(run_dir / "metrics.jsonl", "a", encoding="utf-8")
