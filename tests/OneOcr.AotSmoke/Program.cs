@@ -293,12 +293,52 @@ if (Describe(invoice1) != Describe(invoice4) || extractor.WithKeyValues(docPage)
     return 1;
 }
 
+// Fine-tuning a custom document type from hand-made labels: schema from source-generated type info, a few steps, a tuned model that fills the type.
+var formSchema = OneOcr.Training.ExtractionSchema.From(SmokeContext.Default.SmokeForm);
+string extractRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "oneocr-aot-x-" + Guid.NewGuid().ToString("N"));
+System.IO.Directory.CreateDirectory(extractRoot);
+string extractModel = System.IO.Path.Combine(extractRoot, "docextract.onm");
+System.IO.File.WriteAllBytes(extractModel, TestDocModels.RandomContainer(TestDocModels.Small, 3));
+string extractWork = System.IO.Path.Combine(extractRoot, "extract-work");
+System.IO.Directory.CreateDirectory(System.IO.Path.Combine(extractWork, "extract-labels"));
+for (int d = 0; d < 6; d++)
+{
+    (string[] xt, OcrBox[] xb, double xw, double xh) = TestDocModels.Page(10, 20 + d);
+    var label = new OneOcr.Training.ExtractLabelsDto { Id = "x" + d, Document = "p", Width = xw, Height = xh, Usable = true, Words = [.. xt] };
+    foreach (OcrBox box in xb)
+    {
+        label.Boxes.AddRange([box.Left, box.Top, box.Right, box.Bottom]);
+    }
+
+    label.Fields.Add(new OneOcr.Training.ExtractLabelDto { Name = "total", Value = xt[2], Words = [2], Contiguous = true });
+    System.IO.File.WriteAllBytes(
+        System.IO.Path.Combine(extractWork, "extract-labels", "x" + d + ".json"),
+        System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(label, OneOcr.Training.ExtractJsonContext.Default.ExtractLabelsDto));
+}
+
+OneOcr.Training.ExtractionReport extractReport = new OneOcr.Training.ExtractionTrainer(new OneOcr.Training.ExtractionTrainerOptions
+{
+    ModelPath = extractModel, Schema = formSchema, WorkDirectory = extractWork, Steps = 3, BatchSize = 2, HeldOutFraction = 0.34, MaxDegreeOfParallelism = 1,
+}).Train();
+OneOcr.Documents.ExtractionResult<SmokeForm> tunedForm = OneOcr.Documents.DocumentExtractor.Load(extractReport.ModelPath).Extract(docPage, SmokeContext.Default.SmokeForm, 1);
+if (extractReport.Fields.Count != 1 || extractReport.HeldOutDocuments != 2 || tunedForm.Extraction is null
+    || !OneOcr.Training.ExtractionTrainer.ToJson(extractReport).Contains("\"accuracyAfter\"", StringComparison.Ordinal))
+{
+    Console.Error.WriteLine("custom extraction fine-tuning failed");
+    return 1;
+}
+
+System.IO.Directory.Delete(extractRoot, true);
+
 return 0;
+
+internal sealed record SmokeForm(string? Total);
 
 internal sealed record SmokeAnswer(string? Total);
 
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SmokeAnswer))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeForm))]
 internal sealed partial class SmokeContext : System.Text.Json.Serialization.JsonSerializerContext;
 
 internal sealed class SmokeHandler : System.Net.Http.HttpMessageHandler

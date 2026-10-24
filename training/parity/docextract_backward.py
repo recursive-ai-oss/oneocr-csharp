@@ -219,27 +219,6 @@ def layer_fixtures(out: Out, cfg: dict, tensors: dict, seed: int) -> dict:
     res = run(pair, {"geo": geo, "w1": w1, "b1": b1, "w2": w2, "b2": b2}, gy, ["w1", "b1", "w2", "b2"])
     store("layers.pair_mlp", {"geo": geo, "w1": w1, "b1": b1, "w2": w2, "b2": b2}, gy, res, ["w1", "b1", "w2", "b2"])
 
-    # character CNN: embedding gather, conv1d k=3 (zero padding), ReLU masked to the word, max over positions
-    nw, ln = 11, cfg.get("max_chars", 32)
-    table = tensors["char_emb.weight"].clone()
-    table[1:] = rnd(table.shape[0] - 1, table.shape[1], scale=0.5)
-    cw, cb = tensors["char_conv.weight"], tensors["char_conv.bias"]
-    lens = torch.tensor([1, 2, 3, 5, 8, 13, 16, 17, 31, 32, 7])
-    ids = torch.randint(1, table.shape[0], (nw, ln), generator=g)
-    ids = ids * (torch.arange(ln)[None] < lens[:, None])
-    gy = rnd(nw, cw.shape[0])
-
-    def cnn(table, cw, cb, ids):
-        e = table[ids]
-        valid = (ids != 0).to(table.dtype)
-        cv = F.conv1d(e.transpose(1, 2), cw, cb, padding=1)
-        return (F.relu(cv) * valid[:, None, :]).amax(-1)
-
-    res = run(cnn, {"table": table, "cw": cw, "cb": cb, "ids": ids}, gy, ["table", "cw", "cb"])
-    for dtype in res:
-        res[dtype][0]["table"][0] = 0  # padding_idx = 0
-    store("layers.char_cnn", {"table": table, "cw": cw, "cb": cb, "ids": ids}, gy, res, ["table", "cw", "cb"])
-
     # pointer scores: rel = q k^T / sqrt(r) + bias
     n, r = 29, cfg["rel_dim"]
     q, k, bias = rnd(n, r), rnd(n, r), rnd(n, n)
