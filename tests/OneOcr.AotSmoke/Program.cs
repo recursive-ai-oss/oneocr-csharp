@@ -273,6 +273,26 @@ catch (OneOcr.OcrFormatException)
 {
 }
 
+// Local document extraction with a random-weight model: a page of 30 words (three windows of 12) gives the same fields at every degree.
+OneOcr.Documents.DocumentExtractor extractor = OneOcr.Documents.DocumentExtractor.Load(TestDocModels.RandomContainer(TestDocModels.SmallWindow, 3));
+(string[] docTexts, OcrBox[] docBoxes, double docWidth, double docHeight) = TestDocModels.Page(30, 5);
+var docWords = new OcrWord[docTexts.Length];
+for (int i = 0; i < docWords.Length; i++)
+{
+    docWords[i] = new OcrWord(docTexts[i], docBoxes[i], 0.9f, 0.9f, OcrSource.Ocr, []);
+}
+
+var docLines = docWords.Select(w => new OcrLine(w.Text, [w], [0], w.Box, 0.9f, OcrSource.Ocr)).ToArray();
+var docPage = new OcrPage(0, docWidth, docHeight, 72, [new OcrBlock(OcrBlockRole.Body, false, new OcrBox(0, 0, docWidth, docHeight), docLines, 0.9f)]);
+OneOcr.Documents.Invoice invoice1 = extractor.ExtractInvoice(docPage, 1), invoice4 = extractor.ExtractInvoice(docPage, 4);
+string Describe(OneOcr.Documents.Invoice v) => string.Join(";", v.Extraction.Fields.Select(f => f.Id + "=" + f.Text + "@" + f.Confidence.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
+if (Describe(invoice1) != Describe(invoice4) || extractor.WithKeyValues(docPage).KeyValues.Count != extractor.FindKeyValues(docPage).Count
+    || OneOcr.Models.Documents.DocumentModels.HasExtractor)
+{
+    Console.Error.WriteLine("document extraction disagrees across degrees");
+    return 1;
+}
+
 return 0;
 
 internal sealed record SmokeAnswer(string? Total);

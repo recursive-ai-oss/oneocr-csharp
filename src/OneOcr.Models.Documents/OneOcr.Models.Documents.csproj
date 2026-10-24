@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Document extraction weights for RecursiveAI.OneOcr: invoice, receipt and key-value fields. The model is embedded when the package is built with OneOcrDocumentModelFile pointing at the pinned file (see models.json).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../OneOcr/OneOcr.csproj" />
+    <EmbeddedResource Include="models.json" LogicalName="models.json" />
+  </ItemGroup>
+
+  <!--
+    Pack step: dotnet pack src/OneOcr.Models.Documents -p:OneOcrDocumentModelFile=/path/to/model.onm
+    The file must hash to the SHA-256 pinned for the extractor in models.json; the build stops otherwise, and also when nothing is pinned yet.
+    Without the property the package builds without weights (development builds), and DocumentModels reports that it is absent.
+    Weights are never checked in.
+  -->
+  <Target Name="EmbedExtractor" BeforeTargets="AssignTargetPaths" Condition="'$(OneOcrDocumentModelFile)' != ''">
+    <PropertyGroup>
+      <_ManifestText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/models.json'))</_ManifestText>
+      <_PinnedSha>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', '"role"\s*:\s*"extractor"[^}]*?"sha256"\s*:\s*"([0-9a-f]{64})"').Groups[1].Value)</_PinnedSha>
+      <_PinnedAsset>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', '"role"\s*:\s*"extractor"[^}]*?"asset"\s*:\s*"([^"]+)"').Groups[1].Value)</_PinnedAsset>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(OneOcrDocumentModelFile)')" Text="OneOcrDocumentModelFile '$(OneOcrDocumentModelFile)' does not exist." />
+    <Error Condition="'$(_PinnedSha)' == '' Or '$(_PinnedAsset)' == ''" Text="models.json pins no extractor yet. Nothing was packed." />
+    <GetFileHash Files="$(OneOcrDocumentModelFile)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="_ModelHash" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_ActualSha>%(_ModelHash.FileHash)</_ActualSha>
+    </PropertyGroup>
+    <Error Condition="'$(_ActualSha.ToLowerInvariant())' != '$(_PinnedSha)'" Text="OneOcrDocumentModelFile hashes to $(_ActualSha), but models.json pins $(_PinnedSha) for the extractor. Nothing was packed." />
+    <ItemGroup>
+      <EmbeddedResource Include="$(OneOcrDocumentModelFile)" LogicalName="$(_PinnedAsset)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

@@ -26,6 +26,8 @@ using OneOcr.Layout;
 //       median time of one training step (see TrainBench.cs).
 //   OneOcr.Bench detect [--model FILE] [--page 2480x3508] [--degree 1] [--repeat 15] [--path avx2]
 //       median time of the page detector (scaling, network, decoding) and of the network alone; see DetectBench.cs.
+//   OneOcr.Bench docextract --model FILE [--words 150,300] [--degree 1] [--repeat 15] [--path avx2]
+//       median time of the document-extraction forward pass and assembly for pages of the given word counts; see DocExtractBench.cs.
 //   OneOcr.Bench randommodel --out FILE
 //       writes a random-weight model of the intended size, to exercise the pipeline before trained weights exist (the text is garbage).
 //
@@ -55,6 +57,7 @@ internal static class Program
             "decode" => DecodeBench.Run(options),
             "trainstep" => TrainBench.Run(options),
             "detect" => DetectBench.Run(options),
+            "docextract" => DocExtractBench.Run(options),
             "strips" => Strips(options),
             "detlines" => DetLines(options),
             "grids" => Grids(options),

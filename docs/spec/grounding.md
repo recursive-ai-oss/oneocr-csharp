@@ -104,7 +104,7 @@ Decimal mark, given the page's **number style** (`PointDecimal` or `CommaDecimal
   (`12,5`, `0,125`, `1234,567`) it is the decimal mark;
 - spaces and apostrophes are always group marks.
 
-The **page number style** (`LlmNumberStyle.Auto`) votes over listed words that look numeric: both marks present, last is the
+The **page number style** (`NumberStyle.Auto`) votes over listed words that look numeric: both marks present, last is the
 decimal; one mark repeated: the other mark is the decimal; one mark once followed by one, two, or four or more digits: that mark
 is the decimal. More comma votes than point votes: comma; otherwise point. A caller can pin the style.
 
@@ -121,7 +121,7 @@ German, French, Spanish, Italian, Portuguese, Dutch or Turkish (table in the sou
 Readings: eight digits → year, month, day. Three numbers: first of four digits → year, month, day; otherwise day/month first
 two numbers (1–2 digits) and a last number of two or four digits as the year. Two-digit years: 00–69 → 2000–2069, 70–99 →
 1970–1999. If the first number is above 12 it is the day; if the second is above 12 it is the day; equal numbers read the
-same either way; otherwise the **date order** decides, `DayFirst` or `MonthFirst`. With `LlmDateOrder.Auto` the order is the
+same either way; otherwise the **date order** decides, `DayFirst` or `MonthFirst`. With `DateOrder.Auto` the order is the
 page's: among listed words of the shape `n.n.yyyy`, `n/n/yyyy`, `n-n-yyyy` with only one number above 12, the majority;
 with no evidence both readings are kept and the field is flagged `DateAmbiguous`. With a month name: day and year
 (`3 Oct 2026`, `Oct 3, 2026`, `2026 Oct 3`) or day only (year missing). A date must exist (`31.02.2026` is rejected;
