@@ -85,6 +85,16 @@ internal sealed class BufferPool<T>
         long bytes = (long)array.Length * _elementSize;
         lock (_gate)
         {
+            // An array given back twice would be handed to two renters at once and each would overwrite the other's data;
+            // the second return is ignored so a bug in a caller cannot turn into silent corruption.
+            foreach (T[] free in _free)
+            {
+                if (ReferenceEquals(free, array))
+                {
+                    return;
+                }
+            }
+
             _outstandingBytes -= bytes;
             if (_retainedBytes + bytes <= _maxRetainedBytes)
             {
