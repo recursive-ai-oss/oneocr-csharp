@@ -171,9 +171,11 @@ internal static class PageReader
         }
 
         OcrBox box = maxX < 0 ? new OcrBox(xa, ink.Y, xb, ink.Bottom) : new OcrBox(minX, minY, maxX + 1, maxY + 1);
-        var chars = new List<OcrChar>();
+        IReadOnlyList<OcrChar> chars = [];
         if (includeChars)
         {
+            var list = new List<OcrChar>(w.Chars.Count);
+            chars = list;
             // A character's edge toward a neighbour is halfway across the gap between their runs; the ends are the word's.
             double left = box.Left;
             for (int i = 0; i < w.Chars.Count; i++)
@@ -186,7 +188,7 @@ internal static class PageReader
                     right = Math.Clamp(edge, left, box.Right);
                 }
 
-                chars.Add(new OcrChar(c.Text, new OcrBox(left, box.Top, right, box.Bottom), c.Probability));
+                list.Add(new OcrChar(c.Text, new OcrBox(left, box.Top, right, box.Bottom), c.Probability));
                 left = right;
             }
         }

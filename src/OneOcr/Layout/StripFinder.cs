@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Buffers;
 using System.Numerics;
 using OneImage;
@@ -172,6 +173,7 @@ internal static class StripFinder
     // band's height for a column that is ink throughout), and whether it holds a ruling line.
     private sealed record Band(int[] FirstRun, int[] LastRun, bool Rules);
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static Band FillBand(Gray8[] gray, int width, int y0, int y1, int threshold, bool inkIsBright, PageMask mask, int longRun)
     {
         ReadOnlySpan<byte> pixels = PixelSpans.AsBytes(gray.AsSpan(y0 * width, (y1 - y0) * width));
@@ -285,6 +287,7 @@ internal static class StripFinder
     }
 
     // ink[x] = 1 where the pixel is on the ink side of the threshold, else 0.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void MarkInk(ReadOnlySpan<byte> row, int threshold, bool inkIsBright, byte[] ink)
     {
         int x = 0;
@@ -565,6 +568,7 @@ internal static class StripFinder
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void Profile(PageMask mask, Rect r, int[] rows, int[] cols)
     {
         Array.Clear(rows, 0, r.H);
@@ -657,6 +661,7 @@ internal static class StripFinder
 
     // The empty vertical stripes, at least `gutter` wide, of a region (x ranges in page coordinates): `Between` those between its ink
     // columns, `Free` also those at its sides. `Between` is empty when the region is shorter than `minRows`.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static (List<(int Start, int End)> Between, List<(int Start, int End)> Free, int FirstInk, int LastInk) Gutters(
         PageMask mask, Rect slice, int[] cols, int gutter, int minRows)
     {

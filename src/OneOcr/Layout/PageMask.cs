@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Buffers.Binary;
 
 namespace OneOcr.Layout;
@@ -73,6 +74,7 @@ internal sealed class PageMask
     }
 
     /// <summary>Stores a row of 0/1 values (one byte per pixel) as the whole row, replacing it.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void StoreInkRow(int y, ReadOnlySpan<byte> ink)
     {
         Span<byte> row = _data.AsSpan(y * Stride, Stride);
@@ -96,6 +98,7 @@ internal sealed class PageMask
     }
 
     /// <summary>Unpacks <paramref name="count"/> pixels of row <paramref name="y"/> from column <paramref name="x"/> into <paramref name="destination"/>, one byte each.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public void ReadRow(int y, int x, int count, Span<byte> destination)
     {
         ReadOnlySpan<byte> row = _data.AsSpan(y * Stride, Stride);

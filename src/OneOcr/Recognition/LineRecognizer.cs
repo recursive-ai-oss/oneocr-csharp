@@ -162,17 +162,34 @@ public sealed class LineRecognizer
 
     internal RecognizedLine Decode(float[] logits, int steps)
     {
-        var runs = new List<CharRun>(RunCapacity(steps));
+        List<CharRun> runs = RentRuns(steps);
         CollectRuns(logits, steps, runs);
         return Decode(runs);
     }
 
-    // Characters are about two steps apiece; sizing the list to that keeps it from doubling its way up as garbage.
-    private static int RunCapacity(int steps) => Math.Max(4, (steps / 2) + 1);
+    // Each thread keeps one list of runs and two string builders for the lines it reads, so that a line leaves no scratch behind.
+    // Characters are about two steps apiece, which is what the list is sized to.
+    [ThreadStatic]
+    private static List<CharRun>? t_runs;
+
+    [ThreadStatic]
+    private static StringBuilder? t_lineText;
+
+    [ThreadStatic]
+    private static StringBuilder? t_wordText;
+
+    private static List<CharRun> RentRuns(int steps)
+    {
+        List<CharRun> runs = t_runs ??= [];
+        runs.Clear();
+        runs.EnsureCapacity(Math.Max(4, (steps / 2) + 1));
+        return runs;
+    }
 
     private RecognizedLine Decode(List<CharRun> runs)
     {
-        var text = new StringBuilder();
+        StringBuilder text = t_lineText ??= new StringBuilder();
+        text.Clear();
         float total = 0f;
         foreach (CharRun run in runs)
         {
@@ -200,13 +217,33 @@ public sealed class LineRecognizer
         }
     }
 
+    // The number of groups of non-space characters.
+    private int CountWords(List<CharRun> runs)
+    {
+        int words = 0;
+        bool inWord = false;
+        foreach (CharRun run in runs)
+        {
+            bool space = _isSpace[run.Class];
+            if (!space && !inWord)
+            {
+                words++;
+            }
+
+            inWord = !space;
+        }
+
+        return words;
+    }
+
     internal LineWords SplitWords(float[] logits, int steps, int width, bool withChars = true)
     {
-        var runs = new List<CharRun>(RunCapacity(steps));
+        List<CharRun> runs = RentRuns(steps);
         CollectRuns(logits, steps, runs);
         RecognizedLine line = Decode(runs);
-        var words = new List<RecognizedWord>();
-        var text = new StringBuilder();
+        var words = new List<RecognizedWord>(CountWords(runs));
+        StringBuilder text = t_wordText ??= new StringBuilder();
+        text.Clear();
         float total = 0f;
         double stepWidth = steps == 0 ? 0 : (double)width / steps;
         int first = -1;

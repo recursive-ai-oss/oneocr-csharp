@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using OneImage;
 using OneOcr.Kernels;
 
@@ -92,6 +93,7 @@ internal static class LineFinder
     }
 
     /// <summary>Finds the lines of a region of the ink mask (ink is value 1; ruling lines are not ink). The boxes are in the mask's coordinates.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     internal static List<LineBox> FindInMask(PageMask mask, LineBox region, int maxLines)
     {
         int[] rowInk = System.Buffers.ArrayPool<int>.Shared.Rent(region.Height);
@@ -247,6 +249,7 @@ internal static class LineFinder
     }
 
     // Four interleaved tables: consecutive pixels are often equal, and one table would make each increment wait for the last.
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void AddHistogram(ReadOnlySpan<byte> gray, long[] histogram)
     {
         Span<int> h = stackalloc int[4 * 256];
