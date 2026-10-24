@@ -67,6 +67,47 @@ public class DetectorTests
         }
     }
 
+    // The pass without a trace runs the stem, the stride-4 merge and both text blocks in row bands that recompute the rows they share;
+    // the whole-map evaluation a trace selects must give the same bits for every band height, so components that touch a band edge
+    // are read from the same values. Heights of 1 to 7 rows put an edge in nearly every position of the small maps.
+    [Theory]
+    [InlineData(false, 64, 96)]
+    [InlineData(true, 32, 32)]
+    [InlineData(true, 96, 32)]
+    [InlineData(true, 160, 64)]
+    public void BandedPassIsBitIdenticalToTheWholeMapPass(bool small, int h, int w)
+    {
+        TestDetectorModels.Shape shape = small ? TestDetectorModels.Small : TestDetectorModels.Default;
+        var model = DbNetModel.FromContainer(ModelContainer.Parse(TestDetectorModels.Random(shape, 33)), OcrLimits.Default);
+        float[] input = TestDetectorModels.Normalize(TestDetectorModels.Image(h, w, 9));
+        foreach (KernelPath path in Dispatch.Available())
+        {
+            DetectorMaps whole = DbNetForward.Run(model, path, 1, new BufferPool<float>(1 << 24, 4), input, h, w, OcrLimits.Default, new ForwardTrace(), CancellationToken.None);
+            foreach (int band in new[] { 0, 1, 2, 3, 5, 7 })
+            {
+                foreach (int degree in new[] { 1, 3 })
+                {
+                    DetectorMaps banded = DbNetForward.Run(model, path, degree, new BufferPool<float>(1 << 24, 4), input, h, w, OcrLimits.Default, null, CancellationToken.None, band);
+                    AssertBitEqual(whole.Prob, banded.Prob, $"{path} band {band} degree {degree} prob");
+                    AssertBitEqual(whole.Layout, banded.Layout, $"{path} band {band} degree {degree} layout");
+                    AssertBitEqual(whole.Orientation, banded.Orientation, $"{path} band {band} degree {degree} orientation");
+                }
+            }
+        }
+    }
+
+    // The lean pass exists to keep the working set small: for an A4 page at the shipped size nothing at stride 2 or a whole stride-4
+    // lateral may be alive, so the scratch in use at once stays far under the 25 MB one stride-2 map took.
+    [Fact]
+    public void LeanPassKeepsTheWorkingSetSmall()
+    {
+        var model = DbNetModel.FromContainer(ModelContainer.Parse(TestDetectorModels.Random(TestDetectorModels.Default, 3)), OcrLimits.Default);
+        float[] input = TestDetectorModels.Normalize(TestDetectorModels.Image(736, 1024, 4));
+        var pool = new BufferPool<float>(1 << 26, 4);
+        DbNetForward.Run(model, Dispatch.Best, 1, pool, input, 736, 1024, OcrLimits.Default, null, CancellationToken.None);
+        Assert.True(pool.PeakOutstandingBytes < 24L << 20, $"peak scratch {pool.PeakOutstandingBytes / 1048576.0:F1} MB");
+    }
+
     [Theory]
     [InlineData(false, 64, 96)]
     [InlineData(true, 96, 64)]

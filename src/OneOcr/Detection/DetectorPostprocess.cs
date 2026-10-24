@@ -207,8 +207,28 @@ internal static class DetectorPostprocess
             throw new ArgumentException("The map is smaller than its declared shape.", nameof(logits));
         }
 
-        var seen = new bool[cells];
-        int[] stack = new int[cells];
+        // Scratch from the shared pools: a page's maps are large, and fresh arrays per page would pile up as garbage.
+        bool[] seen = System.Buffers.ArrayPool<bool>.Shared.Rent(cells);
+        int[] stack = System.Buffers.ArrayPool<int>.Shared.Rent(cells);
+        try
+        {
+            Array.Clear(seen, 0, cells);
+            LabelInto(result, seen, stack, logits, width, height, stride, channel, threshold, minCells, maxCount, limitName);
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<bool>.Shared.Return(seen);
+            System.Buffers.ArrayPool<int>.Shared.Return(stack);
+        }
+
+        return result;
+    }
+
+    private static void LabelInto(
+        List<Component> result, bool[] seen, int[] stack, float[] logits, int width, int height, int stride, int channel, float threshold,
+        int minCells, int maxCount, string limitName)
+    {
+        int cells = width * height;
         for (int start = 0; start < cells; start++)
         {
             if (seen[start] || !(logits[((long)start * stride) + channel] > threshold))
@@ -266,7 +286,5 @@ internal static class DetectorPostprocess
                 result.Add(new Component(x0, y0, x1, y1, count, sum));
             }
         }
-
-        return result;
     }
 }

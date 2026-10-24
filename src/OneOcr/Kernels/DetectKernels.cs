@@ -80,19 +80,32 @@ internal static unsafe class DetectKernels
     /// <param name="oy0">First output row.</param>
     /// <param name="oy1">One past the last output row.</param>
     /// <param name="output">Receives rows <paramref name="oy0"/>.. only: index 0 is row <paramref name="oy0"/>, column 0, channel 0.</param>
+    /// <param name="inputRow0">With <paramref name="inputRows"/>: <paramref name="input"/> holds only rows <paramref name="inputRow0"/>.. of the image (index 0 is that row, column 0, channel 0); every row the output rows read must be among them. Zero padding applies at the image's own edges only.</param>
+    /// <param name="inputRows">How many rows <paramref name="input"/> holds; a negative value means all <paramref name="h"/>.</param>
     public static void Depthwise(
         KernelPath path, ReadOnlySpan<float> input, int h, int w, int c, int stride, ReadOnlySpan<float> weightsT, ReadOnlySpan<float> bias,
-        bool relu, int oy0, int oy1, Span<float> output)
+        bool relu, int oy0, int oy1, Span<float> output, int inputRow0 = 0, int inputRows = -1)
     {
+        if (inputRows < 0)
+        {
+            inputRows = h - inputRow0;
+        }
+
         if (h < 1 || w < 1 || c < 16 || c % 16 != 0 || stride < 1 || stride > 2 || (stride == 2 && (((h | w) & 1) != 0)) || oy0 < 0 || oy1 < oy0 || oy1 > h / stride)
         {
             throw new ArgumentOutOfRangeException(nameof(h), "Invalid depthwise shape.");
         }
 
         int ow = w / stride;
-        if (input.Length < (long)h * w * c || weightsT.Length < 9L * c || bias.Length < c || output.Length < (long)(oy1 - oy0) * ow * c)
+        if (input.Length < (long)inputRows * w * c || weightsT.Length < 9L * c || bias.Length < c || output.Length < (long)(oy1 - oy0) * ow * c)
         {
             throw new ArgumentException("A buffer is smaller than the convolution shape needs.");
+        }
+
+        // The rows the output rows read, clipped to the image, must all be held.
+        if (oy1 > oy0 && (inputRow0 < 0 || inputRows < 0 || Math.Max(0, (oy0 * stride) - 1) < inputRow0 || Math.Min(h, ((oy1 - 1) * stride) + 2) > inputRow0 + inputRows))
+        {
+            throw new ArgumentException("The input rows do not cover the rows the convolution reads.");
         }
 
         Dispatch.Require(path);
@@ -103,12 +116,14 @@ internal static unsafe class DetectKernels
 
         fixed (float* pin = input, pw = weightsT, pb = bias, po = output)
         {
+            // Rows are addressed by their image index; the shifted base is only ever read at rows the check above admitted.
+            float* origin = pin - ((long)inputRow0 * w * c);
             switch (path)
             {
-                case KernelPath.Avx512: DepthwiseCore<Lanes16>(pin, h, w, c, stride, pw, pb, relu, oy0, oy1, po); break;
-                case KernelPath.Avx2: DepthwiseCore<Lanes8>(pin, h, w, c, stride, pw, pb, relu, oy0, oy1, po); break;
-                case KernelPath.Vector128: DepthwiseCore<Lanes4>(pin, h, w, c, stride, pw, pb, relu, oy0, oy1, po); break;
-                default: DepthwiseCore<Lanes1>(pin, h, w, c, stride, pw, pb, relu, oy0, oy1, po); break;
+                case KernelPath.Avx512: DepthwiseCore<Lanes16>(origin, h, w, c, stride, pw, pb, relu, oy0, oy1, po); break;
+                case KernelPath.Avx2: DepthwiseCore<Lanes8>(origin, h, w, c, stride, pw, pb, relu, oy0, oy1, po); break;
+                case KernelPath.Vector128: DepthwiseCore<Lanes4>(origin, h, w, c, stride, pw, pb, relu, oy0, oy1, po); break;
+                default: DepthwiseCore<Lanes1>(origin, h, w, c, stride, pw, pb, relu, oy0, oy1, po); break;
             }
         }
     }
@@ -126,14 +141,16 @@ internal static unsafe class DetectKernels
     /// <param name="source">Activations, <c>[h/2][w/2][c]</c>.</param>
     /// <param name="y0">First destination row.</param>
     /// <param name="y1">One past the last destination row.</param>
-    public static void AddUpsampled(KernelPath path, Span<float> destination, int h, int w, int c, ReadOnlySpan<float> source, int y0, int y1)
+    /// <param name="destinationRow0">When <paramref name="destination"/> holds only rows <paramref name="destinationRow0"/>.. of the image (index 0 is that row), the first of them; rows <paramref name="y0"/>..<paramref name="y1"/> must be among them.</param>
+    public static void AddUpsampled(
+        KernelPath path, Span<float> destination, int h, int w, int c, ReadOnlySpan<float> source, int y0, int y1, int destinationRow0 = 0)
     {
-        if (h < 2 || w < 2 || (h & 1) != 0 || (w & 1) != 0 || c < 16 || c % 16 != 0 || y0 < 0 || y1 < y0 || y1 > h)
+        if (h < 2 || w < 2 || (h & 1) != 0 || (w & 1) != 0 || c < 16 || c % 16 != 0 || y0 < 0 || y1 < y0 || y1 > h || destinationRow0 < 0 || destinationRow0 > y0)
         {
             throw new ArgumentOutOfRangeException(nameof(h), "Invalid upsampling shape.");
         }
 
-        if (destination.Length < (long)h * w * c || source.Length < (long)(h / 2) * (w / 2) * c)
+        if (destination.Length < (long)(y1 - destinationRow0) * w * c || source.Length < (long)(h / 2) * (w / 2) * c)
         {
             throw new ArgumentException("A buffer is smaller than the shape needs.");
         }
@@ -141,12 +158,13 @@ internal static unsafe class DetectKernels
         Dispatch.Require(path);
         fixed (float* pd = destination, ps = source)
         {
+            float* origin = pd - ((long)destinationRow0 * w * c);
             switch (path)
             {
-                case KernelPath.Avx512: AddUpsampledCore<Lanes16>(pd, w, c, ps, y0, y1); break;
-                case KernelPath.Avx2: AddUpsampledCore<Lanes8>(pd, w, c, ps, y0, y1); break;
-                case KernelPath.Vector128: AddUpsampledCore<Lanes4>(pd, w, c, ps, y0, y1); break;
-                default: AddUpsampledCore<Lanes1>(pd, w, c, ps, y0, y1); break;
+                case KernelPath.Avx512: AddUpsampledCore<Lanes16>(origin, w, c, ps, y0, y1); break;
+                case KernelPath.Avx2: AddUpsampledCore<Lanes8>(origin, w, c, ps, y0, y1); break;
+                case KernelPath.Vector128: AddUpsampledCore<Lanes4>(origin, w, c, ps, y0, y1); break;
+                default: AddUpsampledCore<Lanes1>(origin, w, c, ps, y0, y1); break;
             }
         }
     }

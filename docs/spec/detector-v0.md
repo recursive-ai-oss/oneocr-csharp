@@ -59,3 +59,7 @@ When an engine has a detector, `Ocr` uses it instead of the built-in classical l
 - Lines inside a `text`, `title`, `list` or `header_footer` region (the smallest one holding the line's centre) form one reading-order leaf; other lines are leaves of their own, so the cells of a table row on one baseline join into a row.
 - Regions fill `OcrPage.Regions` with the role of their class (`header_footer` is a header in the upper half of the page and a footer in the lower half), the score as confidence and the blocks whose centres lie inside. Blocks inside a `header_footer` region get the block role Header or Footer.
 - Without a detector, page output is exactly what it was before.
+
+## Evaluation order and memory
+
+Every output value of the network is an independent sum, so a port may evaluate the layers whole or in bands of rows with any band height and any number of threads and get the same bits. The C# implementation keeps its working set small by running the stem inside the first stage, the stride-4 merge with the text block, and the stride-2 text head in row bands, each band recomputing the few input rows its neighbours share (the stem rows and the stage-0 lateral rows); no stride-2 map and no stride-4 lateral exists whole. With the shipped size, an A4 page needs about 23 MB of scratch at degree 1 (the three stride-2 maps and the stride-4 lateral and smoothed maps of a whole-map evaluation take about 100 MB). Tests hold the banded and whole-map results bit-equal for band heights from one row up.

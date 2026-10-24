@@ -21,6 +21,19 @@ internal sealed class DetectorMaps
 
     /// <summary>Logits for the page being rotated 0, 90, 180 and 270 degrees counter-clockwise from upright.</summary>
     public required float[] Orientation { get; init; }
+
+    /// <summary>When the maps were rented from a pool, whether to give them back; the arrays may then be longer than their shapes say.</summary>
+    public bool Pooled { get; init; }
+
+    /// <summary>Gives pooled <see cref="Prob"/> and <see cref="Layout"/> back to <paramref name="pool"/>; the maps must not be read afterwards.</summary>
+    public void Return(BufferPool<float> pool)
+    {
+        if (Pooled)
+        {
+            pool.Return(Prob);
+            pool.Return(Layout);
+        }
+    }
 }
 
 /// <summary>
@@ -58,6 +71,13 @@ internal static class DbNetForward
     /// <summary>
     /// Runs the network on a normalized <c>[height][width]</c> gray image whose sides are multiples of 32.
     /// </summary>
+    /// <remarks>
+    /// Without a <paramref name="trace"/> the pass keeps its working set small: the stem is computed in row bands inside the first
+    /// stage, the stride-4 top-down merge and text block run in bands, and the stride-2 text head (stem projection, merge, block,
+    /// probability) runs in bands that recompute the few stem rows their neighbours share, so no stride-2 map and no stride-4
+    /// lateral ever exists whole. Every value is the same independent sum either way, so the maps are bit-identical to the
+    /// whole-map evaluation that a trace selects.
+    /// </remarks>
     /// <param name="model">The detector.</param>
     /// <param name="path">The kernel path.</param>
     /// <param name="degree">Most threads to use.</param>
@@ -66,12 +86,14 @@ internal static class DbNetForward
     /// <param name="height">Height, a multiple of 32.</param>
     /// <param name="width">Width, a multiple of 32.</param>
     /// <param name="limits">Bounds checked before the buffers are taken.</param>
-    /// <param name="trace">Receives copies of intermediate tensors (channels-first) when not null, for tests.</param>
+    /// <param name="trace">Receives copies of intermediate tensors (channels-first) when not null, for tests; selects the whole-map evaluation.</param>
     /// <param name="cancellationToken">Cancels between layers.</param>
+    /// <param name="bandRows">Rows per band of the banded stages; 0 chooses about <see cref="PositionsPerTask"/> positions per band. For tests.</param>
+    /// <param name="pooledMaps">Rents the probability and layout maps from <paramref name="pool"/> instead of allocating them (the caller returns them with <see cref="DetectorMaps.Return"/>); the arrays may then be longer than their shapes.</param>
     /// <returns>The output maps.</returns>
     public static DetectorMaps Run(
         DbNetModel model, KernelPath path, int degree, BufferPool<float> pool, float[] input, int height, int width, OcrLimits limits,
-        ForwardTrace? trace, CancellationToken cancellationToken)
+        ForwardTrace? trace, CancellationToken cancellationToken, int bandRows = 0, bool pooledMaps = false)
     {
         CheckInput(model, height, width, limits);
         if (input.Length < (long)height * width)
@@ -80,8 +102,11 @@ internal static class DbNetForward
         }
 
         var arena = new Arena(pool);
+        float[]? layoutMap = null, probMap = null;
         float[] Take(long elements) => arena.Take(elements, clear: true);
         void Give(float[]? a) => arena.Give(a);
+        bool lean = trace is null;
+        int BandOf(int w) => bandRows > 0 ? bandRows : Math.Max(1, PositionsPerTask / w);
 
         try
         {
@@ -89,24 +114,33 @@ internal static class DbNetForward
             int stemP = model.StemPadded;
             trace?.Add("input", input.AsSpan(0, height * width), 1, height, width);
 
-            // Stem: 3x3 stride 2 on the single input channel.
-            float[] stem = Take((long)h2 * w2 * stemP);
-            Rows(h2, Math.Max(1, PositionsPerTask / w2), degree, (y0, y1) =>
-                DetectKernels.Stem(path, input, height, width, model.StemWeights, model.StemBias, stemP, y0, y1, stem.AsSpan(y0 * w2 * stemP)), cancellationToken);
-            TraceMap(trace, "stem", stem, h2, w2, model.StemChannels, stemP);
+            // Stem: 3x3 stride 2 on the single input channel. The lean pass folds it into the first block instead.
+            float[]? stem = null;
+            if (!lean)
+            {
+                stem = Take((long)h2 * w2 * stemP);
+                float[] stemMap = stem;
+                Rows(h2, Math.Max(1, PositionsPerTask / w2), degree, (y0, y1) =>
+                    DetectKernels.Stem(path, input, height, width, model.StemWeights, model.StemBias, stemP, y0, y1, stemMap.AsSpan(y0 * w2 * stemP)), cancellationToken);
+                TraceMap(trace, "stem", stem, h2, w2, model.StemChannels, stemP);
+            }
 
-            // Backbone. Each stage output gets its lateral at once and is then dropped, except stage 3 (the orientation head's input).
+            // Backbone. Each stage output gets its lateral at once and is then dropped, except stage 3 (the orientation head's input)
+            // and, in the lean pass, stage 0, whose lateral is computed in bands later.
             var lateral = new float[4][];
-            float[] current = stem;
+            float[]? current = stem;
             int h = h2, w = w2;
-            float[]? stage3 = null;
+            float[]? stage3 = null, stage0 = null;
             for (int i = 0; i < 4; i++)
             {
                 for (int j = 0; j < model.Stages[i].Length; j++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    float[] next = Block(model.Stages[i][j], path, degree, arena, current, h, w, j == 0 ? 2 : 1, limits, cancellationToken, out int nh, out int nw);
-                    if (!ReferenceEquals(current, stem))
+                    int nh, nw;
+                    float[] next = lean && i == 0 && j == 0
+                        ? FirstBlock(model, path, degree, arena, input, height, width, limits, BandOf(w2 / 2), cancellationToken, out nh, out nw)
+                        : Block(model.Stages[i][j], path, degree, arena, current!, h, w, j == 0 ? 2 : 1, limits, cancellationToken, out nh, out nw);
+                    if (!ReferenceEquals(current, stem) && !ReferenceEquals(current, stage0))
                     {
                         Give(current);
                     }
@@ -117,8 +151,16 @@ internal static class DbNetForward
                 }
 
                 DwBlock outBlock = model.Stages[i][^1];
-                TraceMap(trace, $"stage{i}", current, h, w, outBlock.Out, outBlock.OutPadded);
-                lateral[i] = Pointwise(model.Lateral[i], path, degree, arena, current, h * w, relu: false, model.Lateral[i].OutPadded, cancellationToken);
+                TraceMap(trace, $"stage{i}", current!, h, w, outBlock.Out, outBlock.OutPadded);
+                if (lean && i == 0)
+                {
+                    stage0 = current;
+                }
+                else
+                {
+                    lateral[i] = Pointwise(model.Lateral[i], path, degree, arena, current!, h * w, relu: false, model.Lateral[i].OutPadded, cancellationToken);
+                }
+
                 if (i == 3)
                 {
                     stage3 = current;
@@ -139,10 +181,26 @@ internal static class DbNetForward
             float[] p8 = Block(model.Smooth8, path, degree, arena, lateral[1], h3 * 4, w3 * 4, 1, limits, cancellationToken, out int h8, out int w8);
             Give(lateral[1]);
             TraceMap(trace, "p8", p8, h8, w8, model.Smooth8.Out, model.Smooth8.OutPadded);
-            AddUp(lateral[0], h3 * 8, w3 * 8, fpnP, p8, path, degree, cancellationToken);
-            float[] p4 = Block(model.Smooth4, path, degree, arena, lateral[0], h3 * 8, w3 * 8, 1, limits, cancellationToken, out int h4, out int w4);
-            Give(lateral[0]);
-            TraceMap(trace, "p4", p4, h4, w4, model.Smooth4.Out, model.Smooth4.OutPadded);
+            int h4 = h3 * 8, w4 = w3 * 8;
+
+            // Text head, stride 4: t4 = text4(p4).
+            float[] t4;
+            if (lean)
+            {
+                t4 = FusedStride4(model, path, degree, arena, stage0!, p8, h4, w4, limits, BandOf(w4), cancellationToken);
+                Give(stage0);
+            }
+            else
+            {
+                float[] lat0 = lateral[0]!;
+                AddUp(lat0, h4, w4, fpnP, p8, path, degree, cancellationToken);
+                float[] p4 = Block(model.Smooth4, path, degree, arena, lat0, h4, w4, 1, limits, cancellationToken, out _, out _);
+                Give(lat0);
+                TraceMap(trace, "p4", p4, h4, w4, model.Smooth4.Out, model.Smooth4.OutPadded);
+                t4 = Block(model.Text4, path, degree, arena, p4, h4, w4, 1, limits, cancellationToken, out _, out _);
+                Give(p4);
+                TraceMap(trace, "text4", t4, h4, w4, model.Text4.Out, model.Text4.OutPadded);
+            }
 
             // Layout head on p8.
             float[] feature = p8;
@@ -157,38 +215,155 @@ internal static class DbNetForward
             DwBlock lastLayout = model.LayoutBlocks[^1];
             TraceMap(trace, "layout_feat", feature, fh, fw, lastLayout.Out, lastLayout.OutPadded);
             int layoutStride = model.LayoutOut.OutPadded;
-            var layout = new float[checked((long)fh * fw * layoutStride)];
+            long layoutElements = checked((long)fh * fw * layoutStride);
+            float[] layout;
+            if (pooledMaps)
+            {
+                // The channels beyond the classes must read as zero.
+                layout = layoutMap = pool.Rent(layoutElements);
+                Array.Clear(layout, 0, (int)layoutElements);
+            }
+            else
+            {
+                layout = new float[layoutElements];
+            }
+
             PointwiseInto(model.LayoutOut, path, degree, feature, fh * fw, relu: false, layout, layoutStride, cancellationToken);
             Give(feature);
             TraceMap(trace, "layout", layout, fh, fw, model.Classes, layoutStride);
 
-            // Text head: stride 4 block, then the stride-2 block on up2(t4) + projection of the stem output.
-            float[] t4 = Block(model.Text4, path, degree, arena, p4, h4, w4, 1, limits, cancellationToken, out _, out _);
-            Give(p4);
-            TraceMap(trace, "text4", t4, h4, w4, model.Text4.Out, model.Text4.OutPadded);
-            float[] projection = Pointwise(model.StemProjection, path, degree, arena, stem, h2 * w2, relu: false, model.StemProjection.OutPadded, cancellationToken);
-            Give(stem);
-            AddUp(projection, h2, w2, model.StemProjection.OutPadded, t4, path, degree, cancellationToken);
-            Give(t4);
-            float[] t2 = Block(model.Text2, path, degree, arena, projection, h2, w2, 1, limits, cancellationToken, out _, out _);
-            Give(projection);
-            TraceMap(trace, "text2", t2, h2, w2, model.Text2.Out, model.Text2.OutPadded);
-            var prob = new float[checked((long)h2 * w2)];
-            PointwiseInto(model.ProbOut, path, degree, t2, h2 * w2, relu: false, prob, 1, cancellationToken);
-            Give(t2);
+            // Text head, stride 2: prob = prob_out(text2(up2(t4) + stem_proj(stem))).
+            // Every element is written by the probability convolution.
+            float[] prob = pooledMaps ? probMap = pool.Rent(checked((long)h2 * w2)) : new float[checked((long)h2 * w2)];
+            if (lean)
+            {
+                FusedStride2(model, path, degree, arena, input, height, width, t4, prob, BandOf(w2), cancellationToken);
+                Give(t4);
+            }
+            else
+            {
+                float[] projection = Pointwise(model.StemProjection, path, degree, arena, stem!, h2 * w2, relu: false, model.StemProjection.OutPadded, cancellationToken);
+                Give(stem);
+                AddUp(projection, h2, w2, model.StemProjection.OutPadded, t4, path, degree, cancellationToken);
+                Give(t4);
+                float[] t2 = Block(model.Text2, path, degree, arena, projection, h2, w2, 1, limits, cancellationToken, out _, out _);
+                Give(projection);
+                TraceMap(trace, "text2", t2, h2, w2, model.Text2.Out, model.Text2.OutPadded);
+                PointwiseInto(model.ProbOut, path, degree, t2, h2 * w2, relu: false, prob, 1, cancellationToken);
+                Give(t2);
+            }
+
             trace?.Add("prob", prob, 1, h2, w2);
 
-            return new DetectorMaps
+            var maps = new DetectorMaps
             {
                 Prob = prob, ProbHeight = h2, ProbWidth = w2,
                 Layout = layout, LayoutHeight = fh, LayoutWidth = fw, LayoutStride = layoutStride,
-                Orientation = orientation,
+                Orientation = orientation, Pooled = pooledMaps,
             };
+            layoutMap = probMap = null;
+            return maps;
         }
         finally
         {
+            pool.Return(layoutMap);
+            pool.Return(probMap);
             arena.ReturnAll();
         }
+    }
+
+    // Stage 0's first block on the input: the stem rows each band of output rows reads (two per output row plus the padding row above)
+    // are computed into a band buffer, so the stem map itself never exists.
+    private static float[] FirstBlock(
+        DbNetModel model, KernelPath path, int degree, Arena arena, float[] input, int height, int width, OcrLimits limits,
+        int bandRows, CancellationToken cancellationToken, out int oh, out int ow)
+    {
+        DwBlock block = model.Stages[0][0];
+        int h2 = height / 2, w2 = width / 2, stemP = model.StemPadded;
+        oh = h2 / 2;
+        ow = w2 / 2;
+        CheckElements(limits, (long)oh * ow * block.OutPadded);
+        float[] destination = arena.Take((long)oh * ow * block.OutPadded, clear: true);
+        Rows(oh, bandRows, degree, (y0, y1) =>
+        {
+            int r0 = Math.Max(0, (y0 * 2) - 1), r1 = Math.Min(h2, ((y1 - 1) * 2) + 2);
+            float[] band = arena.Take((long)(r1 - r0) * w2 * stemP, clear: false);
+            try
+            {
+                DetectKernels.Stem(path, input, height, width, model.StemWeights, model.StemBias, stemP, r0, r1, band);
+                BlockRows(block, path, arena, band, r0, r1 - r0, h2, w2, 2, y0, y1, destination, 0);
+            }
+            finally
+            {
+                arena.Give(band);
+            }
+        }, cancellationToken);
+        return destination;
+    }
+
+    // t4 = text4(smooth4(lat0 + up2(p8))) in bands: each band computes the lateral rows it needs (two beyond the band for the two 3x3
+    // layers), merges p8, smooths, and applies the text block, so neither lat0 nor p4 exists whole.
+    private static float[] FusedStride4(
+        DbNetModel model, KernelPath path, int degree, Arena arena, float[] stage0, float[] p8, int h4, int w4, OcrLimits limits,
+        int bandRows, CancellationToken cancellationToken)
+    {
+        PointwiseConv lateral0 = model.Lateral[0];
+        int fpnP = lateral0.OutPadded;
+        DwBlock smooth = model.Smooth4, text = model.Text4;
+        CheckElements(limits, (long)h4 * w4 * text.OutPadded);
+        float[] t4 = arena.Take((long)h4 * w4 * text.OutPadded, clear: true);
+        Rows(h4, bandRows, degree, (y0, y1) =>
+        {
+            int a0 = Math.Max(0, y0 - 2), a1 = Math.Min(h4, y1 + 2);
+            int b0 = Math.Max(0, y0 - 1), b1 = Math.Min(h4, y1 + 1);
+            float[] lat = arena.Take((long)(a1 - a0) * w4 * fpnP, clear: true);
+            float[] p4 = arena.Take((long)(b1 - b0) * w4 * smooth.OutPadded, clear: true);
+            try
+            {
+                PointwiseRows(lateral0, path, stage0, a0 * w4, lat, 0, (a1 - a0) * w4, false, fpnP);
+                DetectKernels.AddUpsampled(path, lat, h4, w4, fpnP, p8, a0, a1, a0);
+                BlockRows(smooth, path, arena, lat, a0, a1 - a0, h4, w4, 1, b0, b1, p4, b0);
+                BlockRows(text, path, arena, p4, b0, b1 - b0, h4, w4, 1, y0, y1, t4, 0);
+            }
+            finally
+            {
+                arena.Give(lat);
+                arena.Give(p4);
+            }
+        }, cancellationToken);
+        return t4;
+    }
+
+    // prob = prob_out(text2(up2(t4) + stem_proj(stem))) in bands, with the stem recomputed from the input for the rows a band needs.
+    private static void FusedStride2(
+        DbNetModel model, KernelPath path, int degree, Arena arena, float[] input, int height, int width, float[] t4, float[] prob,
+        int bandRows, CancellationToken cancellationToken)
+    {
+        int h2 = height / 2, w2 = width / 2, stemP = model.StemPadded;
+        PointwiseConv projection = model.StemProjection;
+        int projP = projection.OutPadded;
+        DwBlock text2 = model.Text2;
+        Rows(h2, bandRows, degree, (y0, y1) =>
+        {
+            int r0 = Math.Max(0, y0 - 1), r1 = Math.Min(h2, y1 + 1);
+            float[] stem = arena.Take((long)(r1 - r0) * w2 * stemP, clear: false);
+            float[] proj = arena.Take((long)(r1 - r0) * w2 * projP, clear: true);
+            float[] t2 = arena.Take((long)(y1 - y0) * w2 * text2.OutPadded, clear: true);
+            try
+            {
+                DetectKernels.Stem(path, input, height, width, model.StemWeights, model.StemBias, stemP, r0, r1, stem);
+                PointwiseRows(projection, path, stem, 0, proj, 0, (r1 - r0) * w2, false, projP);
+                DetectKernels.AddUpsampled(path, proj, h2, w2, projP, t4, r0, r1, r0);
+                BlockRows(text2, path, arena, proj, r0, r1 - r0, h2, w2, 1, y0, y1, t2, y0);
+                PointwiseRows(model.ProbOut, path, t2, 0, prob, y0 * w2, (y1 - y0) * w2, false, 1);
+            }
+            finally
+            {
+                arena.Give(stem);
+                arena.Give(proj);
+                arena.Give(t2);
+            }
+        }, cancellationToken);
     }
 
     private static float[] Orientation(DbNetModel model, KernelPath path, float[] stage3, int pixels)
@@ -216,23 +391,28 @@ internal static class DbNetForward
         CheckElements(limits, (long)oh * ow * coutP);
         float[] destination = arena.Take((long)oh * ow * coutP, clear: true);
         int rowsPerTask = Math.Max(1, PositionsPerTask / ow);
-        int outWidth = ow;
         CheckElements(limits, (long)rowsPerTask * ow * cinP);
-        Rows(oh, rowsPerTask, degree, (y0, y1) =>
-        {
-            int rows = y1 - y0;
-            float[] scratch = arena.Take((long)rows * outWidth * cinP, clear: false);
-            try
-            {
-                DetectKernels.Depthwise(path, source, h, w, cinP, stride, block.DepthwiseWeights, block.DepthwiseBias, true, y0, y1, scratch);
-                PointwiseRows(block.Pointwise, path, scratch, 0, destination, y0 * outWidth, rows * outWidth, true, coutP);
-            }
-            finally
-            {
-                arena.Give(scratch);
-            }
-        }, cancellationToken);
+        Rows(oh, rowsPerTask, degree, (y0, y1) => BlockRows(block, path, arena, source, 0, h, h, w, stride, y0, y1, destination, 0), cancellationToken);
         return destination;
+    }
+
+    // Output rows [y0, y1) of a depthwise + pointwise block. `source` holds rows [srcRow0, srcRow0 + srcRows) of the h x w input and
+    // `destination` the output rows from dstRow0 on (cleared, so the padding channels are zero).
+    private static void BlockRows(
+        DwBlock block, KernelPath path, Arena arena, float[] source, int srcRow0, int srcRows, int h, int w, int stride, int y0, int y1,
+        float[] destination, int dstRow0)
+    {
+        int ow = w / stride, rows = y1 - y0;
+        float[] scratch = arena.Take((long)rows * ow * block.InPadded, clear: false);
+        try
+        {
+            DetectKernels.Depthwise(path, source, h, w, block.InPadded, stride, block.DepthwiseWeights, block.DepthwiseBias, true, y0, y1, scratch, srcRow0, srcRows);
+            PointwiseRows(block.Pointwise, path, scratch, 0, destination, (y0 - dstRow0) * ow, rows * ow, true, block.OutPadded);
+        }
+        finally
+        {
+            arena.Give(scratch);
+        }
     }
 
     private static float[] Pointwise(

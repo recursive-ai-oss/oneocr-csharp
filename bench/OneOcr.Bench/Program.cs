@@ -8,7 +8,7 @@ using OneOcr.Layout;
 
 // Runs the OCR engine over a directory of page images for the scorer in bench/oneocr_bench, and checks line finding.
 //
-//   OneOcr.Bench run   --model FILE --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]] [--words 1] [--pagejson 1]
+//   OneOcr.Bench run   --model FILE [--detector FILE] --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]] [--words 1] [--pagejson 1]
 //       writes <page-id>.txt for every <page-id>.png and timing.json: the one-time model load, per page the image
 //       decode time and the median-of-K recognition time, and the process's peak working set. --degree 0 is the library default.
 //       --words 1 also writes <page-id>.json, the scorer's word sidecar {"words":[{"box":[x0,y0,x1,y1],"text":..,"conf":..,"conf_raw":..}]}
@@ -150,6 +150,11 @@ internal static class Program
                 LanguageModel = o.TryGetValue("lm", out string? lmPath) ? OneOcr.Decoding.CharLanguageModel.Load(lmPath) : null,
             });
         }
+        if (o.TryGetValue("detector", out string? detectorFile))
+        {
+            engine = engine.WithDetector(detectorFile);
+        }
+
         double loadMs = clock.Elapsed.TotalMilliseconds;
 
         bool writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
@@ -194,6 +199,12 @@ internal static class Program
             w.WriteNumber("repeat", repeat);
             w.WriteNumber("model_load_ms", Math.Round(loadMs, 1));
             w.WriteNumber("peak_rss_mb", Math.Round(Process.GetCurrentProcess().PeakWorkingSet64 / 1048576.0, 1));
+            GCMemoryInfo gc = GC.GetGCMemoryInfo();
+            w.WriteNumber("gc_committed_mb", Math.Round(gc.TotalCommittedBytes / 1048576.0, 1));
+            w.WriteNumber("gc_heap_mb", Math.Round(gc.HeapSizeBytes / 1048576.0, 1));
+            w.WriteNumber("gc_fragmented_mb", Math.Round(gc.FragmentedBytes / 1048576.0, 1));
+            w.WriteNumber("gc_count", GC.CollectionCount(2));
+            w.WriteNumber("allocated_mb", Math.Round(GC.GetTotalAllocatedBytes() / 1048576.0, 0));
             w.WriteString("runtime", System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
             w.WriteNumber("mean_page_ms", Math.Round(results.Average(r => r.OcrMs), 1));
             w.WriteStartArray("pages");

@@ -223,5 +223,11 @@ public class DetectKernelTests
         Assert.Throws<ArgumentException>(() => DetectKernels.Depthwise(KernelPath.Scalar, new float[10], 4, 4, 16, 1, w, b, true, 0, 4, o));
         Assert.Throws<ArgumentOutOfRangeException>(() => DetectKernels.Stem(KernelPath.Scalar, x, 4, 4, w, b, 16, 0, 3, o));
         Assert.Throws<ArgumentException>(() => DetectKernels.AddUpsampled(KernelPath.Scalar, o, 4, 4, 16, new float[3], 0, 4));
+
+        // A band of input rows must hold every row the output rows read: output row 2 of a 4-row image reads rows 1..3.
+        float[] band = new float[2 * 4 * 16];
+        Assert.Throws<ArgumentException>(() => DetectKernels.Depthwise(KernelPath.Scalar, band, 4, 4, 16, 1, w, b, true, 2, 3, o, 1, 2));
+        DetectKernels.Depthwise(KernelPath.Scalar, new float[3 * 4 * 16], 4, 4, 16, 1, w, b, true, 2, 3, o, 1, 3);
+        Assert.Throws<ArgumentOutOfRangeException>(() => DetectKernels.AddUpsampled(KernelPath.Scalar, o, 4, 4, 16, new float[2 * 2 * 16], 1, 3, 2));
     }
 }
