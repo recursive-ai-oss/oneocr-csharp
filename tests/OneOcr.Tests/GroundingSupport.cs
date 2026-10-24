@@ -98,8 +98,9 @@ public static class GroundingSupport
         _ => throw new ArgumentException(name),
     };
 
-    public static LlmOptions Options(decimal? cap = null, LlmResultCache? cache = null) => new()
+    public static LlmOptions Options(decimal? cap = null, LlmResultCache? cache = null, bool offline = false) => new()
     {
+        Offline = offline,
         SpendCapUsd = cap,
         PriceTable = LlmPriceTable.Default.With(
             new LlmModelPrice("anthropic", "test", 3m, 15m), new LlmModelPrice("openai", "test", 2m, 8m), new LlmModelPrice("gemini", "test", 1m, 4m),

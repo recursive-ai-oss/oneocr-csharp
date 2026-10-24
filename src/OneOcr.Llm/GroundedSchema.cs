@@ -432,5 +432,5 @@ internal static class GroundedSchema
         }
     }
 
-    private static string Escape(string s) => s.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
+    internal static string Escape(string s) => s.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
 }
