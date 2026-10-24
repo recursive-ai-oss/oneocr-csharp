@@ -1,6 +1,6 @@
 """Reference boxes for the C# post-processing of the page detector.
 
-Usage: uv run python -m parity.dbnet_postprocess --fixtures DIR [--seed 11]
+Usage: uv run python -m parity.dbnet_postprocess --fixtures DIR [--seed 11] [--model MODEL.onm]
 
 Reads the head outputs stored by `parity.dbnet_fixtures` in DIR (`data/<tile>.prob.f32`, `.layout.f32`, `.orient.f32`) and adds
 seeded synthetic maps (rectangles of high logits with noise, diagonal neighbours, single cells, edge contact). Each case is decoded
@@ -57,6 +57,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fixtures", required=True)
     ap.add_argument("--seed", type=int, default=11)
+    ap.add_argument(
+        "--model", help="container whose config.postprocess supplies the thresholds and growth factors (default: eval.detect defaults)"
+    )
     a = ap.parse_args()
     root = Path(a.fixtures)
     out = root / "postprocess"
@@ -64,11 +67,22 @@ def main() -> None:
     doc = json.loads((root / "fixtures.json").read_text())
     rng = np.random.default_rng(a.seed)
     cases = []
+    post = {}
+    if a.model:
+        from export.dbnet import read_tensors
+
+        pp = read_tensors(Path(a.model))[0]["config"]["postprocess"]
+        post = {
+            "text_thr": pp["text_threshold"],
+            "expand_text": pp["text_expand"],
+            "lay_thr": pp["layout_threshold"],
+            "expand_layout": pp["layout_expand"],
+        }
 
     def add(name: str, prob: np.ndarray, layout: np.ndarray, orient: np.ndarray) -> None:
         ph, pw = prob.shape
         m = {"prob": sigmoid(prob), "layout": sigmoid(layout), "orient": softmax(orient), "scale": 1.0}
-        res = decode(m)
+        res = decode(m, **post)
         (out / f"{name}.prob.f32").write_bytes(prob.astype("<f4").tobytes())
         (out / f"{name}.layout.f32").write_bytes(layout.astype("<f4").tobytes())
         cases.append(
@@ -92,7 +106,9 @@ def main() -> None:
         add(f"fixture-{s['id']}", got["prob"][0], got["layout"], got["orient"])
     for k, (ph, pw) in enumerate([(64, 80), (96, 128), (128, 96), (200, 160), (48, 256), (256, 64)]):
         add(f"synthetic-{k}", *synthetic(rng, ph, pw))
-    (root / "postprocess.json").write_text(json.dumps({"classes": LAYOUT_CLASSES, "cases": cases}, indent=1), encoding="utf-8")
+    (root / "postprocess.json").write_text(
+        json.dumps({"classes": LAYOUT_CLASSES, "postprocess": post or None, "cases": cases}, indent=1), encoding="utf-8"
+    )
     print(f"{len(cases)} cases -> {root / 'postprocess.json'}")
 
 

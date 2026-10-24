@@ -45,7 +45,7 @@ def main() -> None:
     model = model.to(a.device).eval()
     result: dict = {"checkpoint_step": ck["step"], "split": a.split}
     for name in a.sets.split(","):
-        recs = load_records(name, root, a.split)
+        recs = load_records(name, root, a.split, {"dir": os.environ.get("ONEOCR_PAGES", "")})
         step = max(1, len(recs) // (a.limit or len(recs)))
         recs = recs[::step][: a.limit]
         maps = [raw_maps(model, Image.open(r["path"]), a.device) for r in recs]
