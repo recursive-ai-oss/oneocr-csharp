@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="RecursiveAI.OneImage" Version="1.7.0" />
+    <PackageReference Include="RecursiveAI.OneImage" Version="1.8.1" />
   </ItemGroup>
 
   <ItemGroup>
