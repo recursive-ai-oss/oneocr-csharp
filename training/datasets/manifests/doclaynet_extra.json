@@ -1,0 +1,16 @@
+{
+ "name": "doclaynet_extra",
+ "version": "1.0.0",
+ "licence": "CDLA-Permissive-1.0",
+ "licence_source": "https://github.com/DS4SD/DocLayNet/blob/main/LICENSE",
+ "distribution": "official download table of the DocLayNet README (extra dataset: PDFs and per-page JSON with text cells)",
+ "files": [
+  {
+   "id": "extra",
+   "url": "https://codait-cos-dax.s3.us.cloud-object-storage.appdomain.cloud/dax-doclaynet/1.0.0/DocLayNet_extra.zip",
+   "size": 8008878198,
+   "etag": "56a63e0408a7076bceaac038ab9842ca-120",
+   "sha256": "1b6068e81c01f51086d10650fb254dd014751008e1a08be2effe152ee66c6cb9"
+  }
+ ]
+}

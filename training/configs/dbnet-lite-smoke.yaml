@@ -1,0 +1,24 @@
+# Text-line detector + layout head. ${ONEOCR_HOME} is the state directory of the machine running the job.
+name: dbnet-lite-smoke
+seed: 1
+size: 512            # training canvas (long side after resize, then crop/pad to a square)
+scale: [0.7, 1.15]    # random page scale around size / long side
+rot_p: 0.25           # chance of a 90/180/270 rotation (labels rotate with the page)
+datasets_root: ${ONEOCR_DATASETS}
+run_dir: ${ONEOCR_HOME}/runs/dbnet-lite-smoke
+sources:
+  - {name: doclaynet, weight: 0.6, label_source: "DocLayNet 1.0.0 layout boxes + extra-archive text cells (CDLA-Permissive-1.0)"}
+  - {name: publaynet, weight: 0.4, label_source: "PubLayNet 1.0.0 layout boxes, CC0/CC BY articles only (annotations CDLA-Permissive-1.0)"}
+loss: {prob: 1.0, binary: 1.0, thresh: 10.0, layout_bce: 1.0, layout_dice: 1.0, orient: 0.2}
+train:
+  steps: 6
+  batch: 2
+  lr: 0.002
+  warmup: 500
+  weight_decay: 0.0001
+  workers: 2
+  log_every: 2
+  eval_every: 6
+  ckpt_every: 500
+  val_pages: 4
+  max_minutes: 100
