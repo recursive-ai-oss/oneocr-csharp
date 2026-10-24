@@ -21,6 +21,18 @@ public class BufferPoolTests
     }
 
     [Fact]
+    public void AnArrayReturnedTwiceIsHandedToOnlyOneRenter()
+    {
+        var pool = new BufferPool<byte>(1L << 30, 1);
+        byte[] a = pool.Rent(100_000);
+        pool.Return(a);
+        pool.Return(a);
+
+        byte[] first = pool.Rent(100_000), second = pool.Rent(100_000);
+        Assert.NotSame(first, second);
+    }
+
+    [Fact]
     public void SizesAreAtLeastTheRequestAndRoundToAGrid()
     {
         var pool = new BufferPool<byte>(0, 1);

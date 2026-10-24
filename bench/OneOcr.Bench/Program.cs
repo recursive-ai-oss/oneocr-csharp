@@ -315,7 +315,7 @@ internal static class Program
                 // One unreadable or failing page is recorded and the run goes on; the exit code says there were errors.
                 errors.Add((id, e.GetType().Name + ": " + e.Message));
                 Console.Error.WriteLine($"{id}: ERROR {e.GetType().Name}: {e.Message}");
-                File.WriteAllText(Path.Combine(outDir, id + ".error.txt"), e.GetType().Name + ": " + e.Message + "\n", new UTF8Encoding(false));
+                File.WriteAllText(Path.Combine(outDir, id + ".error.txt"), e + "\n", new UTF8Encoding(false));
             }
         }
 
