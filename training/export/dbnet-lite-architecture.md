@@ -90,12 +90,12 @@ No new layer type, no dilation, no other kernel size. Three changes; each is a c
 this version on:
 
 ```json
-"postprocess": {"text_threshold": 0.3, "text_expand": 1.0, "layout_threshold": 0.6, "layout_expand": 0.85},
+"postprocess": {"text_threshold": 0.3, "text_expand": 0.5, "layout_threshold": 0.6, "layout_expand": 0.85},
 "layout_trained": ["text", "title", "list", "table", "figure", "header_footer", "form_field", "checkbox"]
 ```
 
 `postprocess` values are probabilities (thresholds on `sigmoid(logit)`) and growth factors for the rules in *Post-processing*;
-they were picked on validation pages and a reader uses the file's values (a `v0` file without them uses the defaults written there).
+a reader uses the file's values (a `v0` file without them uses the defaults written there: 0.3, 1.0, 0.6, 0.85). For 0.2.0 the text growth factor is 0.5, not the geometric inverse (1.0) of the training shrink: its synthetic-page training boxes are line-box height, about 1.7x the ink height, so the predicted boxes come out taller than the ink and a factor of 0.5 gives crops the recognizer reads best (picked on the end-to-end gate pages, two numbers over a coarse grid; see the weights' report).
 `layout_trained` names the classes whose channels were trained; the others are untrained noise.
 
 ## Cost
