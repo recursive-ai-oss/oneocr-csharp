@@ -15,7 +15,7 @@ import html
 import random
 
 from .assets import FAMILIES
-from .render import WORDS_JS, font_css, text_of, truth_words, wait_fonts
+from .render import WORDS_JS, add_ink, font_css, text_of, truth_words, wait_fonts
 
 THEMES = {
     "light": dict(bg="#ffffff", fg="#1b1b1f", mut="#5b606b", card="#f4f5f7", line="#cfd3da", acc="#1a5fd0", accfg="#ffffff", bar="#f0f2f5"),
@@ -249,6 +249,7 @@ def render(count: int, seed: int, out, set_name: str, paras) -> list[dict]:
             from PIL import Image
             img = Image.open(io.BytesIO(png)).convert("RGB")
             tw = truth_words(words, scale)
+            add_ink(tw, img)
             truth = {"id": pid, "set": set_name, "seed": seed, "page_index": i, "font": fam, "device_scale": scale,
                      "viewport": [w, h], "attempt": attempt, **info,
                      "image": {"width": img.size[0], "height": img.size[1]}, "words": tw, "text": text_of(tw)}

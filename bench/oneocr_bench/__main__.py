@@ -31,6 +31,7 @@ def main() -> None:
     s.add_argument("--hyp", help="directory of hypotheses for one set")
     s.add_argument("--hyp-root", help="directory with one hypothesis subdirectory per set name; scores every set found")
     s.add_argument("--json")
+    s.add_argument("--boxes", choices=["ink", "layout"], default="ink", help="truth boxes for F1: tight to the ink (default; falls back to layout where a truth has no ink box) or the layout rectangles")
 
     t = sub.add_parser("tess", help="Tesseract baselines for one set")
     t.add_argument("--set", default="clean300-v1", choices=names)
@@ -59,14 +60,14 @@ def main() -> None:
             if len(a.dirs) != 2 or a.hyp or a.hyp_root or a.truth or a.set:
                 ap.error("score takes either TRUTH_DIR OUTPUT_DIR or --hyp/--hyp-root options")
             t = Path(a.dirs[0])
-            score.main(str(t / "truth" if (t / "truth").is_dir() else t), a.dirs[1], a.json)
+            score.main(str(t / "truth" if (t / "truth").is_dir() else t), a.dirs[1], a.json, a.boxes)
         elif a.hyp_root:
-            score.main_root(a.hyp_root, a.json)
+            score.main_root(a.hyp_root, a.json, a.boxes)
         else:
             if not a.hyp:
                 ap.error("--hyp or --hyp-root is required")
             truth = a.truth or str(sets.set_dir(a.set or "clean300-v1") / "truth")
-            score.main(truth, a.hyp, a.json)
+            score.main(truth, a.hyp, a.json, a.boxes)
     elif a.cmd == "tess":
         tess.main(a.set, a.models, a.psms, a.tess, a.results)
     elif a.cmd == "competitors-report":

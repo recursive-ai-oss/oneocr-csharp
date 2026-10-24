@@ -11,7 +11,8 @@ in `manifests/` (SHA-256 of every page image and truth file, and of every font a
 30 pages, 2480 x 3508 px, 8-bit grayscale PNG, one column, Latin script. HTML is rendered by headless Chromium
 (Playwright); the truth is the browser's own layout: one rectangle per word from a DOM Range, in document order,
 so no OCR is involved. Page text = blocks in reading order, words separated by spaces, blocks by newlines.
-A word that wraps at a line-end hyphen (`pre-possessed`) has one box spanning both lines.
+A word that wraps at a line-end hyphen (`pre-possessed`) has one box per printed fragment (`pre-`, `possessed`) and
+stays one word in the text file (bench-v1 gave it one box spanning both lines).
 
 Content per page: a heading or two, paragraphs of public-domain prose, a paragraph of generated numbers, dates and
 amounts, and a short numbered list. Fonts rotate over seven held-out families:
@@ -40,10 +41,18 @@ engine: it is browser layout geometry (DOM ranges), the geometry of our own tran
 annotation. Pages that are JPEG on purpose (`degraded`, `phone`) are written by Pillow at the recorded quality, so their
 hashes also depend on the pinned Pillow and NumPy versions (recorded in each manifest).
 
-Truth files per page: `truth/<id>.json` (words with `box` = [x0, y0, x1, y1] in image pixels, a `block` index, a
-`quad` where the page was transformed, the generation parameters), `truth/<id>.txt` (words in reading order, a new line
-when the block changes; this is what the scorer reads). A word that wraps at a hyphen or em dash has its box on the first
-line and `"split": true`.
+Truth files per page: `truth/<id>.json` (words with `box` = [x0, y0, x1, y1] in image pixels, the layout rectangle; `ink`, the
+box tight to the printed ink; a `block` index; `quad` and `ink_quad` where the page was transformed; the generation
+parameters), `truth/<id>.txt` (words in reading order, a new line when the block changes; this is what the scorer reads).
+A word that wraps at a hyphen or em dash is one entry per printed fragment, each with `"split": true` and `"part": 0, 1`;
+the text file joins the fragments without a space.
+
+**Ink boxes** (`ink`) are computed from the rendered pixels, never by hand: inside the word's layout box (one pixel of margin
+sideways) the background is the most common grey level; every pixel that differs from it by at least 30 % of the word's
+peak contrast is ink; `ink` is the extent of those pixels. They are computed on the clean render, before any degradation, and
+moved by the same homography as `box` (`ink_quad` is the transformed rectangle, `ink` its axis-aligned box). A word with no
+visible ink (peak contrast under 12 grey levels) keeps its layout box. CORD's word quads already enclose the printed word, so
+for `receipts-v1` `ink` equals `box`.
 
 - **degraded-v1** is rendered like `clean300-v1`, then, per page and from the page's own seed: skew up to 2 degrees,
   faint ink (ink factor 0.3 to 1), greyish paper, downsampling to 150 or 200 DPI, blur up to 0.8 px, Gaussian noise and
@@ -122,6 +131,27 @@ reports detection precision, recall and F1. Sidecar format, coordinates in pixel
 Boxes are matched one to one, highest IoU first, text not compared; truth quads count as their axis-aligned boxes.
 A missing sidecar on any page means no F1 for that run. A missing hypothesis file scores as empty output.
 
+Boxes are scored against the truth's **ink** box by default (`--boxes ink`), which is what an engine that reports tight word
+boxes produces; `--boxes layout` scores against the layout rectangle (bench-v1's convention, except that a hyphen-wrapped word
+now has one box per line). Where a truth has no `ink` member (a bench-v1 directory) the layout box is used and the output
+says `[layout boxes]`.
+
+**Expected calibration error (ECE).** If every sidecar word also has `text` and a confidence (`confidence`, or `conf` as the C#
+bench writes it), `score` adds ECE for the set:
+
+- Each hypothesis word is matched to the page's truth words the way the order-free WER pairs them: words equal after
+  normalisation cancel one for one (of equal hypothesis words the earlier ones match); the leftover truth and hypothesis words
+  are then paired closest edit distance first. A word is **correct** only if it matched exactly. A hypothesis word paired
+  with a different truth word is wrong; one left without a truth word is wrong too (`ECE`).
+- 15 equal-width bins on [0, 1]; ECE = sum over bins of (words in bin / all words) * |accuracy in bin - mean confidence in bin|,
+  micro-averaged over the pages of the set.
+- `ECE-m` (`ece_matched` in the JSON) leaves out the hypothesis words that found no truth word at all. Use it for `receipts-v1`,
+  whose truth is partial: words the engine read correctly but CORD does not annotate count as wrong in `ECE`, so `ECE` is an
+  upper bound there and `ECE-m` is the figure to quote, labelled as such.
+- This is the library's calibration metric (15 bins, word accuracy) measured per page set instead of per script on line crops;
+  matching is the page's bag of words, not an ordered line alignment. The result JSON has `ece.{words, accuracy, mean_confidence,
+  ece, matched_words, matched_accuracy, ece_matched}`.
+
 ## Running Tesseract
 
 ```
@@ -184,9 +214,10 @@ Reading the table:
 - **Receipts**: CORD's truth is partial, so CER/WER and order include every printed word that is not in the truth (header
   and payment blocks, blurred store names): use recall-CER and recall-WER there. The PSM-by-metric table for receipts is
   on plain CER and is not meaningful for the same reason.
-- **Detection F1** of Tesseract's TSV words against our truth boxes is a lower bound: truth boxes are layout boxes from
-  the browser (full line height, word advance width), Tesseract reports tight ink boxes, so short lowercase words often fall
-  below IoU 0.5 even when found (clean pages: 0.75). Compare engines against the same convention, not against 1.0.
+- **Detection F1** in the tables above is against bench-v1's layout boxes and is a lower bound: truth boxes are layout boxes
+  from the browser (full line height, word advance width), Tesseract reports tight ink boxes, so short lowercase words often
+  fall below IoU 0.5 even when found (clean pages: 0.75). Against the ink boxes of bench-v2 the same outputs score
+  0.998 / 0.983 / 0.817 / 0.942 / 0.885 / 0.231 (clean, degraded, screenshot, layout, phone, receipts); see below.
 - Page timings include process start and model load; screenshot and receipt pages are small, phone and layout pages large.
 
 ## Running the C# engine
@@ -370,10 +401,36 @@ PaddleOCR's word-box F1 is low partly because of the line-box splitting describe
   `~/oneocr/eval/bench-v1/clean300-v1/`) are the sets: frozen copies of the generated sets with a `SHA256SUMS` file, chmod read-only.
 - **Rules:** never modify either. Any change to a set or to the scorer becomes `bench-v2`.
 - **Pinning:** other projects may vendor `bench/` pinned to the tag.
+
+## bench-v2
+
+Same pages and same text truth as bench-v1 (every page image and every `<id>.txt` is byte-identical; `gen --set all --check`
+reproduces the page hashes), with three additions:
+
+1. **ECE** in `score`, defined under Scoring.
+2. **One box per printed fragment** of a hyphen- or em-dash-wrapped word (about 70 entries over 5 sets); text truth unchanged.
+3. **Ink-tight boxes** (`ink`) next to the layout boxes, and `--boxes ink|layout` (default `ink`).
+
+CER, WER, recall and reading-order numbers are identical to bench-v1's on any input: `scripts/compare_scorers.py OLD_SCORE_PY
+OLD_ROOT NEW_ROOT OUTPUT_ROOT` runs the bench-v1 scorer (saved from the tag) and this one on the same outputs and requires
+equal totals and per-page values. The frozen worker copy is `~/oneocr/eval/bench-v2/<set>/` (`pages/`, `truth/`) with
+`SHA256SUMS` at its root, made by `scripts/freeze_sets.sh`, read-only. Never modify the copy or the scorer; a change is a
+new version.
+
+Tesseract `tessdata_best` (best PSM per set, as in the baseline table), F1@0.5 on the same outputs:
+
+| set | bench-v1 boxes (one box for a wrapped word) | bench-v2 layout boxes | bench-v2 ink boxes |
+|---|---|---|---|
+| clean300-v1 | 0.7529 | 0.753 | 0.998 |
+| degraded-v1 | 0.7220 | 0.722 | 0.983 |
+| screenshot-v1 | 0.6807 | 0.681 | 0.817 |
+| layout-v1 | 0.6844 | 0.685 | 0.942 |
+| phone-v1 | 0.5289 | 0.530 | 0.885 |
+| receipts-v1 | 0.2310 | 0.231 | 0.231 |
 - **Scoring:** `score` takes a truth directory and an output directory, needs no environment variable and writes nothing to either:
 
 ```
-uv run python -m oneocr_bench score ~/oneocr/eval/bench-v1/clean300-v1 OUTPUT_DIR [--json result.json]
+uv run python -m oneocr_bench score ~/oneocr/eval/bench-v1/clean300-v1 OUTPUT_DIR [--boxes ink|layout] [--json result.json]
 ```
 
   The first argument is a set directory (its `truth/` is used) or a `truth/` directory itself; `truth/<id>.txt` is the reading-order
