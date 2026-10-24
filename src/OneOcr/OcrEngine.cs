@@ -118,7 +118,7 @@ public sealed class OcrEngine
     public static OcrEngine Load(Stream model, OcrLimits? limits = null) =>
         Create(ModelContainer.Load(model, limits), limits, Dispatch.Best);
 
-    /// <summary>Loads the recognizer that ships in the models package (pinned by SHA-256; checked on every load).</summary>
+    /// <summary>Loads the recognizer and the page detector that ship in the models package (pinned by SHA-256; checked on every load). A build of the package without the detector file reads pages with the built-in line finder.</summary>
     /// <param name="limits">Bounds to enforce; <see cref="OcrLimits.Default"/> when null.</param>
     /// <returns>The engine.</returns>
     /// <exception cref="OcrModelException">The package was built without its weights, or the embedded file does not match its pin.</exception>
@@ -131,7 +131,22 @@ public sealed class OcrEngine
             throw new OcrModelException(problem);
         }
 
-        return Create(ModelContainer.Parse(data, limits), limits, Dispatch.Best);
+        OcrEngine engine = Create(ModelContainer.Parse(data, limits), limits, Dispatch.Best);
+
+        // The page detector ships with the recognizer. A build of the models package without it (a development build) reads pages with
+        // the classical line finder; a build with a detector that does not match its pin is an error.
+        if (!BundledModels.HasDetector)
+        {
+            return engine;
+        }
+
+        problem = BundledModels.TryReadDetector(out byte[] detector);
+        if (problem is not null)
+        {
+            throw new OcrModelException(problem);
+        }
+
+        return engine.WithDetector(ModelContainer.Parse(detector, limits), Dispatch.Best);
     }
 
     internal static OcrEngine Create(ModelContainer container, OcrLimits? limits, KernelPath path)
@@ -251,7 +266,7 @@ public sealed class OcrEngine
     }
 
     // The orientation decision in use: the detector's head when a detector is loaded, the classical one otherwise.
-    private IOrientationDetector Seam => _detector is null ? _orientation : new HeadOrientation(_detector, _pixels, _resizers);
+    private IOrientationDetector Seam => _detector is null ? _orientation : new HeadOrientation(_detector, _pixels, _resizers, _orientation);
 
     // Turns and straightens the page (see PagePreparation), reads it, and puts the result in the frame the caller asked about.
     private OcrPage ReadPrepared(

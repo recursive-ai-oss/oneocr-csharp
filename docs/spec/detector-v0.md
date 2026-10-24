@@ -49,7 +49,7 @@ Both heads use one rule: a cell is on when its logit exceeds a threshold (compar
 
 Boxes are divided by `s` to page pixels and clipped to the page; a box that is empty after clipping is dropped. (The training-side reference does not clip.) More than `MaxLinesPerPage` lines or `MaxPageElements` regions is a limit error.
 
-**Orientation:** softmax over `orient` with the library's exp; the winner (lowest index on a tie) is the number of counter-clockwise quarter turns the content is rotated by. A page whose winner probability is below 0.9 is read as it is. Otherwise it is turned clockwise by that many quarter turns and detected again on the upright copy; the page model then describes the upright page, and a diagnostic says so.
+**Orientation:** softmax over `orient` with the library's exp; the winner (lowest index on a tie) is the number of counter-clockwise quarter turns the content is rotated by. A page whose winner probability is below 0.9 is read as it is. Otherwise it is turned clockwise by that many quarter turns and detected again on the upright copy; the page model then describes the upright page, and a diagnostic says so. In the engine a turn the head asks for is confirmed by the classical orientation decision (sample lines read both ways up; see page-orientation-v1.md) and that decision is the one acted on: the head has only seen flat pages, and on tilted phone photos it called upright pages upside down with probability 0.99.
 
 **Values.** Defaults (used when the manifest has no `config.postprocess`): text threshold 0.3, text expansion 1.0, layout threshold 0.6, layout expansion 0.85. A model overrides any of them with `config.postprocess` (`text_threshold`, `text_expand`, `layout_threshold`, `layout_expand`; see the container spec).
 

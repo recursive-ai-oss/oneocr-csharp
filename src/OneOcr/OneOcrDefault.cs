@@ -29,7 +29,7 @@ public static class OneOcr
         }
     }
 
-    /// <summary>Loads the recognizer that ships in the models package and sets it as <see cref="Default"/>. May be called once.</summary>
+    /// <summary>Loads the recognizer and page detector that ship in the models package and sets it as <see cref="Default"/>. May be called once.</summary>
     /// <exception cref="OcrModelException">The package carries no weights, or they do not match their pin.</exception>
     /// <exception cref="InvalidOperationException">A default engine was already configured.</exception>
     public static void Configure() => Configure(OcrEngine.LoadBundled());
