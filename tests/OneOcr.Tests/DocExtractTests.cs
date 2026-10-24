@@ -714,6 +714,32 @@ public class DocExtractTests
     }
 
     [Fact]
+    public void WordsAreNormalizedToNfcAndCutToTheCharacterLimitByCodePoint()
+    {
+        DocExtractModel m = DocumentExtractor.Load(TestDocModels.RandomContainer(TestDocModels.Small, 1)).Model;
+        var composed = new int[8];
+        DocFeatures.EncodeWord(m, "\u0101\u0102", composed);
+        Assert.Equal([1, 2, 0, 0, 0, 0, 0, 0], composed);
+
+        // The platform's normalization does the composing. With invariant globalization it leaves non-ASCII text alone (the repo's own
+        // builds run that way), so this part only runs where the platform composes.
+        if ("a\u0304".Normalize(NormalizationForm.FormC) == "\u0101")
+        {
+            var decomposed = new int[8];
+            DocFeatures.EncodeWord(m, "a\u0304A\u0306", decomposed); // the charset holds the composed letters only
+            Assert.Equal(composed, decomposed);
+        }
+
+        var ids = new int[8];
+        DocFeatures.EncodeWord(m, "\u4e2d\ud83d\ude00x", ids); // not in the charset; one astral code point is one character
+        Assert.Equal([m.UnkChar, m.UnkChar, m.UnkChar, 0, 0, 0, 0, 0], ids);
+        DocFeatures.EncodeWord(m, new string('\u0101', 20), ids);
+        Assert.All(ids, v => Assert.Equal(1, v));
+        DocFeatures.EncodeWord(m, "\ud800\u0101", ids); // an unpaired surrogate reads as the replacement character
+        Assert.Equal([m.UnkChar, 1], ids[..2]);
+    }
+
+    [Fact]
     public void ThePackageWithoutWeightsSaysSoPlainly()
     {
         Assert.Null(DocModels.Extractor);
