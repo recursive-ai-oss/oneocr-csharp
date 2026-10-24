@@ -223,6 +223,32 @@ finally
 }
 
 Console.WriteLine($"ok: {a.Text.Length} characters, confidence {a.Confidence:F3}");
+// A PDF: the text layer of a generated page, and a page with a scanned insert and a garbled line through rendering and the recognizer.
+var pdfFiles = OneOcr.Tests.PdfFixtures.Seeds().ToDictionary(s => s.Name, s => s.Bytes);
+var pdfText = OneOcr.Pdf.PdfOcr.Read(pdfFiles["text-plain"], engine, new OneOcr.Pdf.PdfOcrOptions { ReadImages = false });
+if (pdfText.Count != 1 || !pdfText[0].Text.Contains("Corner anchor alpha", StringComparison.Ordinal) || pdfText[0].Words.Any(w => w.Source != OneOcr.OcrSource.TextLayer))
+{
+    Console.Error.WriteLine("PDF text layer was not read");
+    return 1;
+}
+
+var pdfMixed = OneOcr.Pdf.PdfOcr.Read(pdfFiles["mixed-small"], engine, new OneOcr.Pdf.PdfOcrOptions { RenderDpi = 150, CrossCheckLines = 0 });
+if (pdfMixed.Count != 1 || !pdfMixed[0].Words.Any(w => w.Source == OneOcr.OcrSource.TextLayer))
+{
+    Console.Error.WriteLine("PDF page with a scanned insert was not read");
+    return 1;
+}
+
+try
+{
+    OneOcr.Pdf.PdfOcr.Read(new byte[] { 1, 2, 3 }, engine);
+    Console.Error.WriteLine("garbage was accepted as a PDF");
+    return 1;
+}
+catch (OneOcr.OcrFormatException)
+{
+}
+
 return 0;
 
 internal sealed record SmokeAnswer(string? Total);

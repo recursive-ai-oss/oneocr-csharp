@@ -31,6 +31,9 @@ public sealed class OcrEngine
         _decoding = decoding;
     }
 
+    /// <summary>The bounds this engine enforces.</summary>
+    public OcrLimits Limits => _limits;
+
     /// <summary>The decoding this engine uses unless a call passes its own. Greedy unless <see cref="WithDecoding"/> changed it.</summary>
     public DecodeOptions Decoding => _decoding;
 

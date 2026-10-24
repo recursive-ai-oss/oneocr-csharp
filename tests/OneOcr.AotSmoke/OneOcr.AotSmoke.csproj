@@ -12,9 +12,11 @@
     <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
     <ProjectReference Include="../../src/OneOcr.Llm/OneOcr.Llm.csproj" />
     <ProjectReference Include="../../src/OneOcr.Training/OneOcr.Training.csproj" />
+    <ProjectReference Include="../../src/OneOcr.Pdf/OneOcr.Pdf.csproj" />
     <!-- The test-only container writer builds the model the smoke runs. -->
     <Compile Include="../OneOcr.Tests/TestModels.cs" Link="TestModels.cs" />
     <Compile Include="../OneOcr.Tests/TestLm.cs" Link="TestLm.cs" />
+    <Compile Include="../OneOcr.Tests/PdfFixtures.cs" Link="PdfFixtures.cs" />
   </ItemGroup>
 
 </Project>

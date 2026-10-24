@@ -26,6 +26,7 @@ internal static class Program
             "lexicon" => LexiconTarget.Run,
             "pagejson" => PageJsonTarget.Run,
             "review" => ReviewImportTarget.Run,
+            "pdf" => PdfTarget.Run,
             "llm-anthropic" => LlmTarget.RunAnthropic,
             "llm-openai" => LlmTarget.RunOpenAi,
             "llm-gemini" => LlmTarget.RunGemini,
@@ -181,6 +182,16 @@ internal static class Program
             File.WriteAllText(Path.Combine(dir, "escapes.seed"),
                 "{\"items\":[{\"text\":\"caf\\u00e9 \\ud83d\\ude00 \\\"quoted\\\"\",\"id\":\"a-1\"},{\"id\":\"a-2\",\"text\":\"\",\"extra\":{\"deep\":[1,[2,[3]]]}}],\"version\":1,\"format\":\"oneocr.review\"}");
             File.WriteAllText(Path.Combine(dir, "empty.seed"), "{\"format\":\"oneocr.review\",\"version\":1,\"items\":[]}");
+            return;
+        }
+
+        if (target == "pdf")
+        {
+            foreach (var (name, bytes) in PdfFixtures.Seeds())
+            {
+                File.WriteAllBytes(Path.Combine(dir, name + ".seed"), bytes);
+            }
+
             return;
         }
 

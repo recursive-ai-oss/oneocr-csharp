@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>PDF bridge for RecursiveAI.OneOcr: text-layer words where a page has them, local OCR for scanned regions, one page model.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../OneOcr/OneOcr.csproj" />
+    <!-- OneImage.Pdf 1.7.0 is the version that pairs with the OneImage 1.7.0 floor of the core package and itself needs OnePdf 1.2.0. -->
+    <PackageReference Include="RecursiveAI.OnePdf" Version="1.2.0" />
+    <PackageReference Include="RecursiveAI.OneImage.Pdf" Version="1.7.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="$(LibName).Tests" />
+    <InternalsVisibleTo Include="$(LibName).Fuzz" />
+    <InternalsVisibleTo Include="$(LibName).AotSmoke" />
+  </ItemGroup>
+
+</Project>

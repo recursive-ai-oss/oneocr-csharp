@@ -27,6 +27,7 @@
     <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
     <ProjectReference Include="../../src/OneOcr.Llm/OneOcr.Llm.csproj" />
     <ProjectReference Include="../../src/OneOcr.Training/OneOcr.Training.csproj" />
+    <ProjectReference Include="../../src/OneOcr.Pdf/OneOcr.Pdf.csproj" />
   </ItemGroup>
 
 </Project>
