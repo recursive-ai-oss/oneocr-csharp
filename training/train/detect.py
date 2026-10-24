@@ -136,9 +136,10 @@ def main() -> None:
             "with_line_boxes": sum(r["lines"] is not None for r in recs),
             "label_source": src["label_source"],
         }
-    val_recs = []
+    val_sets = {}
     for src in cfg["sources"]:
-        val_recs += load_records(src["name"], root, "val", src)[: tc["val_pages"]]
+        v = load_records(src["name"], root, "val", src)
+        val_sets[src["name"]] = v[:: max(1, len(v) // tc["val_pages"])][: tc["val_pages"]]
     ds = DetDataset(train_recs, cfg["size"], True, seed, tuple(cfg["scale"]), cfg["rot_p"])
 
     macs = count_macs(model, 1024, 736)["total"]
@@ -210,8 +211,8 @@ def main() -> None:
             acc, n_acc = {}, 0
         if step % tc["eval_every"] == 0 or step == tc["steps"]:
             model.eval()
-            v = evaluate_records(model, val_recs, dev)
-            score = v["layout"]["mAP"] + (v["text"]["f1"] if "text" in v else 0.0)
+            v = {n: evaluate_records(model, recs, dev) for n, recs in val_sets.items()}
+            score = sum(r["layout"]["mAP"] + (r["text"]["f1"] if "text" in r else 0.0) for r in v.values()) / len(v)
             emit({"step": step, "val": v, "score": score})
             if score > best:  # picked on validation pages only
                 best = score

@@ -7,16 +7,25 @@ using OneOcr.Recognition;
 namespace OneOcr.Layout;
 
 /// <summary>Turns a grayscale page into an <see cref="OcrPage"/>: finds strips, reads them, orders them, assembles the model.</summary>
-internal static class PageReader
+internal static partial class PageReader
 {
     // Page units per inch that body text of about 11 points would have, for a typical line of this many pixels (ink from the top
     // of the ascenders to the bottom of the descenders is about one em tall).
     private const double AssumedBodyPoints = 11;
 
+    // Most lines read together as one group.
+    private const int MaxGroupLines = 12;
+
+    // Most line pixels (the sum of the widths, about four per step of the recurrence) in one group: the group holds the sequences of
+    // all its lines at once, so this bounds the memory a group needs.
+    private const int MaxGroupWidth = 2048;
+
     private static readonly double[] CommonResolutions = [72, 96, 150, 200, 300, 400, 600];
 
-    private static FoundStrips FindStrips(Gray8[] gray, int width, int height, OcrLimits limits, BufferPool<byte> masks, int degree)
+    // The ruled tables are found before the finder erases rules; a page whose strips were found earlier brings its tables with them.
+    private static FoundStrips FindStrips(Gray8[] gray, int width, int height, OcrLimits limits, BufferPool<byte> masks, int degree, out List<RuleGrid> grids)
     {
+        grids = FindGrids(gray, width, height, degree);
         List<StripLine> strips = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int level, out bool bright);
         return new FoundStrips(strips, level, bright);
     }
@@ -24,23 +33,32 @@ internal static class PageReader
     public static OcrPage Read(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, BufferPool<byte> masks, ResizerPool resizers, IPageDetector? detector,
         Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, PageDetection? first, bool turn,
-        FoundStrips? found, CancellationToken cancellationToken)
+        FoundStrips? found, CancellationToken cancellationToken, (int Level, bool InkIsBright)? known = null)
     {
         if (detector is null)
         {
             // Strips found earlier on these very pixels are used as they are.
-            FoundStrips strips = found ?? FindStrips(gray, width, height, limits, masks, degree);
+            List<RuleGrid> ruled = found?.Grids ?? [];
+            FoundStrips strips = found ?? FindStrips(gray, width, height, limits, masks, degree, out ruled);
+            List<StripLine> cut = TableStructure.SplitStrips(strips.Strips, ruled, PixelSpans.AsBytes(gray.AsSpan(0, width * height)), width, height, strips.Threshold, strips.InkIsBright);
             return ReadStrips(
-                recognizer, limits, pixelPool, resizers, gray, width, height, strips.Strips, strips.Threshold, strips.InkIsBright, [], [], pageIndex, dpi, degree, includeChars,
+                recognizer, limits, pixelPool, resizers, gray, width, height, cut, strips.Threshold, strips.InkIsBright, [], [], ruled, pageIndex, dpi, degree, includeChars,
                 cancellationToken);
         }
 
-        LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken, first, turn);
+        LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken, first, turn, known);
         try
         {
+            long clock = StageClock.Start();
+            List<RuleGrid> ruled = FindGrids(located.Gray, located.Width, located.Height, degree, (located.Threshold, located.InkIsBright));
+            StageClock.Stop("8a table rules", clock);
+            clock = StageClock.Start();
+            List<StripLine> cut = TableStructure.SplitStrips(
+                located.Strips, ruled, PixelSpans.AsBytes(located.Gray.AsSpan(0, located.Width * located.Height)), located.Width, located.Height, located.Threshold, located.InkIsBright);
+            StageClock.Stop("8b split strips", clock);
             return ReadStrips(
-                recognizer, limits, pixelPool, resizers, located.Gray, located.Width, located.Height, located.Strips, located.Threshold, located.InkIsBright,
-                located.Regions, located.Notes, pageIndex, dpi, degree, includeChars, cancellationToken);
+                recognizer, limits, pixelPool, resizers, located.Gray, located.Width, located.Height, cut, located.Threshold, located.InkIsBright,
+                located.Regions, located.Notes, ruled, pageIndex, dpi, degree, includeChars, cancellationToken);
         }
         finally
         {
@@ -50,7 +68,7 @@ internal static class PageReader
 
     private static OcrPage ReadStrips(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, ResizerPool resizers, Gray8[] gray, int width, int height,
-        List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<string> notes, int pageIndex, double? dpi, int degree,
+        List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<string> notes, List<RuleGrid> grids, int pageIndex, double? dpi, int degree,
         bool includeChars, CancellationToken cancellationToken)
     {
         int count = checked(width * height);
@@ -92,56 +110,100 @@ internal static class PageReader
         int modelHeight = recognizer.InputHeight;
         var read = new OrderStrip?[strips.Count];
         var skipped = new string?[strips.Count];
-        void ReadStrip(int index)
+        var crops = new LineBox[strips.Count];
+        var queue = new List<(int Index, int Width)>(strips.Count);
+        for (int index = 0; index < strips.Count; index++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
             LineBox ink = strips[index].Box;
-            LineBox crop = LinePreprocessor.CropBox(ink, typical, width, height);
+            crops[index] = LinePreprocessor.CropBox(ink, typical, width, height);
+            LineBox crop = crops[index];
             // A strip far wider than tall (a rule, a photo's edge) would be wider than the model's limit once scaled to its input height;
             // it is left out with a note instead of failing the page.
-            if (Math.Ceiling((double)crop.Width * modelHeight / crop.Height) > limits.MaxLineWidth)
+            int scaledWidth = PixelResizer.GetSize(crop.Width, crop.Height, null, modelHeight).Width;
+            if (Math.Ceiling((double)crop.Width * modelHeight / crop.Height) > limits.MaxLineWidth || scaledWidth > limits.MaxLineWidth)
             {
                 skipped[index] = SkipNote(ink, limits);
-                return;
+                continue;
             }
 
+            queue.Add((index, scaledWidth));
+        }
+
+        // The recurrent layers read their weights once per step for a whole group of lines, so lines are read in groups of similar
+        // width (a group runs as long as its longest line). A group is the unit of parallelism; with few lines the groups shrink so
+        // that every thread has one. Which lines share a group never changes any line's result.
+        queue.Sort((l, r) => l.Width != r.Width ? r.Width.CompareTo(l.Width) : l.Index.CompareTo(r.Index));
+        int maxLines = degree <= 1 ? MaxGroupLines : Math.Clamp(queue.Count / (2 * degree), 1, MaxGroupLines);
+        var groups = new List<(int First, int Count)>();
+        for (int first = 0; first < queue.Count;)
+        {
+            int taken = 0, columns = 0;
+            while (first + taken < queue.Count && taken < maxLines && (taken == 0 || columns + queue[first + taken].Width <= MaxGroupWidth))
+            {
+                columns += queue[first + taken].Width;
+                taken++;
+            }
+
+            groups.Add((first, taken));
+            first += taken;
+        }
+
+        void ReadGroup(int g)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            (int first, int lineCount) = groups[g];
             ReadOnlySpan<byte> page = PixelSpans.AsBytes(gray.AsSpan(0, count));
-            Gray8[] cropPixels = LinePreprocessor.Prepare(page, width, crop, modelHeight, pixelPool, resizers, out int cropWidth);
+            var pixels = new Gray8[lineCount][];
+            var images = new LineImage[lineCount];
             try
             {
-                // Lines are the unit of parallelism, so each is recognized on one thread.
-                LineWords line;
-                try
+                for (int k = 0; k < lineCount; k++)
                 {
-                    line = recognizer.RecognizeWords(PixelSpans.AsBytes(cropPixels.AsSpan(0, cropWidth * modelHeight)), cropWidth, 1, cancellationToken, includeChars);
-                }
-                catch (OcrLimitException ex) when (ex.LimitName == nameof(OcrLimits.MaxLineWidth))
-                {
-                    skipped[index] = SkipNote(ink, limits);
-                    return;
+                    int index = queue[first + k].Index;
+                    long c0 = StageClock.Start();
+                    pixels[k] = LinePreprocessor.Prepare(page, width, crops[index], modelHeight, pixelPool, resizers, out int cropWidth);
+                    images[k] = new LineImage(pixels[k], cropWidth);
+                    StageClock.Stop("8c line crops", c0);
                 }
 
-                var words = new List<OcrWord>(line.Words.Count);
-                foreach (RecognizedWord w in line.Words)
+                long r0 = StageClock.Start();
+                LineWords[] lines = recognizer.RecognizeWordsGroup(images, cancellationToken, includeChars);
+                StageClock.Stop("8d recognize", r0);
+                r0 = StageClock.Start();
+                for (int k = 0; k < lineCount; k++)
                 {
-                    words.Add(MakeWord(w, page, width, height, threshold, inkIsBright, ink, crop, cropWidth, includeChars));
+                    int index = queue[first + k].Index;
+                    LineBox ink = strips[index].Box;
+                    var words = new List<OcrWord>(lines[k].Words.Count);
+                    foreach (RecognizedWord w in lines[k].Words)
+                    {
+                        words.Add(MakeWord(w, page, width, height, threshold, inkIsBright, ink, crops[index], images[k].Width, includeChars));
+                    }
+
+                    read[index] = new OrderStrip
+                    {
+                        Leaf = strips[index].Leaf,
+                        Box = new OcrBox(ink.X, ink.Y, ink.Right, ink.Bottom),
+                        Size = Math.Max(ink.Height, 0.85 * typical),
+                        Words = words,
+                    };
                 }
 
-                read[index] = new OrderStrip
-                {
-                    Leaf = strips[index].Leaf,
-                    Box = new OcrBox(ink.X, ink.Y, ink.Right, ink.Bottom),
-                    Size = Math.Max(ink.Height, 0.85 * typical),
-                    Words = words,
-                };
+                StageClock.Stop("8e word boxes", r0);
             }
             finally
             {
-                pixelPool.Return(cropPixels);
+                foreach (Gray8[]? p in pixels)
+                {
+                    if (p is not null)
+                    {
+                        pixelPool.Return(p);
+                    }
+                }
             }
         }
 
-        ParallelRun.For(strips.Count, degree, ReadStrip, cancellationToken);
+        ParallelRun.For(groups.Count, degree, ReadGroup, cancellationToken);
 
         var ordered = new List<OrderStrip>(strips.Count);
         for (int i = 0; i < read.Length; i++)
@@ -156,8 +218,11 @@ internal static class PageReader
             }
         }
 
-        List<OrderBlock> plan = ReadingOrder.Arrange(ordered, cancellationToken);
-        return Assemble(plan, ordered, regions, pageIndex, width, height, units, diagnostics);
+        long t = StageClock.Start();
+        List<OrderBlock> plan = TableStructure.Infer(TableStructure.Apply(ReadingOrder.Arrange(ordered, cancellationToken), grids), regions, null);
+        OcrPage assembled = Assemble(plan, ordered, regions, pageIndex, width, height, units, diagnostics);
+        StageClock.Stop("8f order+tables+assemble", t);
+        return assembled;
     }
 
     private static double Nearest(double estimate)
@@ -242,6 +307,12 @@ internal static class PageReader
         int wordIndex = 0;
         foreach (OrderBlock block in plan)
         {
+            if (block.Cells is not null)
+            {
+                AddGridBlock(block, strips, ref wordIndex, blocks, tables);
+                continue;
+            }
+
             var lines = new List<OcrLine>(block.Lines.Count);
             var cells = new Dictionary<(int Row, int Column), (OcrBox Box, List<int> Words)>();
             int multi = 0;

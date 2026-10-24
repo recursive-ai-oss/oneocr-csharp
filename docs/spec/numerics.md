@@ -20,6 +20,14 @@ A bias, when present, is added to the finished sum. Vector paths keep the 16 par
 - **Classifier** logits = dot product + bias, per step.
 - **Softmax denominator** (for confidence) = sum over classes of `exp(z - max)` accumulated into 16 partials by class index mod 16 with plain additions, combined with the tree above; the winning probability is `1 / sum`.
 
+## Evaluation grouping that leaves every sum alone
+
+These rearrangements change what is computed together or which terms are visited, never the value of any output. A port may use them or not.
+
+- **Taps on the zero border.** A tap whose input value is an exact zero (a kernel row that falls on the zero border above or below the image rows) adds nothing: `fma(0, w, s) = s` for finite `w`, and a partial sum that starts at +0 is never -0, so the +0 or -0 product leaves it unchanged. Such taps may be left out of the dot product while every other tap keeps its lane `k mod 16` and its place in the order. This holds only when every weight of the layer is finite (a zero times an infinity or NaN is NaN); a layer with a non-finite weight visits all taps. Zeros that come from the data are not skipped.
+- **Batched recurrence.** The recurrent product `dot(W_hh row, h_prev)` of several lines at the same step may be one matrix product (rows of `h_prev` against the rows of `W_hh`); each output is the same dot product, then `+ proj[t]` as one fp32 addition. A line's step never reads another line's values, so which lines share a product, and in what order, does not matter. The input projections of a run of steps may likewise be computed ahead as one product.
+- **Three-by-three single-channel convolution** with 9 taps keeps the 16 partials in registers; lanes 9 to 15 are +0, and a partial `fma(w, x, +0)` is never -0, so adding one of those lanes in the tree returns the other operand unchanged: only lane 0 + lane 8 is a real addition, and the remaining additions are the tree's, in its order.
+
 ## Transcendental functions
 
 No platform math library is used. With `Limit = 80`:
@@ -38,7 +46,7 @@ The page detector (`dbnet-lite-v0`, [detector-v0.md](detector-v0.md)) uses activ
 - **3x3 depthwise convolution** (zero padding 1, stride 1 or 2, one filter per channel): the nine products of a position and channel are the elements of one dot product, tap *k* = `ky * 3 + kx` in lane *k*: `p[k] = fma(w[k], x[k], +0)`, lanes 9 to 15 stay +0, then the tree above and the bias. A tap that falls outside the image multiplies a zero padding value and contributes `fma(w, 0, +0) = +0`, so it is simply +0. Vector paths hold the nine products for 4, 8 or 16 channels at a time; a channel is never split across lanes, so the width cannot change a result.
 - **Stem** (3x3, stride 2, one input channel, ReLU) follows the same rule per output channel.
 - **Nearest 2x upsampling plus addition**: `dst[y][x][k] = dst[y][x][k] + src[y / 2][x / 2][k]` (one fp32 addition; commutative).
-- **Global average** over a stage output of *n* positions, per channel: the positions are added one after the other in row-major order starting from +0 in fp32, then divided by *n* (IEEE division). The orientation logits are dot products of that vector with each row of `orient.weight`, plus the bias.
+- **Global average** over a stage output of *n* positions, per channel: the positions are added one after the other in row-major order starting from +0 in fp32, then divided by *n* (IEEE division). The orientation logits are dot products of that vector with each row of `orient.weight`, plus the bias; with `dbnet-lite-v1` `orient16` the vector is the stage-2 means followed by the stage-3 means, one dot product over the joined vector ([detector-v1.md](detector-v1.md)).
 - **ReLU** `v > 0 ? v : 0` (NaN and -0 give +0). Sigmoid and softmax appear only in post-processing, with the exp above; thresholds are compared on logits.
 
 Rows of an output are split across threads; no reduction crosses a thread boundary.
@@ -55,6 +63,7 @@ For each layer the C# fp32 result is compared with a float64 evaluation of the s
 | stage1, stage2, stage3 | 2e-6 | | text2 | 8e-6 |
 | p8 | 4e-6 | | prob | 5e-6 |
 | p4 | 5e-6 | | orient | 2e-7 |
+| p16 (v1) | 4e-6 | | layout16, layout_mix (v1) | 5e-6 |
 
 ## Tolerance against PyTorch
 
@@ -67,3 +76,22 @@ Agreement with a PyTorch fp32 computation from the same fp16 weights is a per-la
 - On top of the layer tolerances, our greedy decoding of our own logits must equal the fixture's `decoded` text for every line.
 
 Observed on the 50 held-out lines of a trained model: the largest difference per layer is 0.9-2.0x the PyTorch floor (conv.5 2.6e-6, lstm.l1 6.6e-5, fc 7.0e-5, within the bound through its relative term).
+
+## Document extraction kernels
+
+The `docextract-v0` forward pass (graph in [docextract-v0.md](docextract-v0.md)) uses the rules above and these. Every sum of products is a dot product in the 16-lane order, so a vector path gives the same bits as scalar; everything else is element-wise IEEE arithmetic (add, subtract, multiply, divide, square root, fused multiply-add where stated), which is the same on every width. No sum is split across threads: rows, heads and words are split between threads, each output is computed by one call.
+
+- **Linear layer** `y = x Wᵀ + b`, `W` stored `[out, in]`: one dot product of `in` terms per output, bias added to the finished sum. Inputs whose length is not a multiple of 16 continue the same lanes (the tail is part of the order); `feat_proj` (8 inputs) and `pair1` (13) are zero-padded to 16, which changes nothing because a zero product leaves every partial sum as it was.
+- **Embedding rows**: `x[i] = x[i] + table[id]`, one addition per element, applied in the order x0, x1, y0, y1 of the position tables after the character projection; then the projected features are added; then layer norm.
+- **Character CNN**, per word: the embeddings of its characters (an id of 0 reads row 0 of the table) with one zero row before and after; output position *p* is the dot product, in the order of taps (k, channel) with k = 0 the previous character, of the weight row `[k][channel]` (the container's `[out, channel, k]` reordered at load) with the three rows from *p* - 1 to *p* + 1, plus the bias. ReLU (`v > 0 ? v : 0`), then the maximum over the word's valid positions (characters with an id other than 0), starting from +0. Positions after the last valid character are not computed. `char_pool` is that maximum.
+- **Layer norm** over `d` (epsilon 1e-5 as fp32): `mean = (Σ x) / d` with the sum a dot product with ones; `dx = x - mean`; `variance = (Σ dx²) / d`, a dot product of `dx` with itself; `inv = 1 / sqrt(variance + eps)` (IEEE square root and division); `y = fma(dx * inv, weight, bias)`.
+- **GELU** (tanh form): `inner = c0 * fma(c1, (x * x) * x, x)` with `c0 = 0.79788456f`, `c1 = 0.044715f`; `y = (0.5f * x) * (1 + tanh(inner))`, `tanh` being the library's own (see Transcendental functions).
+- **Pair features**: with `geo` the box in units of the median word height and the centre `c = (lo + hi) * 0.5f`, `d = a_j - a_i`, `squash(d, s) = d / (s + |d|)` (one division): centre x, centre y, x0, x1, y0, y1 each at s = 1 and s = 16, then the height difference at s = 1; 13 values, in that order. The pair MLP is `pair1` (13 to `pair_hidden`), ReLU, `pair2`; row *i*, column *j* of channel *c* is stored at `c * n * n + i * n + j`.
+- **Attention**, per head: `s = q·k` (dot product over the 32 head dimensions), `s = s / sqrt(head size) + bias` (the divisor is the fp32 square root of the head size, 5.656854f for 32; division then addition, two roundings); softmax per row: `m = max s`, `e = exp(s - m)` with the library's exp, `sum = Σ e` as a dot product with ones, `p = e / sum`; `a = Σ_j p_j v_j` as a dot product over `j` with the head's V transposed to contiguous rows, no bias.
+- **Pointers**: `rel[r, i, j] = (q_i,r · k_j,r) / sqrt(rel_dim) + pair_bias[layers * heads + r, i, j]`, the division by the fp32 square root (8 for 64).
+- **Document logits**: the mean over words of `final` (each column summed in word order in double precision, divided by the word count, rounded to fp32) through `doc_head`.
+- **Windows**: see docextract-v0.md; the merge is selection, not arithmetic, except the document logits of a page of several windows, which are a double-precision weighted mean rounded to fp32.
+
+### Tolerance of the document extraction model
+
+Per layer (`char_pool`, `emb`, `pair_bias`, `block.<l>`, `final`, `tags`, `roles`, `doc`, `rel`), against PyTorch's float64 run of the same fp16 weights: `max |ours - exact| <= 2 * Floor(L) + 8 ulp * max |exact|`, where `Floor(L)` is PyTorch's own fp32-versus-float64 maximum error for the layer (`fp32_vs_fp64_floor` in the fixtures) and the second term (8 times 2^-23 of the layer's largest value) covers layers where PyTorch happens to be nearly exact. Against PyTorch's fp32 result: `max |ours - pytorch| <= 3 * Floor(L) + 8 ulp * max |exact|`. Observed on two random-weight models over pages of 24 to 300 words on all four paths: our error is 0.4 to 1.13 times PyTorch's for every layer except the document logits (2.05 times a very small floor, inside the ulp term); the difference from PyTorch's own result is at most 1.44 times the floor. Results are bit-identical across paths and degrees.

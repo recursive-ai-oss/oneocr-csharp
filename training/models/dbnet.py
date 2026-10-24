@@ -37,7 +37,15 @@ DEFAULT = {
     "layout": 112,
     "layout_blocks": 3,
     "classes": len(LAYOUT_CLASSES),
+    # dbnet-lite-v1 additions; the defaults reproduce the dbnet-lite-v0 graph exactly
+    "layout16_blocks": 0,  # > 0: a stride-16 context branch feeding the layout head
+    "layout16": 128,
+    "orient16": False,  # True: orientation from the mean of the stride-16 and stride-32 features
 }
+
+
+def arch_id(cfg: dict) -> str:
+    return "dbnet-lite-v1" if cfg.get("layout16_blocks", 0) > 0 or cfg.get("orient16") else "dbnet-lite-v0"
 
 
 def conv_bn(cin, cout, k=3, s=1, groups=1, relu=True):
@@ -84,6 +92,10 @@ class DBNetLite(nn.Module):
         lay = [DW(f, c["layout"])] + [DW(c["layout"], c["layout"]) for _ in range(c["layout_blocks"] - 1)]
         self.layout = nn.Sequential(*lay)
         self.layout_out = nn.Conv2d(c["layout"], c["classes"], 1)
+        if c["layout16_blocks"] > 0:
+            n, w16 = c["layout16_blocks"], c["layout16"]
+            self.layout16 = nn.Sequential(DW(f, w16), *[DW(w16, w16) for _ in range(n - 1)])
+            self.layout_mix = nn.Conv2d(w16, c["layout"], 1)
         # text head: stride-4 level, up to stride 2 together with the stem feature
         self.text4 = DW(f, c["text"])
         self.stem_proj = nn.Conv2d(c["stem"], c["text"], 1)
@@ -94,7 +106,7 @@ class DBNetLite(nn.Module):
         self.thr_proj = nn.Conv2d(c["stem"], c["text"], 1)
         self.thr2 = DW(c["text"], c["text"])
         self.thr_out = nn.Conv2d(c["text"], 1, 1)
-        self.orient = nn.Linear(c["widths"][-1], 4)
+        self.orient = nn.Linear(c["widths"][-1] + (c["widths"][2] if c["orient16"] else 0), 4)
 
     def forward(self, x, train_heads: bool = True):
         s2 = self.stem(x)
@@ -107,9 +119,18 @@ class DBNetLite(nn.Module):
         p16 = l16 + up2(l32)
         p8 = self.smooth8(l8 + up2(p16))
         p4 = self.smooth4(l4 + up2(p8))
-        layout = self.layout_out(self.layout(p8))
+        if self.cfg["layout16_blocks"] > 0:
+            h = self.layout[0](p8) + up2(self.layout_mix(self.layout16(p16)))
+            for blk in list(self.layout)[1:]:
+                h = blk(h)
+        else:
+            h = self.layout(p8)
+        layout = self.layout_out(h)
+        g = feats[3].mean((2, 3))
+        if self.cfg["orient16"]:
+            g = torch.cat([feats[2].mean((2, 3)), g], 1)
         t = self.text2(up2(self.text4(p4)) + self.stem_proj(s2))
-        out = {"prob": self.prob_out(t), "layout": layout, "orient": self.orient(feats[3].mean((2, 3)))}
+        out = {"prob": self.prob_out(t), "layout": layout, "orient": self.orient(g)}
         if train_heads:
             th = self.thr2(up2(self.thr4(p4)) + self.thr_proj(s2))
             out["thresh"] = self.thr_out(th)

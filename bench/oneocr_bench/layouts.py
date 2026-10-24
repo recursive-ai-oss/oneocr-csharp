@@ -23,6 +23,7 @@ from .assets import FAMILIES
 from .gen import H_CSS, H_PX, SCALE, W_CSS, W_PX, load_paragraphs, prose
 from .render import (
     WORDS_JS,
+    add_ink,
     font_css,
     png_bytes,
     text_of,
@@ -179,6 +180,7 @@ def render(count: int, seed: int, out, set_name: str) -> tuple[list[dict], str]:
             page.close()
             img = Image.open(io.BytesIO(png)).convert("L").crop((0, 0, W_PX, H_PX))
             tw = truth_words(words, SCALE)
+            add_ink(tw, img)
             truth = {"id": pid, "set": set_name, "seed": seed, "page_index": i, "kind": kind, "font": fam, "columns": nc,
                      "font_px": round(fs, 2), "blocks_placed": n, "image": {"width": W_PX, "height": H_PX, "dpi": 300},
                      "words": tw, "text": text_of(tw)}

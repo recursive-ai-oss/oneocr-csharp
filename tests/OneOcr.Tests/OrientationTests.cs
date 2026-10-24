@@ -315,7 +315,7 @@ public class OrientationTests
         Gray8[] sideways = Turn(Gray(sheared), W, h, 3);
         Image image = Image.FromPixels<Gray8>(sideways, h, W);
         var stub = new HeadStub(call => call == 0 ? Head(1, 0.97f) : Head(0, 0.99f));
-        OcrPage page = Engine().WithDetector(stub).Ocr(image);
+        OcrPage page = Engine().WithDetector(stub, confirmTurns: false).Ocr(image);
 
         // First look at the page as given, then a look at the page turned and straightened (a larger canvas).
         Assert.Equal(2, stub.Calls.Count);

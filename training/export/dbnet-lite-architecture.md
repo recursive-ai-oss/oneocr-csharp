@@ -1,4 +1,4 @@
-# Draft: `dbnet-lite-v0` container architecture
+# Draft: `dbnet-lite-v0` and `dbnet-lite-v1` container architectures
 
 A proposed `architecture` section for the model container, for a runtime that reads the page detector. The trainer (`train.detect`),
 the exporter (`export.dbnet`) and the forward parity fixtures (`parity.dbnet_fixtures`) already produce files in this shape using
@@ -23,8 +23,8 @@ One page image in, three outputs:
 
 Layout classes, index order = `config.layout_classes`: `text, title, list, table, figure, header_footer, form_field, checkbox`.
 Detection is **line level** (one box per text line segment): the recognizer reads line crops, and the training truth (DocLayNet's
-cells, merged along a baseline) is line-shaped. `form_field` and `checkbox` have no training labels yet (their channels exist in
-the file, are untrained and must not be used until a later model ships labels for them).
+cells, merged along a baseline) is line-shaped. `form_field` and `checkbox` are labelled only in `dbnet-lite-v1` models, from exact-truth synthetic pages (no real-page labels
+exist); `config.layout_trained` lists the classes a model's training labelled, and a reader must ignore the other channels.
 
 ## Pre-processing
 
@@ -69,6 +69,34 @@ Parameters stored: 309,077 (0.62 MB fp16; container file about 0.63 MB). 94 tens
 
 Where `H/2` etc. are exact because the padded input is a multiple of 32; every stride-2 convolution sees an even-sized input, so
 `out = in / 2` with padding 1 and no edge cases.
+
+## `dbnet-lite-v1`: what differs from `v0`
+
+Same layer types (convolution, depthwise 3x3, ReLU, nearest 2x upsample, add, channel mean, linear) and the same tensor naming.
+No new layer type, no dilation, no other kernel size. Three changes; each is a config switch, and `v0` files stay valid
+(`layout16_blocks` absent or 0 and `orient16` absent or false mean the `v0` graph).
+
+1. **Stride-16 context branch for the layout head** (`layout16_blocks` = n > 0, width `layout16`):
+   `g = DW(56 -> layout16)(p16)` then n - 1 further `DW(layout16, layout16)` blocks at stride 16 (tensors `layout16.J.dw/pw`);
+   `m = conv(1) layout16 -> layout` (`layout_mix`, bias, **no ReLU**) applied to `g` **at stride 16**, then nearest-upsampled 2x
+   (a 1x1 convolution commutes with nearest upsampling, so the multiply is done on the 4x smaller map);
+   the stride-8 layout head's first block output is **added** to it: `h = DW(fpn -> layout)(p8) + up2(m)` (`layout.0`), then the remaining
+   `layout.J` blocks as before. Here `fpn` is the config's FPN width; widths in `v0` text (56) are the `v0` config's values.
+2. **Orientation from two scales** (`orient16` true): the 4 logits are one linear layer over the concatenation
+   `[mean(stage2 output), mean(stage3 output)]` (channels of stage 2 first), `orient.weight` [4, widths[2] + widths[3]].
+3. **Widths and depths** are config only (the table below gives the `v1` values).
+
+`config` additions (`v1`): `layout16_blocks`, `layout16`, `orient16`, and the two brokered members every detector file carries from
+this version on:
+
+```json
+"postprocess": {"text_threshold": 0.3, "text_expand": 0.5, "layout_threshold": 0.6, "layout_expand": 0.85},
+"layout_trained": ["text", "title", "list", "table", "figure", "header_footer", "form_field", "checkbox"]
+```
+
+`postprocess` values are probabilities (thresholds on `sigmoid(logit)`) and growth factors for the rules in *Post-processing*;
+a reader uses the file's values (a `v0` file without them uses the defaults written there: 0.3, 1.0, 0.6, 0.85). For 0.2.0 the text growth factor is 0.5, not the geometric inverse (1.0) of the training shrink: its synthetic-page training boxes are line-box height, about 1.7x the ink height, so the predicted boxes come out taller than the ink and a factor of 0.5 gives crops the recognizer reads best (picked on the end-to-end gate pages, two numbers over a coarse grid; see the weights' report).
+`layout_trained` names the classes whose channels were trained; the others are untrained noise.
 
 ## Cost
 
@@ -129,7 +157,7 @@ Both text expansions were reported on the benchmark pages, which were not used t
 
 ## Parity fixture layers
 
-`input` [1,H,W]; `stem`, `stage0` .. `stage3`, `p8`, `p4`, `layout_feat`, `layout`, `text4`, `text2`, `prob` ([C,H',W']); `orient`
+`input` [1,H,W]; `stem`, `stage0` .. `stage3`, `p16`, `p8`, `p4`, (v1: `layout16`, `layout_mix`) `layout_feat`, `layout`, `text4`, `text2`, `prob` ([C,H',W']); `orient`
 ([4]). Five tiles plus one "wide" tile with the head outputs only; see `parity/dbnet_fixtures.py`. Each file under 1 MB.
 
 ## Container v1 additions proposed

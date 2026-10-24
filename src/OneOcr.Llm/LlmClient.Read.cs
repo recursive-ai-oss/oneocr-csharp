@@ -77,12 +77,12 @@ public sealed partial class LlmClient
 
         if (options.Routing == LlmRouting.LocalOnly && wantJson && options.LocalExtractor is null)
         {
-            throw new ArgumentException("LocalOnly with Json needs a LocalExtractor: no local model extracts values yet.", nameof(options));
+            throw new ArgumentException("LocalOnly with Json needs a LocalExtractor.", nameof(options));
         }
 
         var diagnostics = new List<string>();
         LocalFieldResult? local = null;
-        if (wantJson && options.Routing != LlmRouting.LlmOnly && options.LocalExtractor is { } extractor)
+        if (wantJson && options.LocalExtractor is { } extractor && (options.Routing != LlmRouting.LlmOnly || options.RoleCheck))
         {
             local = extractor.TryExtract([.. pages.Select(static p => p.Page)], userSchema!);
             if (options.Routing == LlmRouting.LocalOnly && local is null)
@@ -91,7 +91,30 @@ public sealed partial class LlmClient
             }
         }
 
-        bool jsonFromModel = wantJson && options.Routing != LlmRouting.LocalOnly && !(local is not null && local.MinConfidence >= options.ConfidenceThreshold);
+        // LocalFirst: an extractor that lists fields is routed per field; one that lists none keeps the whole-document rule.
+        using JsonDocument? localDoc = TryParseLocal(local, diagnostics);
+        LocalSplit? split = null;
+        bool wholeLocal = false;
+        if (options.Routing == LlmRouting.LocalFirst && local is not null)
+        {
+            if (local.Fields.Count == 0)
+            {
+                wholeLocal = local.MinConfidence >= options.ConfidenceThreshold;
+            }
+            else if (localDoc is not null)
+            {
+                split = new LocalSplit(tree!, local, localDoc.RootElement, options.ConfidenceThreshold);
+                wholeLocal = split.AllLocal;
+            }
+        }
+
+        bool jsonFromModel = wantJson && options.Routing != LlmRouting.LocalOnly && !wholeLocal;
+        SNode? askedTree = split is { Paths.Count: > 0 } ? split.Reduced : tree;
+        LocalSplit? used = split is { Paths.Count: > 0 } ? split : null;
+        if (jsonFromModel && used is not null)
+        {
+            diagnostics.Add($"{used.Paths.Count} value(s) were kept from the local extractor; the model was asked for the rest.");
+        }
         bool mdFromModel = wantMarkdown && options.Routing != LlmRouting.LocalOnly;
         if (wantMarkdown && !mdFromModel)
         {
@@ -138,7 +161,7 @@ public sealed partial class LlmClient
 
         var sentInputs = sent.Select(i => pages[i]).ToList();
         bool pagesAsked = textFromModel, mdAsked = mdFromModel, dataAsked = jsonFromModel;
-        JsonObject wrapper = Wrapper(pagesAsked, mdAsked, dataAsked ? tree : null);
+        JsonObject wrapper = Wrapper(pagesAsked, mdAsked, dataAsked ? askedTree : null);
         string instruction = Instruction(options.Instruction, pagesAsked, mdAsked, dataAsked);
 
         LlmExtraction first = await ExtractCoreAsync(sentInputs, instruction, wrapper.ToJsonString(), options.SchemaName, null, cancellationToken).ConfigureAwait(false);
@@ -227,6 +250,9 @@ public sealed partial class LlmClient
         }
 
         // ---- values ----
+        GroundedField Check(GroundedField g) =>
+            options.RoleCheck && local is not null && options.Routing != LlmRouting.LocalOnly ? RoleCheck.Apply(g, local, options.ConfidenceThreshold) : g;
+
         string? json = null;
         List<GroundedField> fields = [];
         if (jsonFromModel)
@@ -234,19 +260,19 @@ public sealed partial class LlmClient
             var ctx = new GroundingContext(first.Words, sentInputs, options.NumberStyle, options.DateOrder);
             JsonElement data = answer.ValueKind == JsonValueKind.Object && answer.TryGetProperty("data", out JsonElement d) ? d : default;
             var leaves = new List<LeafAnswer>();
-            GroundedSchema.Collect(data, tree!, "", leaves);
+            GroundedSchema.Collect(data, askedTree!, "", leaves);
             var final = new Dictionary<string, LeafAnswer>(StringComparer.Ordinal);
             var grounded = new Dictionary<string, GroundedField>(StringComparer.Ordinal);
             var order = new List<string>();
             foreach (LeafAnswer leaf in leaves)
             {
                 final[leaf.Path] = leaf;
-                grounded[leaf.Path] = Grounder.Ground(ctx, leaf, false);
+                grounded[leaf.Path] = Check(Grounder.Ground(ctx, leaf, false));
                 order.Add(leaf.Path);
             }
 
             var withdrawn = new HashSet<string>(StringComparer.Ordinal);
-            List<string> ungrounded = [.. order.Where(p => grounded[p].State == GroundingState.Ungrounded)];
+            List<string> ungrounded = [.. order.Where(p => grounded[p].State is GroundingState.Ungrounded or GroundingState.RoleConflict)];
             if (ungrounded.Count > 0 && options.Reask)
             {
                 try
@@ -254,7 +280,7 @@ public sealed partial class LlmClient
                     var lines = new List<string>();
                     foreach (string path in ungrounded.Take(MaxCorrectionLines))
                     {
-                        lines.Add(CorrectionLine(ctx, final[path], grounded[path]));
+                        lines.Add(CorrectionLine(ctx, final[path], grounded[path], local is null ? null : RoleCheck.LocalValue(local, path)));
                     }
 
                     if (ungrounded.Count > MaxCorrectionLines)
@@ -262,7 +288,7 @@ public sealed partial class LlmClient
                         diagnostics.Add($"Only the first {MaxCorrectionLines} of {ungrounded.Count} ungrounded values were re-asked.");
                     }
 
-                    JsonObject dataOnly = Wrapper(false, false, tree);
+                    JsonObject dataOnly = Wrapper(false, false, askedTree);
                     LlmExtraction second = await ExtractCoreAsync(
                         sentInputs, Instruction(options.Instruction, false, false, true), dataOnly.ToJsonString(), options.SchemaName, lines, cancellationToken).ConfigureAwait(false);
                     calls++;
@@ -273,14 +299,14 @@ public sealed partial class LlmClient
                     using JsonDocument doc2 = ParseAnswer(second.Json);
                     JsonElement data2 = doc2.RootElement.ValueKind == JsonValueKind.Object && doc2.RootElement.TryGetProperty("data", out JsonElement d2) ? d2 : default;
                     var again = new List<LeafAnswer>();
-                    GroundedSchema.Collect(data2, tree!, "", again);
+                    GroundedSchema.Collect(data2, askedTree!, "", again);
                     var byPath = again.ToDictionary(static l => l.Path, StringComparer.Ordinal);
                     foreach (string path in ungrounded.Take(MaxCorrectionLines))
                     {
                         if (byPath.TryGetValue(path, out LeafAnswer? replacement))
                         {
                             final[path] = replacement;
-                            grounded[path] = Grounder.Ground(ctx, replacement, true);
+                            grounded[path] = Check(Grounder.Ground(ctx, replacement, true));
                         }
                         else
                         {
@@ -299,11 +325,11 @@ public sealed partial class LlmClient
                 diagnostics.Add($"{path}: the model withdrew the value when asked again; it is null.");
             }
 
-            List<string> stillUngrounded = [.. order.Where(p => !withdrawn.Contains(p) && grounded[p].State == GroundingState.Ungrounded)];
+            List<string> stillUngrounded = [.. order.Where(p => !withdrawn.Contains(p) && grounded[p].State is GroundingState.Ungrounded or GroundingState.RoleConflict)];
             if (stillUngrounded.Count > 0 && options.UngroundedPolicy == UngroundedPolicy.Throw)
             {
                 throw new OcrProviderException(
-                    _provider.Name, LlmFailure.Ungrounded, _provider.Scrub($"{stillUngrounded.Count} value(s) are not on the page: {string.Join(", ", stillUngrounded.Take(8))}"));
+                    _provider.Name, LlmFailure.Ungrounded, _provider.Scrub($"{stillUngrounded.Count} value(s) are not on the page or conflict with the local reading: {string.Join(", ", stillUngrounded.Take(8))}"));
             }
 
             var nulled = new HashSet<string>(withdrawn, StringComparer.Ordinal);
@@ -313,13 +339,32 @@ public sealed partial class LlmClient
             }
 
             var buffer = new ArrayBufferWriter<byte>(1024);
-            using (var w = new Utf8JsonWriter(buffer))
+            if (used is null)
             {
+                using var w = new Utf8JsonWriter(buffer);
                 GroundedSchema.Render(data, tree!, "", w, final, nulled);
+            }
+            else
+            {
+                // Local values and model values in one answer; each array is wholly one side's.
+                foreach (LeafAnswer l in used.Leaves)
+                {
+                    final[l.Path] = l;
+                }
+
+                var shape = new ArrayBufferWriter<byte>(1024);
+                using (var sw = new Utf8JsonWriter(shape))
+                {
+                    used.WriteShape(tree!, "", data, used.LocalRoot, sw);
+                }
+
+                using JsonDocument shapeDoc = JsonDocument.Parse(shape.WrittenMemory);
+                using var w = new Utf8JsonWriter(buffer);
+                GroundedSchema.Render(shapeDoc.RootElement, tree!, "", w, final, nulled);
             }
 
             json = Encoding.UTF8.GetString(buffer.WrittenSpan);
-            fields = [.. order.Where(p => !withdrawn.Contains(p)).Select(p => grounded[p])];
+            fields = [.. (used?.Fields ?? []).Concat(order.Where(p => !withdrawn.Contains(p)).Select(p => grounded[p]))];
         }
         else if (wantJson && local is not null)
         {
@@ -473,7 +518,25 @@ public sealed partial class LlmClient
         return sb.ToString();
     }
 
-    private static string CorrectionLine(GroundingContext ctx, LeafAnswer leaf, GroundedField field)
+    private static JsonDocument? TryParseLocal(LocalFieldResult? local, List<string> diagnostics)
+    {
+        if (local is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonDocument.Parse(local.Json, new JsonDocumentOptions { MaxDepth = 64 });
+        }
+        catch (JsonException)
+        {
+            diagnostics.Add("The local extractor's JSON could not be read; its values are not used per field.");
+            return null;
+        }
+    }
+
+    private static string CorrectionLine(GroundingContext ctx, LeafAnswer leaf, GroundedField field, string? localValue)
     {
         var buffer = new ArrayBufferWriter<byte>(256);
         using (var w = new Utf8JsonWriter(buffer, new JsonWriterOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }))
@@ -491,7 +554,9 @@ public sealed partial class LlmClient
             }
 
             w.WriteEndArray();
-            string? near = Grounder.Nearest(ctx, new ValueForm(leaf.Value, leaf.Kind, ctx));
+            string? near = field.State == GroundingState.RoleConflict && localValue is not null
+                ? localValue
+                : Grounder.Nearest(ctx, new ValueForm(leaf.Value, leaf.Kind, ctx));
             if (near is null)
             {
                 w.WriteNullValue();

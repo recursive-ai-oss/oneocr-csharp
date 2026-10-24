@@ -24,12 +24,14 @@ public sealed class OcrEngine
     private readonly DecodeOptions _decoding;
     private readonly IOrientationDetector _orientation;
     private readonly IPageDetector? _detector;
+    private readonly bool _confirmTurns;
 
     private OcrEngine(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixels, BufferPool<byte> masks, ResizerPool resizers, DecodeOptions decoding,
-        IPageDetector? detector)
+        IPageDetector? detector, bool confirmTurns = true)
     {
         _detector = detector;
+        _confirmTurns = confirmTurns;
         _resizers = resizers;
         _masks = masks;
         _recognizer = recognizer;
@@ -60,18 +62,18 @@ public sealed class OcrEngine
     {
         ArgumentNullException.ThrowIfNull(decoding);
         decoding.Validate(_limits);
-        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, decoding, _detector);
+        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, decoding, _detector, _confirmTurns);
     }
 
     /// <summary>
     /// An engine that shares this one's recognizer and finds text lines, layout regions and the page's orientation with a page detector
-    /// model (architecture <c>dbnet-lite-v0</c>) instead of the built-in classical line finding. Page methods (<see cref="Ocr"/>,
+    /// model (architecture <c>dbnet-lite-v0</c> or <c>dbnet-lite-v1</c>) instead of the built-in classical line finding. Page methods (<see cref="Ocr"/>,
     /// <see cref="ToText(Image, int, CancellationToken)"/>) use it: lines come from the detector, regions fill
     /// <see cref="OcrPage.Regions"/> and set header and footer blocks, and a page the detector is sure is rotated by 90, 180 or 270
     /// degrees is turned upright first (a diagnostic says so, and positions refer to the turned page). Layout classes the model was not
     /// trained on (<c>form_field</c> and <c>checkbox</c> unless the model's <c>layout_trained</c> lists them) are never reported.
     /// </summary>
-    /// <param name="detectorModelPath">A model container with architecture <c>dbnet-lite-v0</c>.</param>
+    /// <param name="detectorModelPath">A model container with architecture <c>dbnet-lite-v0</c> or <c>dbnet-lite-v1</c>.</param>
     /// <param name="limits">Bounds to enforce when reading the file; this engine's own limits when null.</param>
     /// <returns>The new engine; this one is unchanged.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="detectorModelPath"/> is null.</exception>
@@ -95,10 +97,11 @@ public sealed class OcrEngine
     public OcrEngine WithoutDetector() => new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, null);
 
     internal OcrEngine WithDetector(ModelContainer container, KernelPath path) =>
-        WithDetector(new PageDetector(DbNetModel.FromContainer(container, _limits), _limits, path));
+        WithDetector(new PageDetector(DbNetModel.FromContainer(container, _limits), _limits, path, _recognizer.ScratchPool));
 
-    internal OcrEngine WithDetector(IPageDetector detector) =>
-        new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, detector);
+    // confirmTurns: whether a quarter turn the detector's head asks for is checked by the classical decision before it is acted on.
+    internal OcrEngine WithDetector(IPageDetector detector, bool confirmTurns = true) =>
+        new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, detector, confirmTurns);
 
     /// <summary>Loads a recognition model from a container file.</summary>
     /// <param name="modelPath">A model container (architecture <c>crnn-v0</c>).</param>
@@ -118,7 +121,7 @@ public sealed class OcrEngine
     public static OcrEngine Load(Stream model, OcrLimits? limits = null) =>
         Create(ModelContainer.Load(model, limits), limits, Dispatch.Best);
 
-    /// <summary>Loads the recognizer that ships in the models package (pinned by SHA-256; checked on every load).</summary>
+    /// <summary>Loads the recognizer and the page detector that ship in the models package (pinned by SHA-256; checked on every load). A build of the package without the detector file reads pages with the built-in line finder.</summary>
     /// <param name="limits">Bounds to enforce; <see cref="OcrLimits.Default"/> when null.</param>
     /// <returns>The engine.</returns>
     /// <exception cref="OcrModelException">The package was built without its weights, or the embedded file does not match its pin.</exception>
@@ -131,7 +134,22 @@ public sealed class OcrEngine
             throw new OcrModelException(problem);
         }
 
-        return Create(ModelContainer.Parse(data, limits), limits, Dispatch.Best);
+        OcrEngine engine = Create(ModelContainer.Parse(data, limits), limits, Dispatch.Best);
+
+        // The page detector ships with the recognizer. A build of the models package without it (a development build) reads pages with
+        // the classical line finder; a build with a detector that does not match its pin is an error.
+        if (!BundledModels.HasDetector)
+        {
+            return engine;
+        }
+
+        problem = BundledModels.TryReadDetector(out byte[] detector);
+        if (problem is not null)
+        {
+            throw new OcrModelException(problem);
+        }
+
+        return engine.WithDetector(ModelContainer.Parse(detector, limits), Dispatch.Best);
     }
 
     internal static OcrEngine Create(ModelContainer container, OcrLimits? limits, KernelPath path)
@@ -241,7 +259,9 @@ public sealed class OcrEngine
         try
         {
             int pixelCount = checked(width * height);
-            image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            long t = StageClock.Start();
+            image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
+            StageClock.Stop("1 decode+gray copy", t);
             return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, cancellationToken);
         }
         finally
@@ -251,7 +271,7 @@ public sealed class OcrEngine
     }
 
     // The orientation decision in use: the detector's head when a detector is loaded, the classical one otherwise.
-    private IOrientationDetector Seam => _detector is null ? _orientation : new HeadOrientation(_detector, _pixels, _resizers);
+    private IOrientationDetector Seam => _detector is null ? _orientation : new HeadOrientation(_detector, _pixels, _resizers, _confirmTurns ? _orientation : null);
 
     // Turns and straightens the page (see PagePreparation), reads it, and puts the result in the frame the caller asked about.
     private OcrPage ReadPrepared(
@@ -263,11 +283,14 @@ public sealed class OcrEngine
         try
         {
             // The head's first look is reusable when the pixels the reader gets are the ones it looked at.
-            PageDetection? first = ReferenceEquals(prepared.Pixels, gray) ? evidence.Detection : null;
+            PageDetection? first = prepared.Detection ?? (ReferenceEquals(prepared.Pixels, gray) ? evidence.Detection : null);
             OcrPage page = PageReader.Read(
                 _recognizer, _limits, _pixels, _masks, _resizers, _detector, prepared.Pixels, prepared.Width, prepared.Height, pageIndex, dpi, degree, includeChars,
-                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken);
-            return prepared.Finish(page);
+                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken, prepared.Level);
+            long t = StageClock.Start();
+            OcrPage finished = prepared.Finish(page);
+            StageClock.Stop("9 frame map", t);
+            return finished;
         }
         finally
         {
@@ -318,7 +341,7 @@ public sealed class OcrEngine
         try
         {
             int pixelCount = checked(width * height);
-            image.CopyPixelsTo<Gray8>(rented.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            image.CopyPixelsTo<Gray8>(rented.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
             var evidence = new OrientationEvidence();
             prepared = orient
                 ? PagePreparation.Prepare(grayPixels, width, height, true, true, Seam, _limits, _pixels, degree, evidence, quarterInInputFrame: _detector is null, cancellationToken)

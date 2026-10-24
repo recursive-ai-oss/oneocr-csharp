@@ -20,7 +20,7 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" Version="4.0.2" />
     <!-- Renders the page for the live test against a local server. -->
-    <PackageReference Include="RecursiveAI.OneImage.Text" Version="1.8.1" />
+    <PackageReference Include="RecursiveAI.OneImage.Text" Version="1.9.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,6 +28,7 @@
     <ProjectReference Include="../../src/OneOcr.Llm/OneOcr.Llm.csproj" />
     <ProjectReference Include="../../src/OneOcr.Training/OneOcr.Training.csproj" />
     <ProjectReference Include="../../src/OneOcr.Pdf/OneOcr.Pdf.csproj" />
+    <ProjectReference Include="../../src/OneOcr.Models.Documents/OneOcr.Models.Documents.csproj" />
   </ItemGroup>
 
 </Project>

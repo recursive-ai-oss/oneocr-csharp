@@ -46,16 +46,22 @@ def main() -> None:
     recs = load_records("doclaynet", root, a.split)
     recs = recs[:: max(1, len(recs) // a.limit)][: a.limit]
     maps = [raw_maps(model, Image.open(r["path"]), "cpu") for r in recs]
-    post = {"expand_text": 0.7, "text_thr": 0.3, "lay_thr": 0.6, "expand_layout": 0.85}
+    pp = read_tensors(Path(a.model))[0]["config"]["postprocess"]  # the thresholds the file itself carries
+    post = {
+        "expand_text": pp["text_expand"],
+        "text_thr": pp["text_threshold"],
+        "lay_thr": pp["layout_threshold"],
+        "expand_layout": pp["layout_expand"],
+    }
     result["doclaynet"] = score_maps(maps, recs, **post)
     print("doclaynet", json.dumps(result["doclaynet"]), flush=True)
     if a.bench:
         result["bench"] = {}
-        for s in SETS[:1] + SETS[2:3]:
+        for s in SETS[:1] + SETS[2:3]:  # clean and layout, a spot check of the rounded weights
             tp = np.zeros(3, np.int64)
             for f in sorted((Path(a.bench) / s / "truth").glob("*.json")):
                 t = json.loads(f.read_text())
-                res = infer(model, Image.open(next((Path(a.bench) / s / "pages").glob(f.stem + ".*"))), "cpu")
+                res = infer(model, Image.open(next((Path(a.bench) / s / "pages").glob(f.stem + ".*"))), "cpu", **post)
                 tp += match_counts(res["text"], truth_lines(t["words"]))
             result["bench"][s] = prf(*[int(v) for v in tp])
             print(s, json.dumps(result["bench"][s]), flush=True)

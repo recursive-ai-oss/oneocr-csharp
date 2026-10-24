@@ -17,8 +17,8 @@ internal static class DetectorPostprocess
     /// <summary>A text cell is on when its logit exceeds ln(0.3 / 0.7), that is, its probability exceeds 0.3.</summary>
     public const float TextLogitThreshold = -0.847297860387203f;
 
-    /// <summary>A layout cell is on when its logit exceeds ln(0.4 / 0.6), that is, its probability exceeds 0.4.</summary>
-    public const float LayoutLogitThreshold = -0.405465108108164f;
+    /// <summary>A layout cell is on when its logit exceeds ln(0.6 / 0.4), that is, its probability exceeds 0.6.</summary>
+    public const float LayoutLogitThreshold = 0.405465108108164f;
 
     /// <summary>Components of fewer cells than this are not text lines.</summary>
     public const int MinTextCells = 2;
@@ -38,6 +38,21 @@ internal static class DetectorPostprocess
     /// <summary>A page whose orientation head is less sure than this is left as it is.</summary>
     public const float OrientationConfidenceMinimum = 0.9f;
 
+    /// <summary>The post-processing values a model may carry in <c>config.postprocess</c>; the defaults are the values of the first model.</summary>
+    /// <param name="TextThreshold">Probability above which a text cell is on.</param>
+    /// <param name="TextExpand">Factor on the growth of a text line core.</param>
+    /// <param name="LayoutThreshold">Probability above which a layout cell is on.</param>
+    /// <param name="LayoutExpand">Factor on the growth of a layout region core.</param>
+    internal readonly record struct Options(double TextThreshold, double TextExpand, double LayoutThreshold, double LayoutExpand)
+    {
+        /// <summary>Text 0.3 / 1.0, layout 0.6 / 0.85.</summary>
+        public static Options Default { get; } = new(0.3, 1.0, 0.6, 0.85);
+
+        /// <summary>The threshold as a logit, compared in float32; the defaults use the exact constants.</summary>
+        internal static float Logit(double p, double dflt, float dfltLogit) =>
+            p == dflt ? dfltLogit : (float)Math.Log(p / (1 - p));
+    }
+
     private readonly record struct Component(int X0, int Y0, int X1, int Y1, int Count, double ScoreSum)
     {
         public float Score => (float)(ScoreSum / Count);
@@ -54,20 +69,23 @@ internal static class DetectorPostprocess
     public static PageDetection Decode(DetectorMaps maps, DbNetModel model, double scale, int pageWidth, int pageHeight, OcrLimits limits) =>
         Decode(
             maps.Prob, maps.ProbWidth, maps.ProbHeight, maps.Layout, maps.LayoutWidth, maps.LayoutHeight, maps.LayoutStride,
-            model.LayoutClasses, model.LayoutTrained, maps.Orientation, scale, pageWidth, pageHeight, limits);
+            model.LayoutClasses, model.LayoutTrained, maps.Orientation, scale, pageWidth, pageHeight, limits, model.Postprocess);
 
     /// <summary>Decodes maps given as plain arrays: text logits <c>[h][w]</c> and layout logits <c>[h][w][stride]</c>.</summary>
     internal static PageDetection Decode(
         float[] prob, int probWidth, int probHeight, float[] layout, int layoutWidth, int layoutHeight, int layoutStride,
-        IReadOnlyList<string> classNames, IReadOnlyList<bool> trained, float[] orientation, double scale, int pageWidth, int pageHeight, OcrLimits limits)
+        IReadOnlyList<string> classNames, IReadOnlyList<bool> trained, float[] orientation, double scale, int pageWidth, int pageHeight, OcrLimits limits, Options? options = null)
     {
+        Options o = options ?? Options.Default;
+        float textThreshold = Options.Logit(o.TextThreshold, 0.3, TextLogitThreshold);
+        float layoutThreshold = Options.Logit(o.LayoutThreshold, 0.6, LayoutLogitThreshold);
         // Lines, in network pixels first: regions snap to them before everything is scaled back to the page.
         List<(double X0, double Y0, double X1, double Y1, float Score)> lines = [];
         const double k = TextShrink / (1 - (2 * TextShrink));
-        foreach (Component c in Label(prob, probWidth, probHeight, 1, 0, TextLogitThreshold, MinTextCells, limits.MaxLinesPerPage, nameof(OcrLimits.MaxLinesPerPage)))
+        foreach (Component c in Label(prob, probWidth, probHeight, 1, 0, textThreshold, MinTextCells, limits.MaxLinesPerPage, nameof(OcrLimits.MaxLinesPerPage)))
         {
             double x0 = c.X0 * TextStride, y0 = c.Y0 * TextStride, x1 = (c.X1 + 1) * TextStride, y1 = (c.Y1 + 1) * TextStride;
-            double d = k * Math.Min(x1 - x0, y1 - y0);
+            double d = k * Math.Min(x1 - x0, y1 - y0) * o.TextExpand;
             lines.Add((x0 - d, y0 - d, x1 + d, y1 + d, c.Score));
         }
 
@@ -81,12 +99,12 @@ internal static class DetectorPostprocess
                 continue;
             }
 
-            foreach (Component c in Label(layout, layoutWidth, layoutHeight, layoutStride, cls, LayoutLogitThreshold, 1, limits.MaxPageElements - total, nameof(OcrLimits.MaxPageElements)))
+            foreach (Component c in Label(layout, layoutWidth, layoutHeight, layoutStride, cls, layoutThreshold, 1, limits.MaxPageElements - total, nameof(OcrLimits.MaxPageElements)))
             {
                 total++;
                 double x0 = c.X0 * LayoutStride, y0 = c.Y0 * LayoutStride, x1 = (c.X1 + 1) * LayoutStride, y1 = (c.Y1 + 1) * LayoutStride;
                 double core = Math.Min(x1 - x0, y1 - y0);
-                double d = core <= LayoutGrowSmall ? core / 3.0 : LayoutGrowCap;
+                double d = (core <= LayoutGrowSmall ? core / 3.0 : LayoutGrowCap) * o.LayoutExpand;
                 var box = (X0: x0 - d, Y0: y0 - d, X1: x1 + d, Y1: y1 + d);
                 if (cls != table && cls != figure)
                 {

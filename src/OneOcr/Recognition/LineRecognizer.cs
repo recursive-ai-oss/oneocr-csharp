@@ -1,4 +1,5 @@
 using System.Text;
+using OneImage;
 using OneOcr.Decoding;
 using OneOcr.Kernels;
 using OneOcr.Model;
@@ -25,6 +26,9 @@ public sealed class LineRecognizer
     private readonly OcrLimits _limits;
     private readonly BufferPool<float> _pool;
     private readonly bool[] _isSpace;
+
+    /// <summary>The scratch pool of this recognizer, for a page detector to share (it is thread-safe).</summary>
+    internal BufferPool<float> ScratchPool => _pool;
 
     internal LineRecognizer(CrnnModel model, OcrLimits limits, KernelPath path)
     {
@@ -217,6 +221,136 @@ public sealed class LineRecognizer
         }
     }
 
+    /// <summary>
+    /// Reads several lines together on the calling thread: the convolutions run line by line, the recurrent layers run all the lines
+    /// as one batch, so the weights are read once per step for the whole group. Each line's result is bit for bit what
+    /// <see cref="RecognizeWords"/> gives it alone, whichever lines share a group.
+    /// </summary>
+    /// <param name="lines">The line images, <see cref="InputHeight"/> rows each.</param>
+    /// <param name="cancellationToken">Cancels between layers and between chunks of steps.</param>
+    /// <param name="withChars">Whether to keep the per-character list of each word.</param>
+    /// <returns>One result per line, in order.</returns>
+    internal LineWords[] RecognizeWordsGroup(ReadOnlySpan<LineImage> lines, CancellationToken cancellationToken, bool withChars = true)
+    {
+        int n = lines.Length;
+        var results = new LineWords[n];
+        var current = new float[]?[n];
+        var steps = new int[n];
+        try
+        {
+            var live = new List<int>(n);
+            for (int i = 0; i < n; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int width = lines[i].Width;
+                ReadOnlySpan<byte> gray = PixelSpans.AsBytes(lines[i].Pixels.AsSpan(0, checked(width * InputHeight)));
+                if (width < 1)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(lines), "The width must be positive.");
+                }
+
+                if (width > _limits.MaxLineWidth)
+                {
+                    throw new OcrLimitException(nameof(OcrLimits.MaxLineWidth), _limits.MaxLineWidth, width);
+                }
+
+                float[] input = _pool.Rent(gray.Length);
+                try
+                {
+                    CrnnForward.NormalizeInto(gray, new ModelInputView(_model.Input.Mean, _model.Input.Std, _model.Input.Invert), input);
+                    current[i] = CrnnForward.ConvStack(_model, _path, 1, _pool, input, width, _limits, null, out steps[i], cancellationToken);
+                }
+                finally
+                {
+                    _pool.Return(input);
+                }
+
+                if (current[i] is null)
+                {
+                    results[i] = SplitWords([], 0, width, withChars);
+                }
+                else
+                {
+                    live.Add(i);
+                }
+            }
+
+            if (live.Count == 0)
+            {
+                return results;
+            }
+
+            // Only the lines with a sequence go through the recurrent layers; they are packed so that the batch has no gaps.
+            int m = live.Count;
+            var x = new float[]?[m];
+            var t = new int[m];
+            for (int k = 0; k < m; k++)
+            {
+                x[k] = current[live[k]];
+                t[k] = steps[live[k]];
+                current[live[k]] = null;
+            }
+
+            var y = new float[]?[m];
+            try
+            {
+                for (int l = 0; l < _model.Lstm.Length; l++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Array.Clear(y);
+                    try
+                    {
+                        CrnnForward.BiLstmGroup(_model.Lstm[l], _path, _pool, x, t, y, _model.Hidden, cancellationToken);
+                    }
+                    catch
+                    {
+                        ReturnAll(y);
+                        throw;
+                    }
+
+                    ReturnAll(x);
+                    (x, y) = (y, x);
+                }
+
+                for (int k = 0; k < m; k++)
+                {
+                    float[] logits = CrnnForward.Classify(_model, _path, _pool, x[k]!, t[k]);
+                    try
+                    {
+                        results[live[k]] = SplitWords(logits, t[k], lines[live[k]].Width, withChars);
+                    }
+                    finally
+                    {
+                        _pool.Return(logits);
+                    }
+                }
+            }
+            finally
+            {
+                ReturnAll(x);
+                ReturnAll(y);
+            }
+
+            return results;
+        }
+        finally
+        {
+            ReturnAll(current);
+        }
+    }
+
+    private void ReturnAll(float[]?[] arrays)
+    {
+        for (int i = 0; i < arrays.Length; i++)
+        {
+            if (arrays[i] is { } a)
+            {
+                _pool.Return(a);
+                arrays[i] = null;
+            }
+        }
+    }
+
     // The number of groups of non-space characters.
     private int CountWords(List<CharRun> runs)
     {
@@ -362,3 +496,6 @@ internal readonly record struct RecognizedChar(string Text, double X0, double X1
 
 /// <summary>A decoded line with its words. <c>RawConfidence</c> is the whole-line rule of <see cref="RecognizedLine"/>.</summary>
 internal sealed record LineWords(string Text, float RawConfidence, IReadOnlyList<RecognizedWord> Words);
+
+/// <summary>A line image for <see cref="LineRecognizer.RecognizeWordsGroup"/>: grayscale pixels (the first <c>height * width</c> are the line) and the width.</summary>
+internal readonly record struct LineImage(Gray8[] Pixels, int Width);

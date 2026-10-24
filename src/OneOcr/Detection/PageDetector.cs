@@ -59,12 +59,16 @@ internal sealed class PageDetector : IPageDetector
     private readonly OcrLimits _limits;
     private readonly BufferPool<float> _floats;
 
-    public PageDetector(DbNetModel model, OcrLimits limits, KernelPath path)
+    /// <param name="model">The detector network.</param>
+    /// <param name="limits">Bounds to enforce.</param>
+    /// <param name="path">The kernel path.</param>
+    /// <param name="floats">Scratch pool to use; an engine passes the recognizer's, so the detector's scratch arrays, free once detection is over, serve the line reads instead of a second set being allocated beside them. A private pool when null.</param>
+    public PageDetector(DbNetModel model, OcrLimits limits, KernelPath path, BufferPool<float>? floats = null)
     {
         _model = model;
         _limits = limits;
         _path = Dispatch.Require(path);
-        _floats = new BufferPool<float>(limits.MaxPooledBufferBytes, sizeof(float));
+        _floats = floats ?? new BufferPool<float>(limits.MaxPooledBufferBytes, sizeof(float));
     }
 
     public DbNetModel Model => _model;

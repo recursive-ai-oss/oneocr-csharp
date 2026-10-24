@@ -96,7 +96,8 @@ def render(name: str, count: int, out: Path) -> dict:
 
 
 def sanity(name: str) -> None:
-    """Every truth word has text and a box inside its image; the text file is the words in order."""
+    """Every truth word has text, a box and an ink box inside its image; the text file is the words in order
+    (the fragments of a hyphen-wrapped word join without a space)."""
     for f in sorted((set_dir(name) / "truth").glob("*.json")):
         t = json.loads(f.read_text())
         w, h = t["image"]["width"], t["image"]["height"]
@@ -104,7 +105,16 @@ def sanity(name: str) -> None:
             x0, y0, x1, y1 = k["box"]
             if not (k["text"] and -2 <= x0 < x1 <= w + 2 and -2 <= y0 < y1 <= h + 2):
                 raise SystemExit(f"{name}/{f.stem}: bad word {k}")
-        if t["text"].split() != " ".join(k["text"] for k in t["words"]).split():
+            ix0, iy0, ix1, iy1 = k["ink"]
+            if not (ix0 < ix1 and iy0 < iy1 and -2 <= ix0 and ix1 <= w + 2 and -2 <= iy0 and iy1 <= h + 2):
+                raise SystemExit(f"{name}/{f.stem}: bad ink box {k}")
+        merged: list[str] = []
+        for k in t["words"]:
+            if k.get("part", 0) > 0:
+                merged[-1] += k["text"]
+            else:
+                merged.append(k["text"])
+        if t["text"].split() != " ".join(merged).split():
             raise SystemExit(f"{name}/{f.stem}: text does not match the word list")
 
 
@@ -136,6 +146,11 @@ def draw(name: str, pid: str) -> None:
     lw = max(1, round(img.size[0] / 800))
     for w in truth["words"]:
         d.rectangle(w["box"], outline=(0, 140, 255), width=lw)
+        if "ink_quad" in w:
+            q = w["ink_quad"]
+            d.polygon([(q[0], q[1]), (q[2], q[3]), (q[4], q[5]), (q[6], q[7])], outline=(0, 170, 0), width=lw)
+        elif "ink" in w:
+            d.rectangle(w["ink"], outline=(0, 170, 0), width=lw)
         if "quad" in w:
             q = w["quad"]
             d.polygon([(q[0], q[1]), (q[2], q[3]), (q[4], q[5]), (q[6], q[7])], outline=(220, 0, 0), width=lw)

@@ -152,7 +152,17 @@ static Image RenderSynthetic(PlanLine p, FontFamily family, int height)
     float em = (float)p.Em;
     Font font = family.CreateFont(em);
     var options = new TextOptions(font);
-    float advance = TextMeasurer.Measure(p.Text, options).Advance.Width;
+    // A line of cells (table row, form label and value, dot leader) is drawn cell by cell with the planned gaps in ems between them;
+    // the label is the cells joined by one space. Without cells the text is drawn as one run.
+    string[] cells = p.Cells is { Length: > 0 } ? p.Cells : new[] { p.Text };
+    double[] gaps = p.Gaps ?? Array.Empty<double>();
+    var xs = new float[cells.Length];
+    float advance = 0;
+    for (int ci = 0; ci < cells.Length; ci++)
+    {
+        xs[ci] = advance;
+        advance += TextMeasurer.Measure(cells[ci], options).Advance.Width + (ci < gaps.Length ? (float)(gaps[ci] * em) : 0f);
+    }
 
     // Reference height: ink extent of a string with ascenders and descenders, standing in for the page's median line.
     float refH = RefInkHeight(font);
@@ -163,8 +173,13 @@ static Image RenderSynthetic(PlanLine p, FontFamily family, int height)
     var bg = new Rgba32((byte)p.Bg, (byte)p.Bg, (byte)p.Bg, 255);
     var pixels = new Rgba32[w * h];
     Array.Fill(pixels, bg);
-    options.Origin = new Vector2(ox, oy);
-    Image canvas = Image.FromPixels<Rgba32>(pixels, w, h).DrawText(p.Text, options, new Rgba32((byte)p.Fg, (byte)p.Fg, (byte)p.Fg, 255));
+    var ink = new Rgba32((byte)p.Fg, (byte)p.Fg, (byte)p.Fg, 255);
+    Image canvas = Image.FromPixels<Rgba32>(pixels, w, h);
+    for (int ci = 0; ci < cells.Length; ci++)
+    {
+        options.Origin = new Vector2(ox + xs[ci], oy);
+        canvas = canvas.DrawText(cells[ci], options, ink);
+    }
     Image gray = canvas.ConvertTo(PixelFormat.Gray8);
     Gray8[] px = gray.ToArray<Gray8>();
 
@@ -338,7 +353,7 @@ static uint Next(ref ulong s)
     return (uint)((z ^ (z >> 31)) >> 32);
 }
 
-record PlanLine(string Id, string Text, string Font, double Em, int Fg, int Bg, double Ref, double[] Vm, double[] Hm, double Blur, double Noise, int Jpeg, long Seed);
+record PlanLine(string Id, string Text, string Font, double Em, int Fg, int Bg, double Ref, double[] Vm, double[] Hm, double Blur, double Noise, int Jpeg, long Seed, string[]? Cells = null, double[]? Gaps = null);
 
 record PageLine(string Id, string Text, string Page, double[] Box);
 

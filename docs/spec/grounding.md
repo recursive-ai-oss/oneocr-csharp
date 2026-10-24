@@ -104,7 +104,7 @@ Decimal mark, given the page's **number style** (`PointDecimal` or `CommaDecimal
   (`12,5`, `0,125`, `1234,567`) it is the decimal mark;
 - spaces and apostrophes are always group marks.
 
-The **page number style** (`LlmNumberStyle.Auto`) votes over listed words that look numeric: both marks present, last is the
+The **page number style** (`NumberStyle.Auto`) votes over listed words that look numeric: both marks present, last is the
 decimal; one mark repeated: the other mark is the decimal; one mark once followed by one, two, or four or more digits: that mark
 is the decimal. More comma votes than point votes: comma; otherwise point. A caller can pin the style.
 
@@ -121,7 +121,7 @@ German, French, Spanish, Italian, Portuguese, Dutch or Turkish (table in the sou
 Readings: eight digits → year, month, day. Three numbers: first of four digits → year, month, day; otherwise day/month first
 two numbers (1–2 digits) and a last number of two or four digits as the year. Two-digit years: 00–69 → 2000–2069, 70–99 →
 1970–1999. If the first number is above 12 it is the day; if the second is above 12 it is the day; equal numbers read the
-same either way; otherwise the **date order** decides, `DayFirst` or `MonthFirst`. With `LlmDateOrder.Auto` the order is the
+same either way; otherwise the **date order** decides, `DayFirst` or `MonthFirst`. With `DateOrder.Auto` the order is the
 page's: among listed words of the shape `n.n.yyyy`, `n/n/yyyy`, `n-n-yyyy` with only one number above 12, the majority;
 with no evidence both readings are kept and the field is flagged `DateAmbiguous`. With a month name: day and year
 (`3 Oct 2026`, `Oct 3, 2026`, `2026 Oct 3`) or day only (year missing). A date must exist (`31.02.2026` is rejected;
@@ -148,9 +148,9 @@ least half the smaller height are united.
 
 ## Re-ask
 
-After the first answer, fields in state `Ungrounded` (not `Derived`) are re-asked once if `Reask` is true (default). The
+After the first answer, fields in state `Ungrounded` or `RoleConflict` (not `Derived`) are re-asked once if `Reask` is true (default). The
 second call carries the same images and word list and a second delimited block `<<<CHECK tag … CHECK tag>>>` with one JSON
-array per field (at most 64): `[path, value given, text of the cited words, closest page text or null]`. It asks for the
+array per field (at most 64): `[path, value given, text of the cited words, closest page text or null]`; for a role conflict the last item is the value the local model reads for that path, when it has one. It asks for the
 data member only, in full. For each re-asked path present in the new answer, the new leaf replaces the old and is grounded
 again (`Reasked` true). A path absent from the new answer, or null there, is withdrawn: its value is `null`, it is not in
 `Fields`, and a diagnostic says so. Other fields keep the first answer.
@@ -159,7 +159,7 @@ The second call goes through the same client as every call: spend caps, per-call
 is refused (`OcrBudgetException`) or fails (`OcrProviderException`), the first results stand and a diagnostic says why.
 There is never a third call.
 
-`UngroundedPolicy` then applies to fields still `Ungrounded`: `Flag` keeps the value in the JSON (the field says it is
+`UngroundedPolicy` then applies to fields still `Ungrounded` or `RoleConflict`: `Flag` keeps the value in the JSON (the field says it is
 ungrounded); `Null` writes `null`; `Throw` throws `OcrProviderException` with `LlmFailure.Ungrounded`, naming up to eight paths.
 
 ## Text merge (`ExactText`)
@@ -208,10 +208,53 @@ for a confident OCR word the Markdown lacks (zero length, at the position of the
 - `LocalOnly`: the model is never called, even if configured or when offline. `Text` and `PageModel` are the local text and
   pages; `Markdown` is not produced (diagnostic); `Json` needs an `ILocalFieldExtractor` (none ships) or the call throws
   `ArgumentException`.
-- `LocalFirst`: `Json` uses the local extractor when it returns a result whose `MinConfidence` is at least `ConfidenceThreshold`;
-  otherwise the model answers all values (the seam: a local extraction model will fill in `ILocalFieldExtractor`, and field-level
-  routing will refine the whole-document rule). `Markdown` always needs the model. For `Text` and `PageModel` only pages with
-  a word below the threshold are sent; the others keep their local text. No page to send means no call.
+- `LocalFirst`: `Json` is routed per field when a local extractor is set (`LlmReadOptions.LocalExtractor`; `DocumentFieldExtractor` wraps a
+  `DocumentExtractor`, the shipped invoice and receipt model or a custom one). `Markdown` always needs the model. For `Text` and
+  `PageModel` only pages with a word below the threshold are sent; the others keep their local text. No page to send means no call.
+
+### Per-field `LocalFirst`
+
+The extractor returns the schema's values as JSON plus a list of fields (schema path, value, words, confidence). Then:
+
+1. A scalar is **local** when the list has it at `ConfidenceThreshold` or above, in state `Grounded`/`GroundedNormalized`, with a
+   non-null value in the JSON. A scalar the extractor lacks, is unsure of, or reads as null is **missing** and goes to the model.
+2. An array is local only **as a whole**: the extractor has at least one element and every value of every element is local.
+   Otherwise the whole array goes to the model, because the model and the local reader may disagree on how many elements there are.
+3. The model is asked for the **reduced schema**: the same schema with the local scalars and arrays removed (objects left empty are
+   removed too). No local values are sent as hints. If nothing is left, no call is made, nothing is sent and nothing is spent.
+4. The result merges both: local values keep their fields with `Source = Ocr` (the model labelled words on the page; the words' own
+   source is on the page model), model values are grounded as usual with `Source = Llm`. In the JSON, a local array is the
+   extractor's, a model array the model's. The estimate, the cost check and `SpentUsd` are those of the reduced request, because that is
+   the request that is built. Diagnostics say how many values were kept.
+5. An extractor that lists no fields (only a JSON and a `MinConfidence`) keeps the earlier whole-document rule: its result is used when
+   `MinConfidence` reaches the threshold, otherwise the model answers every value.
+
+`LocalOnly` returns the extractor's JSON and fields and never calls the model. `Offline` makes every call throw, so a `LocalFirst`
+read that needs the model throws before anything is sent, while one that is fully local makes no call and does not throw.
+
+`DocumentFieldExtractor` matches a schema property to a class of the model: first by the property's name equal to a class name (case
+and punctuation ignored), then by a class named as a whole token in the property's description (`BT-112`), then by a short list of common
+words for EN 16931 terms and receipt fields (`total`, `invoiceNumber`, `vendor`, `iban`, `qty` and so on). Where an invoice and a receipt
+class share a word, the one the model found is used. An array of objects takes the model's line items, or its tax rows when its name
+contains `tax` or `vat`; element *i* is group *i*. A property without a class, or whose class was not found, is missing. A number-typed
+property is written as a JSON number from the field's parsed number (missing when the text did not parse). The field's confidence is the
+model's mean tag probability, not a calibrated one.
+
+## Role check
+
+Grounding checks that a value is on the page, not that it is in the right role. When a local extractor is set (any routing except
+`LocalOnly`; `LlmReadOptions.RoleCheck`, default true), every model value in state `Grounded` or `GroundedNormalized` is also checked against
+the local reading, using only fields the local model holds at `ConfidenceThreshold` or above:
+
+- one of the cited words is a word of a local field of **another path** (or of a field outside the schema, `LocalFieldResult.OtherFields`); or
+- the local model reads **this path** from other words (none shared with the citation) and its value, compared after normalization,
+  is different.
+
+The field then gets state **`RoleConflict`** (a state of its own rather than a flag on `Grounded`, so code that trusts `Grounded`
+cannot overlook it). It keeps its words and boxes, has confidence 0 and a note saying what the local model reads. It counts like
+`Ungrounded` for the re-ask (the hint is the local value), for the check after the re-ask, and for `UngroundedPolicy`. The check costs
+no call. A value the local model does not know (a missing field, a low-confidence one) is not checked: no local reading is not a
+conflict. Derived values and values without cited words are not checked.
 
 ## Prompt injection
 
@@ -224,6 +267,8 @@ What grounding catches: a value the page does not contain (invented, leaked from
 is not printed), a citation that points elsewhere (corrected and flagged), a computed value that nothing reproduces
 (`Derived`, 0.3). What it cannot catch: the model choosing a different number or text that is really printed on the page, including
 hostile text printed on it; and a printed value in the wrong role (a vendor name in the total field). Those are grounded because
-they are on the page. Mitigations are the user's: redaction, a schema with descriptions, and checking boxes and confidences for
+they are on the page; with a local extractor the role check above catches them whenever the local model confidently reads the field
+(the `printed-other-number`, `tiny-text-read` and `list-spoof` cases of the injection set become `RoleConflict`); only the cases the local
+model is unsure of remain. Mitigations are the user's: redaction, a schema with descriptions, and checking boxes and confidences for
 fields that matter. The model-answer set in `tests/OneOcr.Tests/LlmInjectionTests.cs` records, per attack, what grounding
 reports.

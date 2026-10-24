@@ -108,12 +108,18 @@ public class DetectorEngineTests
         Image rotated = Image.FromPixels<Gray8>(ccw.AsSpan(0, cw * ch).ToArray(), cw, ch);
 
         var stub = new StubDetector(call => call == 0 ? Detection([], quarter: 1) : Detection(planned));
-        OcrPage page = classical.WithDetector(stub).Ocr(rotated);
+        OcrPage page = classical.WithDetector(stub, confirmTurns: false).Ocr(rotated);
         Assert.Equal([(420, 900), (900, 420)], stub.Calls);
         Assert.Equal(900, page.Width);
         Assert.Equal(420, page.Height);
         Assert.Contains(page.Diagnostics, d => d.Contains("90 degrees clockwise", StringComparison.Ordinal));
         Assert.Equal(classical.Ocr(upright).Text, page.Text);
+
+        // With the classical check on (the default), a turn the head asks for on a page the line reading finds upright is not made.
+        var wrong = new StubDetector(_ => Detection(planned, quarter: 2, confidence: 0.99f));
+        OcrPage kept = classical.WithDetector(wrong).Ocr(upright);
+        Assert.DoesNotContain(kept.Diagnostics, d => d.Contains("turned", StringComparison.Ordinal));
+        Assert.Equal((900, 420), (kept.Width, kept.Height));
 
         // Not sure enough: read as it is.
         var unsure = new StubDetector(_ => Detection(planned, quarter: 2, confidence: 0.6f));

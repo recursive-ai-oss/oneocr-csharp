@@ -18,12 +18,19 @@ internal sealed class OrientationEvidence
     /// <summary>The page detector's reading of the page as given to <see cref="IOrientationDetector.Detect"/>, when that is what decided.</summary>
     public Detection.PageDetection? Detection { get; set; }
 
+    /// <summary>Whether the classical decision examined the page (which erases ruling lines from its pixels), so anything measured on the pixels before that is stale.</summary>
+    public bool PixelsMayHaveChanged { get; set; }
+
     /// <summary>The page finder's strips on the page as given, when the classical decision already found them (ruling lines are then erased from those pixels, as the reader would).</summary>
     public FoundStrips? Strips { get; set; }
 }
 
 /// <summary>The page finder's result on one page: the strips and the binarization they came from.</summary>
-internal sealed record FoundStrips(List<StripLine> Strips, int Threshold, bool InkIsBright);
+internal sealed record FoundStrips(List<StripLine> Strips, int Threshold, bool InkIsBright)
+{
+    /// <summary>The ruled tables on the page as it was before the finder erased their rules.</summary>
+    public List<RuleGrid> Grids { get; init; } = [];
+}
 
 /// <summary>
 /// Decides how far a page must be turned clockwise to stand upright. This is the seam where a learned orientation head can replace
@@ -150,12 +157,20 @@ internal sealed class ClassicalOrientation : IOrientationDetector
     // decided by reading.
     private bool AscendersAbove(OrientationInput page, CancellationToken cancellationToken)
     {
-        // The reader would find exactly these strips (and erase the same ruling lines) on this page, so they are handed on.
+        // The reader would find exactly these strips (and erase the same ruling lines) on this page, so they are handed on. The ruled
+        // tables are found first: the finder erases their rules.
+        List<RuleGrid> grids = [];
+        if (page.Evidence is not null)
+        {
+            (int level, bool bright) = LineFinder.Binarize(page.Pixels, page.Width * page.Height, page.Degree);
+            grids = TableRules.Find(PixelSpans.AsBytes(page.Pixels.AsSpan(0, page.Width * page.Height)), page.Width, page.Height, level, bright);
+        }
+
         List<StripLine> strips = StripFinder.Find(
             page.Pixels, page.Width, page.Height, _limits.MaxLinesPerPage, _masks, page.Degree, out _, out int threshold, out bool inkIsBright);
         if (page.Evidence is { } evidence)
         {
-            evidence.Strips = new FoundStrips(strips, threshold, inkIsBright);
+            evidence.Strips = new FoundStrips(strips, threshold, inkIsBright) { Grids = grids };
         }
 
         if (threshold < 0)

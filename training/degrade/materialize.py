@@ -33,7 +33,7 @@ def main() -> None:
     only = set(sys.argv[3:])
     charset = cs.load(BASE / cfg["charset"])
     for i, (name, spec) in enumerate(cfg["sets"].items()):
-        if name == "train" or (only and name not in only):
+        if name.endswith("train") or (only and name not in only):
             continue
         pack = PackSet(root / "clean" / name, charset)
         out = root / name
