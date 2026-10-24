@@ -140,6 +140,8 @@ of PDF fragments:
   (columns that share paragraph gaps are not interleaved).
 - A run of rows whose cells align in columns is a table block: `table` is true, each line is a row, and a `Table` entry carries
   its cells. Table `confidence` is the share of rows with more than one cell and is not calibrated.
+  Tables drawn with ruling lines, and tables in a detected `table` region, get spans, empty cells (`words: []`) and multi-line
+  cells; see `table-structure-v1.md`. The members are the same.
 
 Word boxes are the ink extent inside the horizontal range the recognizer aligned the word to. Character boxes tile that
 range by the alignment of the network's output and carry `approximate: true`.

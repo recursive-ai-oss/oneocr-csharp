@@ -21,6 +21,19 @@ internal static class PixelSpans
         return MemoryMarshal.Cast<Gray8, byte>(pixels);
     }
 
+    /// <summary>The bytes of a run of <see cref="Gray8"/> pixels, writable, without copying.</summary>
+    /// <param name="pixels">The pixels.</param>
+    /// <returns>The same memory as bytes, one per pixel.</returns>
+    public static Span<byte> AsWritableBytes(Span<Gray8> pixels)
+    {
+        if (!Gray8IsOneByte)
+        {
+            throw new InvalidOperationException("Gray8 is not one byte per pixel.");
+        }
+
+        return MemoryMarshal.Cast<Gray8, byte>(pixels);
+    }
+
     /// <summary>Whether <see cref="Gray8"/> is laid out as one byte per pixel, which <see cref="AsBytes"/> relies on.</summary>
     public static bool Gray8IsOneByte => Unsafe.SizeOf<Gray8>() == 1;
 }
