@@ -1,4 +1,5 @@
 using System.Text.Json;
+using OneOcr.Documents;
 
 namespace OneOcr.Llm;
 
@@ -22,7 +23,7 @@ internal sealed class GroundingContext
     private readonly IReadOnlyList<LlmPageInput> _pages;
     private readonly Dictionary<string, int> _ids;
 
-    public GroundingContext(IReadOnlyList<LlmWordRef> words, IReadOnlyList<LlmPageInput> pages, LlmNumberStyle style, LlmDateOrder order)
+    public GroundingContext(IReadOnlyList<LlmWordRef> words, IReadOnlyList<LlmPageInput> pages, NumberStyle style, DateOrder order)
     {
         Words = words;
         _pages = pages;
@@ -31,11 +32,11 @@ internal sealed class GroundingContext
         for (int i = 0; i < words.Count; i++)
         {
             _ids[words[i].Id] = i;
-            Folded[i] = GroundingNormalize.Fold(words[i].Text);
+            Folded[i] = ValueNormalize.Fold(words[i].Text);
         }
 
-        Style = style == LlmNumberStyle.Auto ? GroundingNormalize.DetectStyle(words.Select(static w => w.Text)) : style;
-        Order = order == LlmDateOrder.Auto ? GroundingNormalize.DetectOrder(words.Select(static w => w.Text)) : order;
+        Style = style == NumberStyle.Auto ? ValueNormalize.DetectStyle(words.Select(static w => w.Text)) : style;
+        Order = order == DateOrder.Auto ? ValueNormalize.DetectOrder(words.Select(static w => w.Text)) : order;
         All = new int[words.Count];
         for (int i = 0; i < All.Length; i++)
         {
@@ -49,9 +50,9 @@ internal sealed class GroundingContext
 
     public int[] All { get; }
 
-    public LlmNumberStyle Style { get; }
+    public NumberStyle Style { get; }
 
-    public LlmDateOrder Order { get; }
+    public DateOrder Order { get; }
 
     public bool TryIndex(string id, out int index) => _ids.TryGetValue(id, out index);
 
@@ -69,9 +70,9 @@ internal sealed class ValueForm
     public ValueForm(string raw, JsonValueKind kind, GroundingContext c)
     {
         Raw = raw;
-        WsKey = GroundingNormalize.RemoveWhitespace(raw);
-        string folded = GroundingNormalize.Fold(raw);
-        Key = GroundingNormalize.TrimPunct(folded);
+        WsKey = ValueNormalize.RemoveWhitespace(raw);
+        string folded = ValueNormalize.Fold(raw);
+        Key = ValueNormalize.TrimPunct(folded);
         if (Key.Length == 0 && folded.Length > 0)
         {
             // A value that is only punctuation (":") is compared as it is.
@@ -86,16 +87,16 @@ internal sealed class ValueForm
                 Amount = new ParsedAmount(d, null);
             }
         }
-        else if (GroundingNormalize.TryParseAmount(raw, c.Style, out ParsedAmount a))
+        else if (ValueNormalize.TryParseAmount(raw, c.Style, out ParsedAmount a))
         {
             Amount = a;
         }
 
         if (kind != JsonValueKind.Number)
         {
-            Dates = GroundingNormalize.ParseDate(raw, c.Order);
+            Dates = ValueNormalize.ParseDate(raw, c.Order);
             string up = raw.Trim().ToUpperInvariant();
-            if (GroundingNormalize.IsCurrencyCode(up))
+            if (ValueNormalize.IsCurrencyCode(up))
             {
                 Currency = up;
             }
@@ -285,8 +286,8 @@ internal static class Grounder
                 for (int k = 0; k < MaxRunWords && s + k < scope.Length; k++)
                 {
                     acc.Append(c.Folded[scope[s + k]]);
-                    raw.Append(GroundingNormalize.RemoveWhitespace(c.Words[scope[s + k]].Text));
-                    string a = v.NoTrim ? acc.ToString() : GroundingNormalize.TrimPunct(acc.ToString());
+                    raw.Append(ValueNormalize.RemoveWhitespace(c.Words[scope[s + k]].Text));
+                    string a = v.NoTrim ? acc.ToString() : ValueNormalize.TrimPunct(acc.ToString());
                     if (a == v.Key)
                     {
                         hits.Add(new Hit(s, k + 1, raw.ToString() == v.WsKey ? MatchKind.Exact : MatchKind.Normalized, null, false, false));
@@ -306,7 +307,7 @@ internal static class Grounder
             for (int s = 0; s < scope.Length; s++)
             {
                 string w = c.Words[scope[s]].Text;
-                if (!w.Any(char.IsAsciiDigit) && GroundingNormalize.CurrencyOf(w) is null)
+                if (!w.Any(char.IsAsciiDigit) && ValueNormalize.CurrencyOf(w) is null)
                 {
                     continue;
                 }
@@ -319,9 +320,9 @@ internal static class Grounder
                     }
 
                     string text = len == 1 ? w : w + " " + c.Words[scope[s + 1]].Text;
-                    if (GroundingNormalize.TryParseAmount(text, c.Style, out ParsedAmount p) && p.Value == amount.Value && CurrencyCompatible(amount.Currencies, p.Currencies))
+                    if (ValueNormalize.TryParseAmount(text, c.Style, out ParsedAmount p) && p.Value == amount.Value && CurrencyCompatible(amount.Currencies, p.Currencies))
                     {
-                        hits.Add(new Hit(s, len, MatchKind.Normalized, GroundingNormalize.CanonicalAmount(p.Value), false, false));
+                        hits.Add(new Hit(s, len, MatchKind.Normalized, ValueNormalize.CanonicalAmount(p.Value), false, false));
                         break;
                     }
                 }
@@ -333,7 +334,7 @@ internal static class Grounder
             for (int s = 0; s < scope.Length; s++)
             {
                 string w = c.Words[scope[s]].Text;
-                if (!w.Any(char.IsAsciiDigit) && !GroundingNormalize.IsMonthName(w))
+                if (!w.Any(char.IsAsciiDigit) && !ValueNormalize.IsMonthName(w))
                 {
                     continue;
                 }
@@ -352,10 +353,10 @@ internal static class Grounder
                     }
 
                     Hit? dh = null;
-                    foreach (ParsedDate pd in GroundingNormalize.ParseDate(text.ToString(), c.Order))
+                    foreach (ParsedDate pd in ValueNormalize.ParseDate(text.ToString(), c.Order))
                     {
                         // A date without a year is not a match when the words go on to print one ("24 October" inside "24 October 2024").
-                        if (pd.Year is null && s + len < scope.Length && GroundingNormalize.ParseDate(text + " " + c.Words[scope[s + len]].Text, c.Order).Count > 0)
+                        if (pd.Year is null && s + len < scope.Length && ValueNormalize.ParseDate(text + " " + c.Words[scope[s + len]].Text, c.Order).Count > 0)
                         {
                             continue;
                         }
@@ -364,7 +365,7 @@ internal static class Grounder
                         {
                             if (pd.Month == vd.Month && pd.Day == vd.Day && (pd.Year is null || vd.Year is null || pd.Year == vd.Year))
                             {
-                                dh = new Hit(s, len, MatchKind.Normalized, GroundingNormalize.CanonicalDate(vd.Year is null && pd.Year is not null ? pd : vd), pd.Year is null && vd.Year is not null, pd.Ambiguous);
+                                dh = new Hit(s, len, MatchKind.Normalized, ValueNormalize.CanonicalDate(vd.Year is null && pd.Year is not null ? pd : vd), pd.Year is null && vd.Year is not null, pd.Ambiguous);
                             }
                         }
                     }
@@ -382,7 +383,7 @@ internal static class Grounder
         {
             for (int s = 0; s < scope.Length; s++)
             {
-                if (!Has(s, 1) && GroundingNormalize.CurrencyOf(c.Words[scope[s]].Text) is { } codes && codes.Contains(code))
+                if (!Has(s, 1) && ValueNormalize.CurrencyOf(c.Words[scope[s]].Text) is { } codes && codes.Contains(code))
                 {
                     hits.Add(new Hit(s, 1, MatchKind.Normalized, code, false, false));
                 }
@@ -425,7 +426,7 @@ internal static class Grounder
     /// </summary>
     private static void FindGapped(GroundingContext c, int[] scope, ValueForm v, List<Hit> hits)
     {
-        string[] tokens = [.. v.Raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Select(static t => GroundingNormalize.TrimPunct(GroundingNormalize.Fold(t)))];
+        string[] tokens = [.. v.Raw.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Select(static t => ValueNormalize.TrimPunct(ValueNormalize.Fold(t)))];
         if (tokens.Length < 2 || tokens.Any(static t => t.Length == 0))
         {
             return;
@@ -433,7 +434,7 @@ internal static class Grounder
 
         for (int s = 0; s < scope.Length; s++)
         {
-            if (GroundingNormalize.TrimPunct(c.Folded[scope[s]]) != tokens[0])
+            if (ValueNormalize.TrimPunct(c.Folded[scope[s]]) != tokens[0])
             {
                 continue;
             }
@@ -446,7 +447,7 @@ internal static class Grounder
                 int next = -1;
                 for (int g = 1; g <= MaxGap + 1 && pos + g < scope.Length; g++)
                 {
-                    if (GroundingNormalize.TrimPunct(c.Folded[scope[pos + g]]) == tokens[t])
+                    if (ValueNormalize.TrimPunct(c.Folded[scope[pos + g]]) == tokens[t])
                     {
                         next = pos + g;
                         break;
@@ -479,7 +480,7 @@ internal static class Grounder
         var terms = new List<decimal>();
         foreach (int i in cited)
         {
-            if (terms.Count < MaxDerivedTerms && GroundingNormalize.TryParseAmount(c.Words[i].Text, c.Style, out ParsedAmount p))
+            if (terms.Count < MaxDerivedTerms && ValueNormalize.TryParseAmount(c.Words[i].Text, c.Style, out ParsedAmount p))
             {
                 terms.Add(p.Value);
             }
@@ -562,7 +563,7 @@ internal static class Grounder
                     continue;
                 }
 
-                int d = GroundingNormalize.BoundedDistance(GroundingNormalize.TrimPunct(acc.ToString()), v.Key, Math.Min(bound, best - 1));
+                int d = ValueNormalize.BoundedDistance(ValueNormalize.TrimPunct(acc.ToString()), v.Key, Math.Min(bound, best - 1));
                 if (d < best)
                 {
                     best = d;

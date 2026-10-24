@@ -104,6 +104,21 @@ public sealed class OcrLimits
     /// <summary>Most text lines recognized on one page. Default 4096.</summary>
     public int MaxLinesPerPage { get; init; } = 4096;
 
+    /// <summary>Most words in one window of the extraction model (<c>input.max_words</c>). The model's pair tables grow with the square of this.</summary>
+    public int MaxWordsPerWindow { get; init; } = 1024;
+
+    /// <summary>Most characters per word the extraction model keeps (<c>input.max_chars</c>).</summary>
+    public int MaxCharsPerWord { get; init; } = 64;
+
+    /// <summary>Most cells per axis of the extraction model's position grid (<c>input.bins</c>).</summary>
+    public int MaxPositionBins { get; init; } = 1024;
+
+    /// <summary>Most transformer blocks an extraction model may have.</summary>
+    public int MaxTransformerLayers { get; init; } = 24;
+
+    /// <summary>Most field classes, roles or document types an extraction model may name.</summary>
+    public int MaxExtractionClasses { get; init; } = 512;
+
     /// <summary>Most knots in one script's calibration curve in a model container. Default 64.</summary>
     public int MaxCalibrationKnots { get; init; } = 64;
 

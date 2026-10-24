@@ -21,13 +21,27 @@ internal sealed class ManifestDto
     public JsonElement? Calibration { get; init; }
 }
 
+// The image members are required for every architecture that reads pixels and absent for the word-based extraction model, whose
+// input block names its featurization limits instead (kind, max_words, max_chars, bins, features). The container checks which
+// set applies to the architecture.
 internal sealed class InputDto
 {
-    public required int Height { get; init; }
-    public required int Channels { get; init; }
-    public required float Mean { get; init; }
-    public required float Std { get; init; }
-    public required bool Invert { get; init; }
+    public int? Height { get; init; }
+    public int? Channels { get; init; }
+    public float? Mean { get; init; }
+    public float? Std { get; init; }
+    public bool? Invert { get; init; }
+
+    public string? Kind { get; init; }
+
+    [JsonPropertyName("max_words")]
+    public int? MaxWords { get; init; }
+
+    [JsonPropertyName("max_chars")]
+    public int? MaxChars { get; init; }
+
+    public int? Bins { get; init; }
+    public int? Features { get; init; }
 }
 
 internal sealed class TensorDto
@@ -101,6 +115,49 @@ internal sealed class PostprocessDto
     public double? LayoutExpand { get; init; }
 }
 
+internal sealed class DocExtractConfigDto
+{
+    public required int D { get; init; }
+    public required int Layers { get; init; }
+    public required int Heads { get; init; }
+    public required int Ffn { get; init; }
+
+    [JsonPropertyName("char_dim")]
+    public required int CharDim { get; init; }
+
+    [JsonPropertyName("char_conv")]
+    public required int CharConv { get; init; }
+
+    [JsonPropertyName("pair_hidden")]
+    public required int PairHidden { get; init; }
+
+    [JsonPropertyName("rel_dim")]
+    public required int RelDim { get; init; }
+
+    [JsonPropertyName("max_words")]
+    public required int MaxWords { get; init; }
+
+    public required int Classes { get; init; }
+    public required int Tags { get; init; }
+    public required int Roles { get; init; }
+
+    [JsonPropertyName("doc_types")]
+    public required int DocTypes { get; init; }
+
+    [JsonPropertyName("classes_list")]
+    public required List<string> ClassesList { get; init; }
+
+    [JsonPropertyName("roles_list")]
+    public required List<string> RolesList { get; init; }
+
+    [JsonPropertyName("doc_types_list")]
+    public required List<string> DocTypesList { get; init; }
+
+    [JsonPropertyName("unk_char")]
+    public required int UnkChar { get; init; }
+}
+
+[JsonSerializable(typeof(DocExtractConfigDto))]
 [JsonSerializable(typeof(DbNetConfigDto))]
 [JsonSerializable(typeof(PostprocessDto))]
 [JsonSerializable(typeof(ManifestDto))]

@@ -23,7 +23,7 @@ internal static class TestContainerWriter
 {
     public static byte[] Write(
         string architecture, int height, string[] charset, string configJson, IReadOnlyList<TestTensor> tensors,
-        float mean = 0.5f, float std = 0.5f, bool invert = false, string? calibrationJson = null)
+        float mean = 0.5f, float std = 0.5f, bool invert = false, string? calibrationJson = null, string? wordInputJson = null)
     {
         // Place tensors.
         var offsets = new long[tensors.Count];
@@ -43,13 +43,22 @@ internal static class TestContainerWriter
             w.WriteString("name", "test-recognizer");
             w.WriteString("version", "0.0.1");
             w.WriteString("license", "MIT OR Apache-2.0");
-            w.WriteStartObject("input");
-            w.WriteNumber("height", height);
-            w.WriteNumber("channels", 1);
-            w.WriteNumber("mean", mean);
-            w.WriteNumber("std", std);
-            w.WriteBoolean("invert", invert);
-            w.WriteEndObject();
+            if (wordInputJson is not null)
+            {
+                w.WritePropertyName("input");
+                using JsonDocument input = JsonDocument.Parse(wordInputJson);
+                input.RootElement.WriteTo(w);
+            }
+            else
+            {
+                w.WriteStartObject("input");
+                w.WriteNumber("height", height);
+                w.WriteNumber("channels", 1);
+                w.WriteNumber("mean", mean);
+                w.WriteNumber("std", std);
+                w.WriteBoolean("invert", invert);
+                w.WriteEndObject();
+            }
             w.WriteStartArray("charset");
             foreach (string s in charset)
             {
