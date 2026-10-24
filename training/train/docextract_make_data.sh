@@ -15,10 +15,10 @@ for split in train val; do
   n=$ntrain; [ $split = val ] && n=$nval
   [ -e "$out/pages/$split/manifest.jsonl" ] || uv run python -m pages --n "$n" --seed "$seed" --split $split --out "$out/pages" --workers "$workers" \
     --config configs/pages-docs.yaml
-  [ -d "$out/ocr/$split" ] || bash train/docextract_ocr.sh "$out/pages/$split/images" "$out/ocr/$split" "$model" "$workers"
+  [ -e "$out/ocr/$split.done" ] || { bash train/docextract_ocr.sh "$out/pages/$split/images" "$out/ocr/$split" "$model" "$workers"; touch "$out/ocr/$split.done"; }
 done
 for split in train dev test; do
-  [ -d "$out/ocr-cord/$split" ] || bash train/docextract_ocr.sh "$cord/images/$split" "$out/ocr-cord/$split" "$model" "$workers"
+  [ -e "$out/ocr-cord/$split.done" ] || { bash train/docextract_ocr.sh "$cord/images/$split" "$out/ocr-cord/$split" "$model" "$workers"; touch "$out/ocr-cord/$split.done"; }
   uv run python -m train.docextract_data build --cord "$cord" --cord-split $split --cord-ocr "$out/ocr-cord" --out "$out/cord-$split.pkl"
 done
 for split in train val; do

@@ -16,22 +16,26 @@ work=$(mktemp -d "$(dirname "$out")/.ocr-work.XXXXXX")  # same filesystem as the
 trap 'rm -rf "$work"' EXIT
 i=0
 ls "$images" | grep -E '\.(png|jpg|jpeg)$' | sort | { if [ "$limit" -gt 0 ]; then head -n "$limit"; else cat; fi; } | while read -r f; do
+  [ -e "$out/${f%.*}.page.json" ] && continue  # resume: pages read by an earlier run are kept
   s=$((i % shards)); mkdir -p "$work/$s"; ln "$images/$f" "$work/$s/$f" 2>/dev/null || cp "$images/$f" "$work/$s/$f"; i=$((i + 1))
 done
-# The reader process stops at the first image it cannot decode (seen on a few large grayscale PNGs). Pages already done are removed
-# from the shard; the failing one is re-encoded as a lossless RGB PNG and tried again, then dropped if it still fails.
+# The reader process stops at the first image it fails to decode (seen on large PNGs, not repeatable on the same file). Pages already
+# done are removed from the shard and the failing image is tried again as it is, then re-encoded as a lossless RGB PNG, then dropped.
 run_shard() {
   s=$1; tries=0
   while :; do
     for f in "$work/$s"/*; do [ -e "$work/out$s/$(basename "${f%.*}").page.json" ] && rm -f "$f"; done
-    ls "$work/$s" | grep -qE '\.(png|jpg|jpeg)$' || return 0
+    [ -n "$(ls "$work/$s" | grep -E '\.(png|jpg|jpeg)$' | head -1 || true)" ] || return 0  # (pipefail: head closes the pipe early)
     dotnet "$dll" run --model "$model" --pages "$work/$s" --out "$work/out$s" --degree 1 --metaonly 1 --pagejson 1 ${ONEOCR_DETECTOR:+--detector "$ONEOCR_DETECTOR"} >>"$work/log$s" 2>&1 && return 0
-    first=$(ls "$work/$s" | grep -E '\.(png|jpg|jpeg)$' | head -1); tries=$((tries + 1))
-    if [ "$tries" -gt 40 ]; then echo "giving up on shard $s" >&2; return 1; fi
-    if [ "${first%.*}.png" = "$first" ] && [ -e "$work/$s/$first.recoded" ]; then rm -f "$work/$s/$first" "$work/$s/$first.recoded"; echo "dropped $first" >>"$work/dropped"; continue; fi
-    python3 -c "import sys; from PIL import Image; im = Image.open(sys.argv[1]).convert('RGB'); im.save(sys.argv[2], compress_level=3)" "$work/$s/$first" "$work/$s/.${first%.*}.tmp.png" \
-      && { [ "${first%.*}.png" = "$first" ] || rm -f "$work/$s/$first"; mv "$work/$s/.${first%.*}.tmp.png" "$work/$s/${first%.*}.png"; touch "$work/$s/${first%.*}.png.recoded"; } \
-      || { rm -f "$work/$s/$first"; echo "dropped $first" >>"$work/dropped"; }
+    first=$(ls "$work/$s" | grep -E '\.(png|jpg|jpeg)$' | head -1 || true); tries=$((tries + 1))
+    [ "$tries" -le 2000 ] || { echo "giving up on shard $s" >&2; return 1; }
+    n=$(( $(cat "$work/$s/$first.fail" 2>/dev/null || echo 0) + 1 )); echo $n >"$work/$s/$first.fail"
+    if [ "$n" -eq 2 ]; then
+      python3 -c "import sys; from PIL import Image; Image.open(sys.argv[1]).convert('RGB').save(sys.argv[2], compress_level=3)" "$work/$s/$first" "$work/$s/.recode.png" \
+        && { [ "${first%.*}.png" = "$first" ] || { rm -f "$work/$s/$first"; cp "$work/$s/$first.fail" "$work/$s/${first%.*}.png.fail"; first=${first%.*}.png; }; mv "$work/$s/.recode.png" "$work/$s/$first"; } || true
+    elif [ "$n" -ge 3 ]; then
+      rm -f "$work/$s/$first"; echo "dropped $first" >>"$work/dropped"
+    fi
   done
 }
 pids=()
