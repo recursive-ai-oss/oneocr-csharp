@@ -22,6 +22,7 @@ public sealed class OcrEngine
     private readonly BufferPool<byte> _masks;
     private readonly ResizerPool _resizers;
     private readonly DecodeOptions _decoding;
+    private readonly IOrientationDetector _orientation;
     private readonly IPageDetector? _detector;
 
     private OcrEngine(
@@ -35,7 +36,10 @@ public sealed class OcrEngine
         _limits = limits;
         _pixels = pixels;
         _decoding = decoding;
+        _orientation = new ClassicalOrientation(recognizer, pixels, masks, resizers, limits);
     }
+
+    internal IOrientationDetector OrientationDetector => _orientation;
 
     /// <summary>The bounds this engine enforces.</summary>
     public OcrLimits Limits => _limits;
@@ -170,7 +174,7 @@ public sealed class OcrEngine
         decoding.Validate(_limits);
         if (decoding.Mode != CtcDecoding.Beam)
         {
-            return BuildPage(image, 0, null, maxDegreeOfParallelism, includeChars: false, cancellationToken).ToText();
+            return BuildPage(image, 0, null, maxDegreeOfParallelism, includeChars: false, orient: true, deskew: true, cancellationToken).ToText();
         }
 
         string[] texts = [];
@@ -179,7 +183,7 @@ public sealed class OcrEngine
             (index, _, _, pixels, cropWidth) =>
                 // Lines are the unit of parallelism, so each is recognized on one thread.
                 texts[index] = _recognizer.Recognize(pixels, cropWidth, decoding, 1, cancellationToken).Text,
-            cancellationToken);
+            cancellationToken, orient: true);
 
         var result = new StringBuilder();
         foreach (string text in texts)
@@ -220,10 +224,10 @@ public sealed class OcrEngine
         ArgumentNullException.ThrowIfNull(image);
         options ??= new OcrOptions();
         options.Validate();
-        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, cancellationToken);
+        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, cancellationToken);
     }
 
-    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, CancellationToken cancellationToken)
+    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, CancellationToken cancellationToken)
     {
         long pixels = (long)image.Width * image.Height;
         if (pixels > _limits.MaxImagePixels)
@@ -238,12 +242,36 @@ public sealed class OcrEngine
         {
             int pixelCount = checked(width * height);
             image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
-            return PageReader.Read(
-                _recognizer, _limits, _pixels, _masks, _resizers, _detector, gray, width, height, pageIndex, dpi, degree, includeChars, cancellationToken);
+            return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, cancellationToken);
         }
         finally
         {
             _pixels.Return(gray);
+        }
+    }
+
+    // The orientation decision in use: the detector's head when a detector is loaded, the classical one otherwise.
+    private IOrientationDetector Seam => _detector is null ? _orientation : new HeadOrientation(_detector, _pixels, _resizers);
+
+    // Turns and straightens the page (see PagePreparation), reads it, and puts the result in the frame the caller asked about.
+    private OcrPage ReadPrepared(
+        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, bool orient, bool deskew, CancellationToken cancellationToken)
+    {
+        var evidence = new OrientationEvidence();
+        PreparedPage prepared = PagePreparation.Prepare(
+            gray, width, height, orient, deskew, Seam, _limits, _pixels, degree, evidence, quarterInInputFrame: _detector is null, cancellationToken);
+        try
+        {
+            // The head's first look is reusable when the pixels the reader gets are the ones it looked at.
+            PageDetection? first = ReferenceEquals(prepared.Pixels, gray) ? evidence.Detection : null;
+            OcrPage page = PageReader.Read(
+                _recognizer, _limits, _pixels, _masks, _resizers, _detector, prepared.Pixels, prepared.Width, prepared.Height, pageIndex, dpi, degree, includeChars,
+                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken);
+            return prepared.Finish(page);
+        }
+        finally
+        {
+            prepared.Release();
         }
     }
 
@@ -273,7 +301,7 @@ public sealed class OcrEngine
 
     // Finds the page's lines and calls visit once per line, in parallel at the given degree, with the line's ink box, its crop box
     // in page pixels and the crop scaled to the model's input height.
-    private void ForEachLine(Image image, int maxDegreeOfParallelism, Action<int> start, LineVisitor visit, CancellationToken cancellationToken)
+    private void ForEachLine(Image image, int maxDegreeOfParallelism, Action<int> start, LineVisitor visit, CancellationToken cancellationToken, bool orient = false)
     {
         long pixels = (long)image.Width * image.Height;
         if (pixels > _limits.MaxImagePixels)
@@ -284,11 +312,24 @@ public sealed class OcrEngine
         int degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Math.Min(4, Environment.ProcessorCount);
         int width = image.Width, height = image.Height;
         // One pooled copy of the page as 8-bit gray; lines are cut from it, so no line triggers a second decode.
-        Gray8[] grayPixels = _pixels.Rent(pixels);
+        Gray8[] rented = _pixels.Rent(pixels);
+        Gray8[] grayPixels = rented;
+        PreparedPage? prepared = null;
         try
         {
             int pixelCount = checked(width * height);
-            image.CopyPixelsTo<Gray8>(grayPixels.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            image.CopyPixelsTo<Gray8>(rented.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            var evidence = new OrientationEvidence();
+            prepared = orient
+                ? PagePreparation.Prepare(grayPixels, width, height, true, true, Seam, _limits, _pixels, degree, evidence, quarterInInputFrame: _detector is null, cancellationToken)
+                : null;
+            if (prepared is not null)
+            {
+                grayPixels = prepared.Pixels;
+                (width, height) = (prepared.Width, prepared.Height);
+                pixelCount = width * height;
+            }
+
             LocatedPage? located = null;
             Gray8[] work = grayPixels;
             int workWidth = width, workHeight = height;
@@ -299,7 +340,9 @@ public sealed class OcrEngine
             }
             else
             {
-                located = DetectorLines.Locate(_detector, grayPixels, width, height, _pixels, _resizers, degree, cancellationToken);
+                located = DetectorLines.Locate(
+                    _detector, grayPixels, width, height, _pixels, _resizers, degree, cancellationToken,
+                    first: ReferenceEquals(grayPixels, rented) ? evidence.Detection : null, turn: !orient);
                 work = located.Gray;
                 workWidth = located.Width;
                 workHeight = located.Height;
@@ -341,7 +384,8 @@ public sealed class OcrEngine
         }
         finally
         {
-            _pixels.Return(grayPixels);
+            prepared?.Release();
+            _pixels.Return(rented);
         }
     }
 }

@@ -60,6 +60,25 @@ public static class OcrImageExtensions
         return engine.ToText(image);
     }
 
+    /// <summary>Reads a page image with <see cref="OneOcr.Default"/> and writes it as Markdown (see <see cref="OcrMarkdown"/>). Everything is local.</summary>
+    /// <param name="image">The page image.</param>
+    /// <param name="options">Markdown options; null for the defaults.</param>
+    /// <returns>The Markdown; empty when no text was found.</returns>
+    /// <exception cref="OcrModelException">No default engine is configured.</exception>
+    public static string ToMarkdown(this Image image, MarkdownOptions? options = null) => OneOcr.Default.Ocr(image).ToMarkdown(options);
+
+    /// <summary>Reads a page image with the given engine and writes it as Markdown.</summary>
+    /// <param name="image">The page image.</param>
+    /// <param name="engine">The engine to read with.</param>
+    /// <param name="options">Markdown options; null for the defaults.</param>
+    /// <returns>The Markdown; empty when no text was found.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="engine"/> is null.</exception>
+    public static string ToMarkdown(this Image image, OcrEngine engine, MarkdownOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        return engine.Ocr(image).ToMarkdown(options);
+    }
+
     /// <summary>Reads a page image into the page model with the default engine (see <see cref="OneOcr.Default"/>).</summary>
     /// <param name="image">The page image.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>

@@ -15,18 +15,27 @@ internal static class PageReader
 
     private static readonly double[] CommonResolutions = [72, 96, 150, 200, 300, 400, 600];
 
+    private static FoundStrips FindStrips(Gray8[] gray, int width, int height, OcrLimits limits, BufferPool<byte> masks, int degree)
+    {
+        List<StripLine> strips = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int level, out bool bright);
+        return new FoundStrips(strips, level, bright);
+    }
+
     public static OcrPage Read(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, BufferPool<byte> masks, ResizerPool resizers, IPageDetector? detector,
-        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, CancellationToken cancellationToken)
+        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, PageDetection? first, bool turn,
+        FoundStrips? found, CancellationToken cancellationToken)
     {
         if (detector is null)
         {
-            List<StripLine> found = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int level, out bool bright);
+            // Strips found earlier on these very pixels are used as they are.
+            FoundStrips strips = found ?? FindStrips(gray, width, height, limits, masks, degree);
             return ReadStrips(
-                recognizer, limits, pixelPool, resizers, gray, width, height, found, level, bright, [], [], pageIndex, dpi, degree, includeChars, cancellationToken);
+                recognizer, limits, pixelPool, resizers, gray, width, height, strips.Strips, strips.Threshold, strips.InkIsBright, [], [], pageIndex, dpi, degree, includeChars,
+                cancellationToken);
         }
 
-        LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken);
+        LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken, first, turn);
         try
         {
             return ReadStrips(

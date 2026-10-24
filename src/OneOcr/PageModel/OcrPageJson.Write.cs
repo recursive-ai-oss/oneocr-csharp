@@ -99,6 +99,16 @@ public static partial class OcrPageJson
             w.WriteEndArray();
         }
 
+        if (p.Orientation != 0)
+        {
+            w.WriteNumber("orientation", p.Orientation);
+        }
+
+        if (p.SkewDegrees != 0)
+        {
+            Num(w, "skew", p.SkewDegrees, 3);
+        }
+
         w.WriteStartArray("diagnostics");
         foreach (string d in p.Diagnostics)
         {

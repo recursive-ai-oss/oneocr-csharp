@@ -299,6 +299,40 @@ internal static class PdfFixtures
         return (pdf.Build(catalog), [.. lines]);
     }
 
+    /// <summary>A text-only page with a title, a paragraph, a sub-heading, a dashed list, a numbered list and a page number.</summary>
+    public static byte[] MarkdownPage()
+    {
+        var pdf = new PdfBuilder();
+        int catalog = pdf.Reserve(), pages = pdf.Reserve();
+        int helv = pdf.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        var content = new StringBuilder();
+        content.Append(Show("F1", 24, 72, 720, "Harbor Report"));
+        string[] paragraph = ["Cargo volumes rose by twelve percent over", "the spring months and the cranes finished", "their training ahead of schedule."];
+        for (int i = 0; i < paragraph.Length; i++)
+        {
+            content.Append(Show("F1", 12, 72, 685 - (15 * i), paragraph[i]));
+        }
+
+        content.Append(Show("F1", 16, 72, 615, "Cranes"));
+        string[] bullets = ["- Crane operators", "- Warehouse seven", "- Customs clearance"];
+        for (int i = 0; i < bullets.Length; i++)
+        {
+            content.Append(Show("F1", 12, 72, 585 - (18 * i), bullets[i]));
+        }
+
+        string[] steps = ["1. Open the east gate", "2. Sign the log"];
+        for (int i = 0; i < steps.Length; i++)
+        {
+            content.Append(Show("F1", 12, 72, 510 - (18 * i), steps[i]));
+        }
+
+        content.Append(Show("F1", 12, 300, 30, "7"));
+        int page = AddPage(pdf, pages, "0 0 612 792", $"/Font << /F1 {helv} 0 R >>", content.ToString());
+        pdf.Set(pages, $"<< /Type /Pages /Count 1 /Kids [{page} 0 R] >>");
+        pdf.Set(catalog, $"<< /Type /Catalog /Pages {pages} 0 R >>");
+        return pdf.Build(catalog);
+    }
+
     /// <summary>Small valid files to start fuzzing from: a text page, a tiny scan, a page with a garbled map, and a rotated cropped page.</summary>
     public static IEnumerable<(string Name, byte[] Bytes)> Seeds()
     {

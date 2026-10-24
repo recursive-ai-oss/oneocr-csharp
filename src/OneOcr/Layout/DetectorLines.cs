@@ -88,6 +88,10 @@ internal sealed class LocatedPage
 /// <summary>Turns detector output into the line strips the reader works on.</summary>
 internal static class DetectorLines
 {
+    /// <summary>The diagnostic that says the orientation head turned the page upright.</summary>
+    public static string TurnedNote(int turns, float confidence) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"The page was turned {turns * 90} degrees clockwise to read it upright (orientation confidence {confidence:0.00}); positions refer to the turned page.");
+
     // Region classes whose lines read together as one column or paragraph run (one leaf); lines of other classes, and lines outside
     // every region, are leaves of their own, so cells of a table row on one baseline still join into a row.
     private static readonly HashSet<string> RunningText = new(StringComparer.Ordinal) { "text", "title", "list", "header_footer" };
@@ -96,22 +100,27 @@ internal static class DetectorLines
     /// Detects on the page, turns it upright when the orientation head is sure it is rotated (detecting again on the turned page),
     /// and returns the lines as ink-tight boxes with the regions that contain them.
     /// </summary>
+    /// <remarks>
+    /// <c>first</c> is a detection already made on exactly these pixels (used instead of detecting again); <c>turn</c> is false when the
+    /// caller has already turned the page upright, so the head is not acted on.
+    /// </remarks>
     public static LocatedPage Locate(
-        IPageDetector detector, Gray8[] gray, int width, int height, BufferPool<Gray8> pixels, ResizerPool resizers, int degree, CancellationToken cancellationToken)
+        IPageDetector detector, Gray8[] gray, int width, int height, BufferPool<Gray8> pixels, ResizerPool resizers, int degree, CancellationToken cancellationToken,
+        PageDetection? first = null, bool turn = true)
     {
         var notes = new List<string>();
         int count = checked(width * height);
-        PageDetection detection = detector.Detect(gray.AsSpan(0, count), width, height, pixels, resizers, degree, cancellationToken);
+        PageDetection detection = first ?? detector.Detect(gray.AsSpan(0, count), width, height, pixels, resizers, degree, cancellationToken);
         Gray8[] work = gray;
         bool owns = false;
-        int turns = PageOrientation.QuarterTurnsClockwise(detection);
+        int turns = turn ? PageOrientation.QuarterTurnsClockwise(detection) : 0;
         if (turns != 0)
         {
             work = PageOrientation.Rotate(gray.AsSpan(0, count), width, height, turns, pixels, out int rw, out int rh);
             owns = true;
             width = rw;
             height = rh;
-            notes.Add($"The page was turned {turns * 90} degrees clockwise to read it upright (orientation confidence {detection.OrientationConfidence:0.00}); positions refer to the turned page.");
+            notes.Add(TurnedNote(turns, detection.OrientationConfidence));
             try
             {
                 detection = detector.Detect(work.AsSpan(0, count), width, height, pixels, resizers, degree, cancellationToken);
