@@ -1,6 +1,7 @@
 using System.Text;
 using OneImage;
 using OneOcr.Decoding;
+using OneOcr.Detection;
 using OneOcr.Kernels;
 using OneOcr.Layout;
 using OneOcr.Model;
@@ -21,9 +22,13 @@ public sealed class OcrEngine
     private readonly ResizerPool _resizers;
     private readonly DecodeOptions _decoding;
     private readonly IOrientationDetector _orientation;
+    private readonly IPageDetector? _detector;
 
-    private OcrEngine(LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixels, BufferPool<byte> masks, ResizerPool resizers, DecodeOptions decoding)
+    private OcrEngine(
+        LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixels, BufferPool<byte> masks, ResizerPool resizers, DecodeOptions decoding,
+        IPageDetector? detector)
     {
+        _detector = detector;
         _resizers = resizers;
         _masks = masks;
         _recognizer = recognizer;
@@ -38,6 +43,9 @@ public sealed class OcrEngine
     /// <summary>The bounds this engine enforces.</summary>
     public OcrLimits Limits => _limits;
 
+    /// <summary>Whether this engine finds lines, regions and the page's orientation with a page detector (see <see cref="WithDetector(string, OcrLimits?)"/>).</summary>
+    public bool HasDetector => _detector is not null;
+
     /// <summary>The decoding this engine uses unless a call passes its own. Greedy unless <see cref="WithDecoding"/> changed it.</summary>
     public DecodeOptions Decoding => _decoding;
 
@@ -51,8 +59,45 @@ public sealed class OcrEngine
     {
         ArgumentNullException.ThrowIfNull(decoding);
         decoding.Validate(_limits);
-        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, decoding);
+        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, decoding, _detector);
     }
+
+    /// <summary>
+    /// An engine that shares this one's recognizer and finds text lines, layout regions and the page's orientation with a page detector
+    /// model (architecture <c>dbnet-lite-v0</c>) instead of the built-in classical line finding. Page methods (<see cref="Ocr"/>,
+    /// <see cref="ToText(Image, int, CancellationToken)"/>) use it: lines come from the detector, regions fill
+    /// <see cref="OcrPage.Regions"/> and set header and footer blocks, and a page the detector is sure is rotated by 90, 180 or 270
+    /// degrees is turned upright first (a diagnostic says so, and positions refer to the turned page). Layout classes the model was not
+    /// trained on (<c>form_field</c> and <c>checkbox</c> unless the model's <c>layout_trained</c> lists them) are never reported.
+    /// </summary>
+    /// <param name="detectorModelPath">A model container with architecture <c>dbnet-lite-v0</c>.</param>
+    /// <param name="limits">Bounds to enforce when reading the file; this engine's own limits when null.</param>
+    /// <returns>The new engine; this one is unchanged.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="detectorModelPath"/> is null.</exception>
+    /// <exception cref="OcrModelException">The file is malformed or describes another architecture.</exception>
+    /// <exception cref="OcrLimitException">The model exceeds the limits.</exception>
+    public OcrEngine WithDetector(string detectorModelPath, OcrLimits? limits = null) =>
+        WithDetector(ModelContainer.Load(detectorModelPath, limits ?? _limits), Dispatch.Best);
+
+    /// <summary>Like <see cref="WithDetector(string, OcrLimits?)"/> with the model read from a stream, at most <see cref="OcrLimits.MaxModelFileBytes"/> bytes.</summary>
+    /// <param name="detectorModel">A stream positioned at the start of a model container.</param>
+    /// <param name="limits">Bounds to enforce when reading; this engine's own limits when null.</param>
+    /// <returns>The new engine; this one is unchanged.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="detectorModel"/> is null.</exception>
+    /// <exception cref="OcrModelException">The data is malformed or describes another architecture.</exception>
+    /// <exception cref="OcrLimitException">The model exceeds the limits.</exception>
+    public OcrEngine WithDetector(Stream detectorModel, OcrLimits? limits = null) =>
+        WithDetector(ModelContainer.Load(detectorModel, limits ?? _limits), Dispatch.Best);
+
+    /// <summary>An engine that shares this one's recognizer and has no page detector: lines come from the built-in classical finder.</summary>
+    /// <returns>The new engine; this one is unchanged.</returns>
+    public OcrEngine WithoutDetector() => new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, null);
+
+    internal OcrEngine WithDetector(ModelContainer container, KernelPath path) =>
+        WithDetector(new PageDetector(DbNetModel.FromContainer(container, _limits), _limits, path));
+
+    internal OcrEngine WithDetector(IPageDetector detector) =>
+        new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, detector);
 
     /// <summary>Loads a recognition model from a container file.</summary>
     /// <param name="modelPath">A model container (architecture <c>crnn-v0</c>).</param>
@@ -77,7 +122,7 @@ public sealed class OcrEngine
         limits ??= OcrLimits.Default;
         return new OcrEngine(
             new LineRecognizer(CrnnModel.FromContainer(container, limits), limits, path), limits,
-            new BufferPool<Gray8>(limits.MaxPooledBufferBytes, 1), new BufferPool<byte>(limits.MaxPooledBufferBytes, 1), new ResizerPool(), DecodeOptions.Greedy);
+            new BufferPool<Gray8>(limits.MaxPooledBufferBytes, 1), new BufferPool<byte>(limits.MaxPooledBufferBytes, 1), new ResizerPool(), DecodeOptions.Greedy, null);
     }
 
     /// <summary>
@@ -180,21 +225,36 @@ public sealed class OcrEngine
         {
             int pixelCount = checked(width * height);
             image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
-            PreparedPage prepared = PagePreparation.Prepare(gray, width, height, orient, deskew, _orientation, _limits, _pixels, degree, cancellationToken);
-            try
-            {
-                OcrPage page = PageReader.Read(
-                    _recognizer, _limits, _pixels, _masks, _resizers, prepared.Pixels, prepared.Width, prepared.Height, pageIndex, dpi, degree, includeChars, cancellationToken);
-                return prepared.Frame.IsIdentity ? page : prepared.Frame.MapPage(page, prepared.Notes);
-            }
-            finally
-            {
-                prepared.Release();
-            }
+            return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, cancellationToken);
         }
         finally
         {
             _pixels.Return(gray);
+        }
+    }
+
+    // The orientation decision in use: the detector's head when a detector is loaded, the classical one otherwise.
+    private IOrientationDetector Seam => _detector is null ? _orientation : new HeadOrientation(_detector, _pixels, _resizers);
+
+    // Turns and straightens the page (see PagePreparation), reads it, and puts the result in the frame the caller asked about.
+    private OcrPage ReadPrepared(
+        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, bool orient, bool deskew, CancellationToken cancellationToken)
+    {
+        var evidence = new OrientationEvidence();
+        PreparedPage prepared = PagePreparation.Prepare(
+            gray, width, height, orient, deskew, Seam, _limits, _pixels, degree, evidence, quarterInInputFrame: _detector is null, cancellationToken);
+        try
+        {
+            // The head's first look is reusable when the pixels the reader gets are the ones it looked at.
+            PageDetection? first = ReferenceEquals(prepared.Pixels, gray) ? evidence.Detection : null;
+            OcrPage page = PageReader.Read(
+                _recognizer, _limits, _pixels, _masks, _resizers, _detector, prepared.Pixels, prepared.Width, prepared.Height, pageIndex, dpi, degree, includeChars,
+                first, turn: false, cancellationToken);
+            return prepared.Finish(page);
+        }
+        finally
+        {
+            prepared.Release();
         }
     }
 
@@ -242,8 +302,9 @@ public sealed class OcrEngine
         {
             int pixelCount = checked(width * height);
             image.CopyPixelsTo<Gray8>(rented.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), degree, cancellationToken);
+            var evidence = new OrientationEvidence();
             prepared = orient
-                ? PagePreparation.Prepare(grayPixels, width, height, true, true, _orientation, _limits, _pixels, degree, cancellationToken)
+                ? PagePreparation.Prepare(grayPixels, width, height, true, true, Seam, _limits, _pixels, degree, evidence, quarterInInputFrame: _detector is null, cancellationToken)
                 : null;
             if (prepared is not null)
             {
@@ -252,33 +313,57 @@ public sealed class OcrEngine
                 pixelCount = width * height;
             }
 
-            ReadOnlySpan<byte> gray0 = PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount));
-            List<LineBox> lines = LineFinder.Find(gray0, width, height, _limits.MaxLinesPerPage);
-            start(lines.Count);
-            if (lines.Count == 0)
+            LocatedPage? located = null;
+            Gray8[] work = grayPixels;
+            int workWidth = width, workHeight = height;
+            List<LineBox> lines;
+            if (_detector is null)
             {
-                return;
+                lines = LineFinder.Find(PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount)), width, height, _limits.MaxLinesPerPage);
+            }
+            else
+            {
+                located = DetectorLines.Locate(
+                    _detector, grayPixels, width, height, _pixels, _resizers, degree, cancellationToken,
+                    first: ReferenceEquals(grayPixels, rented) ? evidence.Detection : null, turn: !orient);
+                work = located.Gray;
+                workWidth = located.Width;
+                workHeight = located.Height;
+                lines = [.. located.Strips.Select(static s => s.Box)];
             }
 
-            int typical = LinePreprocessor.TypicalHeight(lines);
-            int modelHeight = _recognizer.InputHeight;
-
-            void Read(int index)
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                LineBox box = LinePreprocessor.CropBox(lines[index], typical, width, height);
-                Gray8[] crop = LinePreprocessor.Prepare(PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount)), width, box, modelHeight, _pixels, _resizers, out int cropWidth);
-                try
+                start(lines.Count);
+                if (lines.Count == 0)
                 {
-                    visit(index, lines[index], box, PixelSpans.AsBytes(crop.AsSpan(0, cropWidth * modelHeight)), cropWidth);
+                    return;
                 }
-                finally
-                {
-                    _pixels.Return(crop);
-                }
-            }
 
-            ParallelRun.For(lines.Count, degree, Read, cancellationToken);
+                int typical = LinePreprocessor.TypicalHeight(lines);
+                int modelHeight = _recognizer.InputHeight;
+
+                void Read(int index)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    LineBox box = LinePreprocessor.CropBox(lines[index], typical, workWidth, workHeight);
+                    Gray8[] crop = LinePreprocessor.Prepare(PixelSpans.AsBytes(work.AsSpan(0, pixelCount)), workWidth, box, modelHeight, _pixels, _resizers, out int cropWidth);
+                    try
+                    {
+                        visit(index, lines[index], box, PixelSpans.AsBytes(crop.AsSpan(0, cropWidth * modelHeight)), cropWidth);
+                    }
+                    finally
+                    {
+                        _pixels.Return(crop);
+                    }
+                }
+
+                ParallelRun.For(lines.Count, degree, Read, cancellationToken);
+            }
+            finally
+            {
+                located?.Release(_pixels);
+            }
         }
         finally
         {

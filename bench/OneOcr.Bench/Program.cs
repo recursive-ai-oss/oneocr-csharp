@@ -24,6 +24,8 @@ using OneOcr.Layout;
 //       synthetic image, at the given degree of parallelism.
 //   OneOcr.Bench trainstep --model FILE [--batch 16] [--width 400] [--chars 40] [--degree 1] [--repeat 5]
 //       median time of one training step (see TrainBench.cs).
+//   OneOcr.Bench detect [--model FILE] [--page 2480x3508] [--degree 1] [--repeat 15] [--path avx2]
+//       median time of the page detector (scaling, network, decoding) and of the network alone; see DetectBench.cs.
 //   OneOcr.Bench randommodel --out FILE
 //       writes a random-weight model of the intended size, to exercise the pipeline before trained weights exist (the text is garbage).
 //
@@ -47,12 +49,12 @@ internal static class Program
         return args[0] switch
         {
             "run" => Run(options),
-            "stage" => Stage(options),
             "lines" => Lines(options),
             "randommodel" => RandomModel(options),
             "kernels" => Kernels(options),
             "decode" => DecodeBench.Run(options),
             "trainstep" => TrainBench.Run(options),
+            "detect" => DetectBench.Run(options),
             "strips" => Strips(options),
             "skew" => Skew(options),
             _ => 2,
@@ -158,54 +160,6 @@ internal static class Program
         return 0;
     }
 
-    // Peak memory of one preparation stage alone: OneOcr.Bench stage --model FILE --pages DIR --mode gray|grid|find|detect|prep [--degree N]
-    private static int Stage(Dictionary<string, string> o)
-    {
-        var recognizer = OneOcr.Recognition.LineRecognizer.Load(Need(o, "model"));
-        var pixelsPool = new OneOcr.BufferPool<Gray8>(64L << 20, 1);
-        var masks = new OneOcr.BufferPool<byte>(64L << 20, 1);
-        var detector = new ClassicalOrientation(recognizer, pixelsPool, masks, new ResizerPool(), OneOcr.OcrLimits.Default);
-        string mode = Need(o, "mode");
-        int degree = Int(o, "degree", 1), n = 0;
-        var clock = Stopwatch.StartNew();
-        foreach (string path in Directory.GetFiles(Need(o, "pages"), "*.png").Order(StringComparer.Ordinal))
-        {
-            Image image = Image.Load(path);
-            int w = image.Width, h = image.Height;
-            Gray8[] gray = pixelsPool.Rent((long)w * h);
-            image.CopyPixelsTo<Gray8>(gray.AsSpan(0, w * h), new ImageRect(0, 0, w, h), degree);
-            switch (mode)
-            {
-                case "grid":
-                    {
-                        ReadOnlySpan<byte> bytes = OneOcr.Kernels.PixelSpans.AsBytes(gray.AsSpan(0, w * h));
-                        (int t, bool bright) = LineFinder.Binarize(bytes);
-                        using InkGrid g = InkGrid.Build(bytes, w, h, t, bright);
-                        SkewEstimator.Estimate(g);
-                        using InkGrid tg = g.TurnClockwise();
-                        SkewEstimator.Estimate(tg);
-                        break;
-                    }
-
-                case "find":
-                    StripFinder.Find(gray, w, h, 100000, masks, degree, out _, out _, out _, eraseRules: false);
-                    break;
-                case "detect":
-                    detector.Detect(new OrientationInput(gray, w, h, degree), default);
-                    break;
-                case "prep":
-                    PagePreparation.Prepare(gray, w, h, true, true, detector, OneOcr.OcrLimits.Default, pixelsPool, degree, default).Release();
-                    break;
-            }
-
-            pixelsPool.Return(gray);
-            n++;
-        }
-
-        Console.WriteLine($"{mode}: {n} pages, {clock.Elapsed.TotalMilliseconds / n:F0} ms/page, peak RSS {Process.GetCurrentProcess().PeakWorkingSet64 / 1048576.0:F1} MB, allocated {GC.GetTotalAllocatedBytes() / 1048576.0 / n:F1} MB/page");
-        return 0;
-    }
-
     private static int RandomModel(Dictionary<string, string> o)
     {
         File.WriteAllBytes(Need(o, "out"), OneOcr.Tests.TestModels.RandomContainer(OneOcr.Tests.TestModels.Full, 1));
@@ -234,7 +188,6 @@ internal static class Program
 
         bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
-        Gray8[] preBuffer = [];
         foreach (string path in Directory.GetFiles(pages).Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal))
         {
             string id = Path.GetFileNameWithoutExtension(path);
@@ -245,29 +198,6 @@ internal static class Program
             double decodeMs = clock.Elapsed.TotalMilliseconds;
             var times = new List<double>();
             string text = string.Empty;
-            if (o.TryGetValue("pre", out string? pre))
-            {
-                // Runs one preparation stage on its own before the page is read, to see what it adds to the peak.
-                int w = image.Width, h = image.Height;
-                if (preBuffer.Length < w * h)
-                {
-                    preBuffer = new Gray8[w * h];
-                }
-
-                Gray8[] g = preBuffer;
-                image.CopyPixelsTo<Gray8>(g.AsSpan(0, w * h), new ImageRect(0, 0, w, h), degree == 0 ? 4 : degree);
-                if (pre == "detect")
-                {
-                    engine.OrientationDetector.Detect(new OrientationInput(g, w, h, degree == 0 ? 4 : degree), default);
-                }
-                else if (pre == "grid")
-                {
-                    (int t, bool bright) = LineFinder.Binarize(OneOcr.Kernels.PixelSpans.AsBytes(g.AsSpan(0, w * h)));
-                    using InkGrid grid = InkGrid.Build(OneOcr.Kernels.PixelSpans.AsBytes(g.AsSpan(0, w * h)), w, h, t, bright);
-                    SkewEstimator.Estimate(grid);
-                }
-            }
-
             for (int r = 0; r < (metaOnly ? 0 : repeat); r++)
             {
                 clock.Restart();

@@ -1,3 +1,5 @@
+using OneOcr.Detection;
+using OneOcr.Kernels;
 using OneOcr.Model;
 using OneOcr.Recognition;
 
@@ -5,7 +7,8 @@ namespace OneOcr.Fuzz;
 
 /// <summary>
 /// Model container bytes through the parser, then (when they parse) through the recognizer builder and one forward pass on a
-/// small image, under tight limits so that every size an input can declare is checked rather than allocated.
+/// small image, or, for the page detector architecture, through its builder, one forward pass on a 32 by 64 tile and the decoding of
+/// its maps, under tight limits so that every size an input can declare is checked rather than allocated.
 /// Only the typed exceptions may come out; anything else is a finding.
 /// </summary>
 internal static class ContainerTarget
@@ -23,6 +26,9 @@ internal static class ContainerTarget
         MaxInputHeight = 32,
         MaxLineWidth = 64,
         MaxActivationElements = 1 << 18,
+        MaxDetectorSide = 64,
+        MaxLinesPerPage = 64,
+        MaxPageElements = 64,
     };
 
     /// <summary>Inputs that parsed as containers, and inputs that went on to build a recognizer (progress statistics for local runs).</summary>
@@ -34,6 +40,12 @@ internal static class ContainerTarget
         {
             ModelContainer container = ModelContainer.Parse(data, Limits);
             Parsed++;
+            if (container.Architecture == "dbnet-lite-v0")
+            {
+                RunDetector(container);
+                return;
+            }
+
             LineRecognizer recognizer = LineRecognizer.FromContainer(container, Limits);
             Built++;
             int width = 24;
@@ -52,5 +64,21 @@ internal static class ContainerTarget
         catch (OcrLimitException)
         {
         }
+    }
+
+    private static void RunDetector(ModelContainer container)
+    {
+        DbNetModel model = DbNetModel.FromContainer(container, Limits);
+        Built++;
+        const int height = 32, width = 64;
+        var pixels = new float[height * width];
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            pixels[i] = (((i * 37) & 255) / 127.5f) - 1f;
+        }
+
+        DetectorMaps maps = DbNetForward.Run(
+            model, Dispatch.Best, 1, new BufferPool<float>(1 << 20, sizeof(float)), pixels, height, width, Limits, null, System.Threading.CancellationToken.None);
+        _ = DetectorPostprocess.Decode(maps, model, 1.0, width, height, Limits);
     }
 }

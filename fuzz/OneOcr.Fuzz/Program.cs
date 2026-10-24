@@ -213,6 +213,13 @@ internal static class Program
             File.WriteAllBytes(Path.Combine(dir, $"{name}.seed"), TestModels.RandomContainer(shape, 1));
         }
 
+        // Page detector containers: narrow, with widths that are not multiples of 16, and with an explicit list of trained layout classes.
+        var tinyDetector = new TestDetectorModels.Shape(16, [16, 16, 16, 16], [1, 1, 1, 1], 16, 16, 16, 1, TestDetectorModels.AllClasses);
+        var oddDetector = new TestDetectorModels.Shape(16, [16, 24, 40, 56], [1, 2, 1, 1], 20, 12, 28, 2, TestDetectorModels.AllClasses);
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-tiny.seed"), TestDetectorModels.Random(tinyDetector, 1));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-odd-widths.seed"), TestDetectorModels.Random(oddDetector, 2));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-trained-list.seed"), TestDetectorModels.Random(oddDetector, 3, trainedJson: "[\"text\",\"table\",\"checkbox\"]"));
+
         // Version 1: with calibration curves, with one curve and one-knot curves, and with a charset that has space entries.
         var tinyShape = variants[0].Shape;
         File.WriteAllBytes(Path.Combine(dir, "v1-all-scripts.seed"), TestModels.RandomContainerV1(tinyShape, 1,

@@ -30,6 +30,32 @@ No platform math library is used. With `Limit = 80`:
 
 Measured accuracy: exp and sigmoid within 4e-7 relative error, tanh within 2e-7 absolute.
 
+## Detector layers
+
+The page detector (`dbnet-lite-v0`, [detector-v0.md](detector-v0.md)) uses activations laid out channels-last, `[row][column][channel]`, with the channel count padded up to a multiple of 16 by zeros that stay zero. Nothing about this layout is visible in the results; it is how the sums below are kept in the order of the dot-product rule.
+
+- **1x1 convolution** is a dot product over the input channels for every position: the rule above, with the channel count zero-padded to a multiple of 16 (no change to the result), then the bias, then ReLU where the graph has one.
+- **3x3 depthwise convolution** (zero padding 1, stride 1 or 2, one filter per channel): the nine products of a position and channel are the elements of one dot product, tap *k* = `ky * 3 + kx` in lane *k*: `p[k] = fma(w[k], x[k], +0)`, lanes 9 to 15 stay +0, then the tree above and the bias. A tap that falls outside the image multiplies a zero padding value and contributes `fma(w, 0, +0) = +0`, so it is simply +0. Vector paths hold the nine products for 4, 8 or 16 channels at a time; a channel is never split across lanes, so the width cannot change a result.
+- **Stem** (3x3, stride 2, one input channel, ReLU) follows the same rule per output channel.
+- **Nearest 2x upsampling plus addition**: `dst[y][x][k] = dst[y][x][k] + src[y / 2][x / 2][k]` (one fp32 addition; commutative).
+- **Global average** over a stage output of *n* positions, per channel: the positions are added one after the other in row-major order starting from +0 in fp32, then divided by *n* (IEEE division). The orientation logits are dot products of that vector with each row of `orient.weight`, plus the bias.
+- **ReLU** `v > 0 ? v : 0` (NaN and -0 give +0). Sigmoid and softmax appear only in post-processing, with the exp above; thresholds are compared on logits.
+
+Rows of an output are split across threads; no reduction crosses a thread boundary.
+
+## Tolerance of the detector against float64 and PyTorch
+
+For each layer the C# fp32 result is compared with a float64 evaluation of the same graph and fp16 weights: `|ours - exact| <= Atol + Rtol * |exact|`, with `Rtol` 1e-5 for every layer and `Atol` as in the table (about three times the worst error seen over the test models on every path). Against PyTorch's fp32 fixtures the allowance is twice that, plus twice PyTorch's own recorded fp32-versus-float64 error for the layer (`fp32_vs_fp64_floor` in `fixtures.json`).
+
+| layer | Atol | | layer | Atol |
+|---|---|---|---|---|
+| input | 1e-6 (Rtol 1e-6) | | layout_feat | 5e-6 |
+| stem | 1e-6 | | layout | 3e-6 |
+| stage0 | 1e-6 | | text4 | 5e-6 |
+| stage1, stage2, stage3 | 2e-6 | | text2 | 8e-6 |
+| p8 | 4e-6 | | prob | 5e-6 |
+| p4 | 5e-6 | | orient | 2e-7 |
+
 ## Tolerance against PyTorch
 
 Agreement with a PyTorch fp32 computation from the same fp16 weights is a per-layer tolerance, not bit equality. Both sides carry float32 rounding error against the exact answer, so the difference between them is bounded by the sum of the two errors. For layer *L* and every element:

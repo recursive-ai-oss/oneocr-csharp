@@ -268,13 +268,14 @@ def plan_shard(job) -> list[dict]:
     # With a "gpu_degrade" section the plan carries no degradation: lines are rendered clean (LineGen --clean) and the GPU stage
     # (degrade/gpu.py) draws em, contrast, blur, noise and the rest per sample at training time or when an eval set is materialised.
     deg = None if "gpu_degrade" in cfg else cfg["degrade"][spec["degrade"]]
+    any_font = spec["fonts"] == "any"  # the calibration split draws from training and held-out families alike
     mix = cfg["mix"]
     kinds = list(mix)
     kp = np.array([mix[k] for k in kinds], dtype=float)
     kp /= kp.sum()
     fams: dict[str, list[str]] = {}
     for f in _S["fonts"]:
-        if f["split"] == spec["fonts"]:
+        if any_font or f["split"] == spec["fonts"]:
             fams.setdefault(f["family"], []).append(f["file"])
     books = _books(spec["books"])
     cov = _S["cov"]
@@ -349,7 +350,7 @@ def main() -> None:
         order = sorted(enumerate(cfg["sets"].items()), key=lambda t: t[1][0] == "train")
         for i, (name, spec) in order:
             shards = [
-                (name, spec, i, s, min(SHARD, spec["n"] - s * SHARD), banned if name == "train" else frozenset())
+                (name, spec, i, s, min(SHARD, spec["n"] - s * SHARD), banned if name in ("train", "calib") else frozenset())
                 for s in range((spec["n"] + SHARD - 1) // SHARD)
             ]
             recs = [r for part in pool.map(plan_shard, shards) for r in part]

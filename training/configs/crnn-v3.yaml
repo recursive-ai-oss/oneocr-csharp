@@ -1,0 +1,19 @@
+# Production recognizer run: crnn-v0 architecture (unchanged, 5.66M MACs per column) on lines-v3, 240k steps.
+# Run as chunks: `python -m train.run configs/crnn-v3.yaml --until 80000`, then 160000, then 240000 (see train/run.py).
+# ${ONEOCR_HOME} is the state directory of the machine running the job.
+name: crnn-v3
+seed: 3
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v3.yaml
+data_dir: ${ONEOCR_HOME}/data/lines-v3
+run_dir: ${ONEOCR_HOME}/runs/crnn-v3
+train:
+  steps: 240000
+  batch: 128
+  lr: 0.002
+  warmup: 1000
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 4000
+  ckpt_every: 2000

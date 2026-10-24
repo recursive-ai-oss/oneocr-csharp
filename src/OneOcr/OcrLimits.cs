@@ -51,6 +51,9 @@ public sealed class OcrLimits
     /// <summary>Tallest line image a model may declare as its input height. Default 256.</summary>
     public int MaxInputHeight { get; init; } = 256;
 
+    /// <summary>Longest side, in pixels, of the padded input the page detector will run on. Default 4096.</summary>
+    public int MaxDetectorSide { get; init; } = 4096;
+
     /// <summary>Widest line image, in pixels, that will be recognized. Default 8192.</summary>
     public int MaxLineWidth { get; init; } = 8192;
 

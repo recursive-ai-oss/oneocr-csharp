@@ -9,7 +9,15 @@ namespace OneOcr.Layout;
 /// <param name="Width">Width in pixels.</param>
 /// <param name="Height">Height in pixels.</param>
 /// <param name="Degree">Most threads the detector may use.</param>
-internal readonly record struct OrientationInput(Gray8[] Pixels, int Width, int Height, int Degree);
+/// <param name="Evidence">Where a detector may leave what it computed, so the reader need not compute it again; null when nobody wants it.</param>
+internal readonly record struct OrientationInput(Gray8[] Pixels, int Width, int Height, int Degree, OrientationEvidence? Evidence = null);
+
+/// <summary>What an orientation detector found out on the way, for the steps after it.</summary>
+internal sealed class OrientationEvidence
+{
+    /// <summary>The page detector's reading of the page as given to <see cref="IOrientationDetector.Detect"/>, when that is what decided.</summary>
+    public Detection.PageDetection? Detection { get; set; }
+}
 
 /// <summary>
 /// Decides how far a page must be turned clockwise to stand upright. This is the seam where a learned orientation head can replace
@@ -214,8 +222,7 @@ internal sealed class ClassicalOrientation : IOrientationDetector
             int width = page.Width, height = page.Height;
             if (quarter != 0)
             {
-                turned = _pixels.Rent((long)width * height);
-                PageRotation.QuarterTurn(page.Pixels, width, height, quarter, turned, page.Degree, cancellationToken);
+                turned = PageOrientation.Rotate(page.Pixels.AsSpan(0, width * height), width, height, quarter, _pixels, out _, out _);
                 pixels = turned;
                 (width, height) = (frame.TurnedWidth, frame.TurnedHeight);
             }

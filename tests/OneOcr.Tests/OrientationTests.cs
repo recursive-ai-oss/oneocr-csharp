@@ -1,5 +1,6 @@
 using OneImage;
 using OneOcr.Kernels;
+using OneOcr.Detection;
 using OneOcr.Layout;
 using OneOcr.Model;
 
@@ -70,12 +71,17 @@ public class OrientationTests
         Assert.True(Math.Abs(estimate.Slope - slope) <= 3, $"{estimate} thr {threshold} bright {inkIsBright}");
     }
 
+    // The page turned clockwise by quarter turns with the engine's shared rotation step, in an array of exactly its size.
+    private static Gray8[] Turn(Gray8[] source, int width, int height, int quarterTurns) =>
+        quarterTurns == 0
+            ? (Gray8[])source.Clone()
+            : PageOrientation.Rotate(source, width, height, quarterTurns, new BufferPool<Gray8>(0, 1), out _, out _).AsSpan(0, width * height).ToArray();
+
     [Fact]
     public void ASidewaysPageHasTheSharperProfileTurnedAQuarter()
     {
         byte[] px = TextPage();
-        var turned = new Gray8[W * H];
-        PageRotation.QuarterTurn(Gray(px), W, H, 1, turned, 1, CancellationToken.None);
+        Gray8[] turned = Turn(Gray(px), W, H, 1);
         byte[] sideways = PixelSpans.AsBytes(turned).ToArray();
         (int threshold, bool inkIsBright) = LineFinder.Binarize(sideways);
         InkGrid grid = InkGrid.Build(sideways, H, W, threshold, inkIsBright);
@@ -108,8 +114,7 @@ public class OrientationTests
         }
 
         var frame = new PageFrame(w, h, quarter, slope);
-        var turned = new Gray8[w * h];
-        PageRotation.QuarterTurn(Gray(px), w, h, quarter, turned, 1, CancellationToken.None);
+        Gray8[] turned = Turn(Gray(px), w, h, quarter);
         Gray8[] final = turned;
         int fw = frame.TurnedWidth, fh = frame.TurnedHeight;
         if (slope != 0)
@@ -183,8 +188,7 @@ public class OrientationTests
     [Fact]
     public void ASidewaysPageIsTurnedUprightWithQuadsInInputCoordinates()
     {
-        var turned = new Gray8[W * H];
-        PageRotation.QuarterTurn(Gray(TextPage()), W, H, 1, turned, 1, CancellationToken.None);
+        Gray8[] turned = Turn(Gray(TextPage()), W, H, 1);
         Image image = Image.FromPixels<Gray8>(turned, H, W);
         OcrPage page = Engine().Ocr(image);
         // The random-weight recognizer cannot tell the two upright candidates apart; the line direction is what is tested.
@@ -215,8 +219,7 @@ public class OrientationTests
     public void ResultsAreIdenticalOnEveryPathAndDegree()
     {
         (byte[] px, int h) = Shear(TextPage(), W, H, -60);
-        var turned = new Gray8[W * h];
-        PageRotation.QuarterTurn(Gray(px), W, h, 3, turned, 1, CancellationToken.None);
+        Gray8[] turned = Turn(Gray(px), W, h, 3);
         Image image = Image.FromPixels<Gray8>(turned, h, W);
         string baseline = OcrPageJson.ToJson([Engine().Ocr(image, new OcrOptions { MaxDegreeOfParallelism = 1 })]);
         foreach (KernelPath path in Dispatch.Available())
@@ -247,5 +250,65 @@ public class OrientationTests
         Assert.Throws<OcrFormatException>(() => OcrPageJson.Parse(json.Replace("\"skew\":-3.25", "\"skew\":80", StringComparison.Ordinal)));
         Assert.Throws<ArgumentException>(() => new OcrPage(0, 1, 1, 72, [], null, null, null, null, null, 45, 0));
         Assert.Throws<ArgumentException>(() => new OcrPage(0, 1, 1, 72, [], null, null, null, null, null, 0, double.NaN));
+    }
+
+    private sealed class HeadStub(Func<int, PageDetection> detect) : IPageDetector
+    {
+        public List<(int Width, int Height)> Calls { get; } = [];
+
+        public PageDetection Detect(
+            ReadOnlySpan<Gray8> page, int width, int height, BufferPool<Gray8> pixels, ResizerPool resizers, int degree, CancellationToken cancellationToken)
+        {
+            Calls.Add((width, height));
+            return detect(Calls.Count - 1);
+        }
+    }
+
+    private static PageDetection Head(int quarter, float confidence) =>
+        new() { Lines = [], Regions = [], Quarter = quarter, OrientationConfidence = confidence };
+
+    [Fact]
+    public void WithADetectorTheHeadDecidesAndTheClassicalDecisionIsSkipped()
+    {
+        // A sideways page: the classical decision would turn it, the head says it is upright and sure, so it is read as it is.
+        Gray8[] turned = Turn(Gray(TextPage()), W, H, 1);
+        Image image = Image.FromPixels<Gray8>(turned, H, W);
+        var stub = new HeadStub(_ => Head(0, 0.99f));
+        OcrPage page = Engine().WithDetector(stub).Ocr(image);
+        Assert.Single(stub.Calls);
+        Assert.Equal(0, page.Orientation);
+        Assert.Equal((H, W), (page.Width, page.Height));
+        Assert.DoesNotContain(page.Diagnostics, d => d.Contains("turned", StringComparison.Ordinal));
+
+        // The same page without a detector goes through the classical decision.
+        Assert.True(Engine().Ocr(image).Orientation is 90 or 270);
+
+        // Detection of orientation off: the head is not acted on either.
+        var sure = new HeadStub(_ => Head(1, 0.99f));
+        OcrPage off = Engine().WithDetector(sure).Ocr(image, new OcrOptions { DetectOrientation = false });
+        Assert.Single(sure.Calls);
+        Assert.DoesNotContain(off.Diagnostics, d => d.Contains("turned", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void WithADetectorTheHeadTurnsAndTheDeskewComposesOnTheTurnedPage()
+    {
+        // Text tilted by about 3.4 degrees, then the page turned three quarters clockwise; the head undoes it with one more.
+        (byte[] sheared, int h) = Shear(TextPage(), W, H, -60);
+        Gray8[] sideways = Turn(Gray(sheared), W, h, 3);
+        Image image = Image.FromPixels<Gray8>(sideways, h, W);
+        var stub = new HeadStub(call => call == 0 ? Head(1, 0.97f) : Head(0, 0.99f));
+        OcrPage page = Engine().WithDetector(stub).Ocr(image);
+
+        // First look at the page as given, then a look at the page turned and straightened (a larger canvas).
+        Assert.Equal(2, stub.Calls.Count);
+        Assert.Equal((h, W), stub.Calls[0]);
+        Assert.True(stub.Calls[1].Width > W && stub.Calls[1].Height >= h);
+        // The page model is in the turned (upright) frame, as without deskew; the tilt is reported, the quarter turn is not.
+        Assert.Equal((W, h), (page.Width, page.Height));
+        Assert.Equal(0, page.Orientation);
+        Assert.NotEqual(0, page.SkewDegrees);
+        Assert.Contains(page.Diagnostics, d => d.Contains("90 degrees clockwise", StringComparison.Ordinal) && d.Contains("0.97", StringComparison.Ordinal));
+        Assert.Contains(page.Diagnostics, d => d.Contains("straightened", StringComparison.Ordinal));
     }
 }

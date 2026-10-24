@@ -32,6 +32,28 @@ internal sealed class PreparedPage
 
     public List<string> Notes { get; }
 
+    /// <summary>
+    /// The page as the caller gets it: carried back through the frame when the page was straightened or its quarter turn is reported in
+    /// the input frame, otherwise as read, plus the notes about what was done.
+    /// </summary>
+    public OcrPage Finish(OcrPage page)
+    {
+        if (!Frame.IsIdentity)
+        {
+            return Frame.MapPage(page, Notes);
+        }
+
+        if (Notes.Count == 0)
+        {
+            return page;
+        }
+
+        var diagnostics = new List<string>(page.Diagnostics);
+        diagnostics.AddRange(Notes);
+        return new OcrPage(
+            page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, page.KeyValues, diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees);
+    }
+
     /// <summary>Gives the arrays made here back to the pool.</summary>
     public void Release()
     {
@@ -58,27 +80,26 @@ internal static class PagePreparation
 
     public static PreparedPage Prepare(
         Gray8[] gray, int width, int height, bool orient, bool deskew, IOrientationDetector detector, OcrLimits limits,
-        BufferPool<Gray8> pool, int degree, CancellationToken cancellationToken)
+        BufferPool<Gray8> pool, int degree, OrientationEvidence evidence, bool quarterInInputFrame, CancellationToken cancellationToken)
     {
         var owned = new List<Gray8[]>();
         var notes = new List<string>();
         try
         {
-            int quarter = orient ? (detector.Detect(new OrientationInput(gray, width, height, degree), cancellationToken) / 90) & 3 : 0;
+            int quarter = orient ? (detector.Detect(new OrientationInput(gray, width, height, degree, evidence), cancellationToken) / 90) & 3 : 0;
             Gray8[] pixels = gray;
             int w = width, h = height;
             if (quarter != 0)
             {
-                Gray8[] turned = pool.Rent((long)width * height);
+                // The one rotation step both orientation sources share.
+                cancellationToken.ThrowIfCancellationRequested();
+                Gray8[] turned = PageOrientation.Rotate(gray.AsSpan(0, width * height), width, height, quarter, pool, out w, out h);
                 owned.Add(turned);
-                PageRotation.QuarterTurn(gray, width, height, quarter, turned, degree, cancellationToken);
                 pixels = turned;
-                if ((quarter & 1) != 0)
-                {
-                    (w, h) = (height, width);
-                }
-
-                notes.Add(string.Create(CultureInfo.InvariantCulture, $"The page was turned {quarter * 90} degrees clockwise to read upright."));
+                notes.Add(
+                    quarterInInputFrame
+                        ? string.Create(CultureInfo.InvariantCulture, $"The page was turned {quarter * 90} degrees clockwise to read upright.")
+                        : DetectorLines.TurnedNote(quarter, evidence.Detection?.OrientationConfidence ?? 1f));
             }
 
             int slope = 0;
@@ -91,10 +112,22 @@ internal static class PagePreparation
                     using InkGrid grid = InkGrid.Build(bytes, w, h, threshold, inkIsBright);
                     SkewEstimate estimate = SkewEstimator.Estimate(grid);
                     slope = ActedSlope(estimate);
+                    if (slope != 0)
+                    {
+                        // A tilt is only a tilt when the lines run across the page: with the lines running up and down (an orientation
+                        // decision that left a sideways page as it is) the "slope" is noise.
+                        using InkGrid sideways = grid.TurnClockwise();
+                        if (SkewEstimator.Estimate(sideways).Contrast > estimate.Contrast)
+                        {
+                            slope = 0;
+                        }
+                    }
                 }
             }
 
-            var frame = new PageFrame(width, height, quarter, slope);
+            // With the quarter turn reported in the input frame the frame carries it back; otherwise the turned page is the page and
+            // the frame covers the deskew turn alone.
+            var frame = quarterInInputFrame ? new PageFrame(width, height, quarter, slope) : new PageFrame(w, h, 0, slope);
             if (slope != 0)
             {
                 long canvas = (long)frame.DeskewedWidth * frame.DeskewedHeight;

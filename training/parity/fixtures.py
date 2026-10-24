@@ -44,6 +44,7 @@ def main() -> None:
     ap.add_argument("--model", required=True)
     ap.add_argument("--data", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--model-v1", help="the same weights in container v1 (with calibration); copied next to model.onm")
     ap.add_argument("--n", type=int, default=50)
     ap.add_argument("--max-width", type=int, default=640)
     a = ap.parse_args()
@@ -52,6 +53,8 @@ def main() -> None:
     (out / "lines").mkdir(parents=True, exist_ok=True)
     (out / "data").mkdir(exist_ok=True)
     shutil.copyfile(a.model, out / "model.onm")
+    if a.model_v1:
+        shutil.copyfile(a.model_v1, out / "model-v1.onm")
     manifest, tensors = read_container(a.model)
     t = {k: torch.from_numpy(v) for k, v in tensors.items()}
     Reference = SvtrReference if manifest["config"].get("arch") == "svtr-lite" else CrnnReference
@@ -86,11 +89,15 @@ def main() -> None:
                     s["max_rel_above_1e-3"] = max(s["max_rel_above_1e-3"], float(rel[big].max()))
         lines.append({"id": r["id"], "png": f"lines/{png.name}", "text": r["text"], "width": r["w"],
                       "decoded": greedy_decode(o32["fc"], charset), "layers": entries})  # fmt: skip
+    v1_entry = {}
+    if a.model_v1:
+        v1_entry = {"model_v1": "model-v1.onm", "model_v1_sha256": hashlib.sha256((out / "model-v1.onm").read_bytes()).hexdigest()}
     doc = {
         "architecture": manifest["architecture"],
         "model": "model.onm",
         "model_sha256": hashlib.sha256((out / "model.onm").read_bytes()).hexdigest(),
         "dtype": "float32 little-endian, row-major",
+        **v1_entry,
         "fp32_vs_fp64_floor": floor,
         "lines": lines,
     }

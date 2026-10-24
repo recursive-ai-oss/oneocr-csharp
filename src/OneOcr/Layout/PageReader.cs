@@ -1,4 +1,5 @@
 using OneImage;
+using OneOcr.Detection;
 using OneOcr.Kernels;
 using OneOcr.Model;
 using OneOcr.Recognition;
@@ -15,12 +16,37 @@ internal static class PageReader
     private static readonly double[] CommonResolutions = [72, 96, 150, 200, 300, 400, 600];
 
     public static OcrPage Read(
-        LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, BufferPool<byte> masks, ResizerPool resizers, Gray8[] gray, int width, int height,
-        int pageIndex, double? dpi, int degree, bool includeChars, CancellationToken cancellationToken)
+        LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, BufferPool<byte> masks, ResizerPool resizers, IPageDetector? detector,
+        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, PageDetection? first, bool turn,
+        CancellationToken cancellationToken)
+    {
+        if (detector is null)
+        {
+            List<StripLine> found = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int level, out bool bright);
+            return ReadStrips(
+                recognizer, limits, pixelPool, resizers, gray, width, height, found, level, bright, [], [], pageIndex, dpi, degree, includeChars, cancellationToken);
+        }
+
+        LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken, first, turn);
+        try
+        {
+            return ReadStrips(
+                recognizer, limits, pixelPool, resizers, located.Gray, located.Width, located.Height, located.Strips, located.Threshold, located.InkIsBright,
+                located.Regions, located.Notes, pageIndex, dpi, degree, includeChars, cancellationToken);
+        }
+        finally
+        {
+            located.Release(pixelPool);
+        }
+    }
+
+    private static OcrPage ReadStrips(
+        LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, ResizerPool resizers, Gray8[] gray, int width, int height,
+        List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<string> notes, int pageIndex, double? dpi, int degree,
+        bool includeChars, CancellationToken cancellationToken)
     {
         int count = checked(width * height);
-        List<StripLine> strips = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int threshold, out bool inkIsBright);
-        var diagnostics = new List<string>();
+        var diagnostics = new List<string>(notes);
         if (!recognizer.HasCalibration)
         {
             diagnostics.Add(ModelContainer.NoCalibrationNote);
@@ -52,7 +78,7 @@ internal static class PageReader
 
         if (strips.Count == 0)
         {
-            return new OcrPage(pageIndex, width, height, units, [], diagnostics: diagnostics);
+            return new OcrPage(pageIndex, width, height, units, [], regions.Count > 0 ? MakeRegions(regions, [], height) : null, diagnostics: diagnostics);
         }
 
         int modelHeight = recognizer.InputHeight;
@@ -123,7 +149,7 @@ internal static class PageReader
         }
 
         List<OrderBlock> plan = ReadingOrder.Arrange(ordered, cancellationToken);
-        return Assemble(plan, ordered, pageIndex, width, height, units, diagnostics);
+        return Assemble(plan, ordered, regions, pageIndex, width, height, units, diagnostics);
     }
 
     private static double Nearest(double estimate)
@@ -200,7 +226,8 @@ internal static class PageReader
         $"A line at x {ink.X}, y {ink.Y} ({ink.Width} by {ink.Height} pixels) was skipped: scaled to the model's input height it would be wider than OcrLimits.MaxLineWidth ({limits.MaxLineWidth}).";
 
     private static OcrPage Assemble(
-        List<OrderBlock> plan, List<OrderStrip> strips, int pageIndex, int width, int height, double units, List<string> diagnostics)
+        List<OrderBlock> plan, List<OrderStrip> strips, List<DetectedRegion> detected, int pageIndex, int width, int height, double units,
+        List<string> diagnostics)
     {
         var blocks = new List<OcrBlock>(plan.Count);
         var tables = new List<OcrTable>();
@@ -276,7 +303,21 @@ internal static class PageReader
             blocks.Add(made);
         }
 
-        return new OcrPage(pageIndex, width, height, units, blocks, null, tables, null, diagnostics);
+        IReadOnlyList<OcrRegion>? regions = null;
+        if (detected.Count > 0)
+        {
+            regions = MakeRegions(detected, blocks, height);
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                OcrBlockRole role = FurnitureRole(detected, blocks[i], height);
+                if (role != OcrBlockRole.Body)
+                {
+                    blocks[i] = blocks[i] with { Role = role };
+                }
+            }
+        }
+
+        return new OcrPage(pageIndex, width, height, units, blocks, regions, tables, null, diagnostics);
     }
 
     private static OcrLine MakeLine(List<OcrWord> words, List<int> cellStarts, string text)
@@ -306,5 +347,65 @@ internal static class PageReader
         }
 
         return new OcrBlock(OcrBlockRole.Body, block.IsTable, box, lines, (float)(weighted / words), OcrSource.Ocr);
+    }
+
+    // The page model's regions from the detector's, with the blocks whose centres lie in each. A header_footer region is a header in the
+    // upper half of the page and a footer in the lower half; classes the page model has no role for are left out.
+    private static List<OcrRegion> MakeRegions(List<DetectedRegion> detected, List<OcrBlock> blocks, int pageHeight)
+    {
+        var result = new List<OcrRegion>(detected.Count);
+        foreach (DetectedRegion d in detected)
+        {
+            OcrRegionRole? role = RoleOf(d, pageHeight);
+            if (role is not { } r)
+            {
+                continue;
+            }
+
+            var inside = new List<int>();
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                if (Contains(d, blocks[i].Box))
+                {
+                    inside.Add(i);
+                }
+            }
+
+            result.Add(new OcrRegion(r, new OcrBox(d.Left, d.Top, d.Right, d.Bottom), d.Score, OcrSource.Ocr, inside));
+        }
+
+        return result;
+    }
+
+    private static OcrRegionRole? RoleOf(DetectedRegion d, int pageHeight) => d.Name switch
+    {
+        "text" => OcrRegionRole.Text,
+        "title" => OcrRegionRole.Title,
+        "list" => OcrRegionRole.List,
+        "table" => OcrRegionRole.Table,
+        "figure" => OcrRegionRole.Figure,
+        "header_footer" => (d.Top + d.Bottom) / 2 < pageHeight / 2.0 ? OcrRegionRole.Header : OcrRegionRole.Footer,
+        "form_field" => OcrRegionRole.FormField,
+        "checkbox" => OcrRegionRole.Checkbox,
+        _ => null,
+    };
+
+    private static OcrBlockRole FurnitureRole(List<DetectedRegion> detected, OcrBlock block, int pageHeight)
+    {
+        foreach (DetectedRegion d in detected)
+        {
+            if (d.Name == "header_footer" && Contains(d, block.Box))
+            {
+                return RoleOf(d, pageHeight) == OcrRegionRole.Header ? OcrBlockRole.Header : OcrBlockRole.Footer;
+            }
+        }
+
+        return OcrBlockRole.Body;
+    }
+
+    private static bool Contains(DetectedRegion d, OcrBox box)
+    {
+        double cx = (box.Left + box.Right) / 2, cy = (box.Top + box.Bottom) / 2;
+        return cx >= d.Left && cx <= d.Right && cy >= d.Top && cy <= d.Bottom;
     }
 }

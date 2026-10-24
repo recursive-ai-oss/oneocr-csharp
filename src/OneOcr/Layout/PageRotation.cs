@@ -4,56 +4,12 @@ using OneOcr.Kernels;
 namespace OneOcr.Layout;
 
 /// <summary>
-/// Pixel rotations of a page: exact quarter turns, and a small turn by bilinear sampling. Every output pixel is computed from
+/// Pixel rotation of a page by a small turn, by bilinear sampling (quarter turns are in PageOrientation). Every output pixel is computed from
 /// the input alone with IEEE basic operations (add, multiply, divide, square root), so the result is the same on every machine,
 /// kernel path and degree of parallelism.
 /// </summary>
 internal static class PageRotation
 {
-    /// <summary>Turns the page clockwise by <paramref name="quarterTurns"/> quarter turns (0 to 3) into <paramref name="to"/> (width and height swap for odd counts).</summary>
-    public static void QuarterTurn(Gray8[] from, int width, int height, int quarterTurns, Gray8[] to, int degree, CancellationToken cancellationToken)
-    {
-        int count = checked(width * height);
-        switch (quarterTurns & 3)
-        {
-            case 0:
-                System.Array.Copy(from, to, count);
-                break;
-            case 1:
-                // (x, y) -> (height - 1 - y, x); the new page is `height` wide.
-                ParallelRun.For(width, degree, v =>
-                {
-                    ReadOnlySpan<byte> src = PixelSpans.AsBytes(from.AsSpan(0, count));
-                    for (int u = 0; u < height; u++)
-                    {
-                        to[(v * height) + u] = new Gray8(src[((height - 1 - u) * width) + v]);
-                    }
-                }, cancellationToken);
-                break;
-            case 2:
-                ParallelRun.For(height, degree, y =>
-                {
-                    ReadOnlySpan<byte> src = PixelSpans.AsBytes(from.AsSpan(0, count));
-                    for (int x = 0; x < width; x++)
-                    {
-                        to[(y * width) + x] = new Gray8(src[count - 1 - ((y * width) + x)]);
-                    }
-                }, cancellationToken);
-                break;
-            default:
-                // (x, y) -> (y, width - 1 - x).
-                ParallelRun.For(width, degree, v =>
-                {
-                    ReadOnlySpan<byte> src = PixelSpans.AsBytes(from.AsSpan(0, count));
-                    for (int u = 0; u < height; u++)
-                    {
-                        to[(v * height) + u] = new Gray8(src[(u * width) + (width - 1 - v)]);
-                    }
-                }, cancellationToken);
-                break;
-        }
-    }
-
     /// <summary>
     /// The size of the canvas that holds a <paramref name="width"/> by <paramref name="height"/> page turned by an angle whose
     /// sine and cosine are given (cosine positive).

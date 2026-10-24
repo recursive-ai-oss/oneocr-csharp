@@ -72,6 +72,28 @@ A convolutional stack, then a bidirectional LSTM, then a per-timestep classifier
 - **Classifier** (`fc`): linear layer `2 * hidden → classes` with bias: `fc.weight` `[classes, 2 * hidden]`, `fc.bias` `[classes]`. `classes` equals the charset length. A reader ignores tensors it does not need.
 - **Decoding:** greedy CTC: take the arg-max class per timestep (lowest index on ties), merge repeats, drop blanks, concatenate charset entries. Confidences are defined under *Confidence* below.
 
+## Architecture `dbnet-lite-v0`
+
+The page detector: text lines, layout regions and page orientation from one page image. The layer graph, pre- and post-processing are in [detector-v0.md](detector-v0.md); this section is what the container carries.
+
+- `architecture`: `dbnet-lite-v0`; `name`: `text-detector-layout`.
+- `input`: `{"height": 0, "channels": 1, "mean": 0.5, "std": 0.5, "invert": false}`. **Height 0 means "any multiple of 32"** and is allowed for this architecture only; every other architecture needs a positive height. `channels` is 1.
+- `charset`: `["<blank>", ...layout class names]`, present only to satisfy the envelope's charset rules; it is not an output alphabet and a reader ignores it for this architecture.
+- `calibration`: the usual object with an empty `scripts` (the detector has no word confidences).
+- `config`:
+
+```json
+{
+  "arch": "dbnet-lite", "stem": 16, "widths": [32, 72, 144, 224], "depths": [2, 3, 4, 3], "fpn": 56,
+  "text": 32, "layout": 112, "layout_blocks": 3, "classes": 8,
+  "layout_classes": ["text", "title", "list", "table", "figure", "header_footer", "form_field", "checkbox"],
+  "layout_trained": ["text", "title", "list", "table", "figure", "header_footer"]
+}
+```
+
+  `arch` must be `dbnet-lite`; `widths` and `depths` have four entries each; every width is at least 1 and within the reader's layer-width limit, every depth at least 1; `classes` equals the number of `layout_classes`, whose names are non-empty and unique. **`layout_trained`** is optional: the names of the layout classes the model was trained on. A reader never reports a class that is not listed. When the member is absent, every class except `form_field` and `checkbox` counts as trained (those two had no training labels in the first model). A name that is not in `layout_classes` is an error.
+- Tensors (all `f16`, PyTorch layout, batch normalization folded in; names in [detector-v0.md](detector-v0.md)): `stem`, `stage<i>.<j>.dw`/`.pw`, `lat<i>`, `smooth8.dw`/`.pw`, `smooth4.dw`/`.pw`, `layout.<j>.dw`/`.pw`, `layout_out`, `text4.dw`/`.pw`, `stem_proj`, `text2.dw`/`.pw`, `prob_out` (each with `.weight` and `.bias`), and `orient.weight` `[4, widths[3]]`, `orient.bias` `[4]`. A depthwise weight is `[c, 1, 3, 3]`, a 1x1 weight `[out, in, 1, 1]`. Shapes are checked against `config`.
+
 ## Calibration (version 1)
 
 A recognizer says how sure it is per character; users want the probability that a **word** is exactly right. The model file carries the map from one to the other, fitted by the trainer on a held-out calibration split.
