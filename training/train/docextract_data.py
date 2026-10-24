@@ -249,6 +249,7 @@ def load_pages(
     truth_ex, ocr_ex = [], []
     stats = defaultdict(float)
     ids = [json.loads(line) for line in (root / split / "manifest.jsonl").read_text().splitlines()]
+    ids = [m for m in ids if "id" in m and "image_sha256" in m]  # the generator also logs failed pages in the manifest
     ids.sort(key=lambda m: m["id"])
     for m in ids[:limit]:
         doc = json.loads((root / split / "truth" / f"{m['id']}.json").read_text(encoding="utf-8"))

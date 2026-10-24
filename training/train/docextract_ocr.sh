@@ -14,6 +14,7 @@ dotnet build "$root/bench/OneOcr.Bench" -c Release -v q --nologo >/dev/null
 dll=$(find "$art/bin" -name OneOcr.Bench.dll -path '*elease*' | head -1)
 work=$(mktemp -d "$(dirname "$out")/.ocr-work.XXXXXX")  # same filesystem as the images, so they can be hard linked
 trap 'rm -rf "$work"' EXIT
+trap 'kill 0' TERM INT  # a timeout also stops the reader processes
 i=0
 ls "$images" | grep -E '\.(png|jpg|jpeg)$' | sort | { if [ "$limit" -gt 0 ]; then head -n "$limit"; else cat; fi; } | while read -r f; do
   [ -e "$out/${f%.*}.page.json" ] && continue  # resume: pages read by an earlier run are kept
@@ -46,7 +47,9 @@ for s in $(seq 0 $((shards - 1))); do
 done
 fail=0
 for p in "${pids[@]}"; do wait "$p" || fail=1; done
-for s in $(seq 0 $((shards - 1))); do [ -d "$work/out$s" ] && cp "$work/out$s"/*.page.json "$out"/ || true; done
+for s in $(seq 0 $((shards - 1))); do [ -d "$work/out$s" ] && cp "$work/out$s"/*.page.json "$out"/ 2>/dev/null || true; done
+# stacks of pages the reader failed on (the reader writes <id>.error.txt) are kept next to the output for inspection
+mkdir -p "$out/.errors"; cp "$work"/out*/*.error.txt "$out/.errors"/ 2>/dev/null || true
 [ -e "$work/dropped" ] && { echo "dropped images:"; cat "$work/dropped"; } || true
 [ $fail = 0 ] || { tail -n 20 "$work"/log*; exit 1; }
 echo "wrote $(ls "$out"/*.page.json | wc -l) page models to $out"
