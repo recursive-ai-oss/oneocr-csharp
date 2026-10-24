@@ -1,4 +1,4 @@
-"""Usage: check_rotated.py ROT_OUT
+"""Usage: check_rotated.py ROT_OUT [EXPECTED_JSON]
 
 Compares the orientation and skew the engine reported (<id>.meta.json from `OneOcr.Bench run --meta 1`) with what
 make_rotated.py applied (ROT_OUT/../rot/expected.json), per variant and set, and prints the share of pages whose skew is within
@@ -9,7 +9,7 @@ import os
 import sys
 
 out = sys.argv[1]
-expected = json.load(open(os.path.join(os.path.dirname(out.rstrip("/")), "rot", "expected.json")))
+expected = json.load(open(sys.argv[2] if len(sys.argv) > 2 else os.path.join(os.path.dirname(out.rstrip("/")), "rot", "expected.json")))
 tot = skew_ok = orient_ok = 0
 worst = []
 for variant in sorted(os.listdir(out)):

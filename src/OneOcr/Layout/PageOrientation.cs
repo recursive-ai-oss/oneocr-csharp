@@ -124,7 +124,9 @@ internal sealed class ClassicalOrientation : IOrientationDetector
         trace?.Add($"axis {first}: upright {firstReading.Upright:F3} turned {firstReading.Turned:F3} share {firstReading.TurnedShare:F2} (contrast flat {flat.Contrast:F2} sideways {sideways.Contrast:F2})");
         if (ratio >= DecisiveRatio || ratio <= 1 / DecisiveRatio)
         {
-            return firstReading.Degrees(first);
+            // Vertical structure alone (a photographed edge, a long vertical rule) is not sideways text: unless the recognizer reads
+            // the turned page with confidence, the page stays as it is.
+            return first == 1 && firstReading.Best < SureConfidence ? 0 : firstReading.Degrees(first);
         }
 
         // The other direction wins only by reading AxisMargin better than this one, which a reading above 1 - AxisMargin cannot be beaten
