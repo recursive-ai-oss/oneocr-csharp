@@ -364,9 +364,11 @@ def load_page_records(path: Path, split: str, cache: Path | None = None) -> list
     `path` is the generator's output root holding `<split>/images` and `<split>/truth`. Parsing thousands of truth files takes a
     while, so the parsed records are cached as one JSON next to the run state.
     """
-    if cache is not None and cache.exists():
-        return json.loads(cache.read_text())
     root = path / split
+    if cache is not None and cache.exists():
+        c = json.loads(cache.read_text())
+        if isinstance(c, dict) and c.get("root") == str(root):  # a cache written for another page set is rebuilt
+            return c["recs"]
     recs = []
     for tf in sorted((root / "truth").glob("*.json")):
         d = json.loads(tf.read_text())
@@ -387,7 +389,7 @@ def load_page_records(path: Path, split: str, cache: Path | None = None) -> list
         )  # fmt: skip
     if cache is not None:
         cache.parent.mkdir(parents=True, exist_ok=True)
-        cache.write_text(json.dumps(recs))
+        cache.write_text(json.dumps({"root": str(root), "recs": recs}))
     return recs
 
 
