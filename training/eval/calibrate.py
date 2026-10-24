@@ -119,18 +119,22 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fit")
-    f.add_argument("--hyps", required=True)
+    f.add_argument("--hyps", required=True, nargs="+", help="hyps files; PATH:K counts a file K times (a small in-domain set weighs more)")
     f.add_argument("--out", required=True)
     t = sub.add_parser("table", help="markdown ECE before/after for the held-out synthetic sets and every page category")
     t.add_argument("--calibration", required=True)
     t.add_argument("--hyps-dir", required=True)
     t.add_argument("--out", required=True)
+    t.add_argument("--also", default="", help="comma-separated extra hyps sets to include (e.g. validation crops of another domain)")
     e = sub.add_parser("ece")
     e.add_argument("--calibration", required=True)
     e.add_argument("hyps", nargs="+")
     a = ap.parse_args()
     if a.cmd == "fit":
-        samples = word_samples(read_hyps(a.hyps))
+        samples = []
+        for spec in a.hyps:
+            path, _, k = spec.partition(":")
+            samples += word_samples(read_hyps(path)) * int(k or 1)
         cal = {"raw": "word-mean-max-run", "scripts": {}}
         for s in SCRIPTS.values():
             g = [x for x in samples if x[0] == s]
@@ -152,6 +156,7 @@ def main() -> None:
             "phone-v1",
             "receipts-v1",
         ]
+        names += [n for n in a.also.split(",") if n]
         lines = [
             "| set | scope | words | word accuracy % | mean raw confidence | ECE raw | ECE calibrated |",
             "|---|---|---:|---:|---:|---:|---:|",

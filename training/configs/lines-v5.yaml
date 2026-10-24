@@ -1,0 +1,65 @@
+# Receipt-style and small-text lines for the fine-tune stage that follows the production run (crnn-v5). Exact-truth synthetic: short
+# tokens and lines of the kind a till receipt prints (prices, quantities, times, item words in capitals or title case), set in
+# monospace, typewriter, condensed and plain sans families of the training split, at 6-16 px em with heavier blur, low contrast and
+# the neighbour ink real word crops carry. Fonts, books and seed are not shared with the held-out sets of lines-v4, so validation and
+# evaluation sets are unchanged: this file only adds a training pack, a validation split and a calibration split.
+name: lines-v5
+seed: 20261124
+charset: data/charset-v1.txt
+fonts: data/fonts.yaml
+sets:
+  train: { n: 600000, fonts: train, books: train, degrade: receipt, families: &fam [courierprime, cutivemono, sharetechmono, anonymouspro, firamono, inconsolata, notosansmono, ptmono, sourcecodepro, spacemono, cousine, specialelite, robotocondensed, ubuntucondensed, oswald, arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans] }
+  val: { n: 3000, fonts: train, books: heldout, degrade: receipt, families: *fam }
+  # confidence calibration: every font family of the list, any degradation draw of the receipt side
+  calib: { n: 15000, fonts: any, books: heldout, degrade: receipt, families: *fam }
+  # lines with wide gaps inside (table rows, form label and value, tab stops, item and price with dot leaders or a wide space):
+  # cells are drawn apart by 2-20 em and the label has one space at each gap. All training font families, the production degradation.
+  gaps_train: { n: 300000, fonts: train, books: train, degrade: page, mix: { gap: 1.0 } }
+  gaps_val: { n: 3000, fonts: train, books: heldout, degrade: page, mix: { gap: 1.0 } }
+  # interface text (navigation bars, labels, names, dates, amounts, small running text) in sans and web-serif families, crisp at 8-16 px
+  ui_train: { n: 300000, fonts: train, books: train, degrade: ui, mix: { ui: 1.0 }, families: &ui [arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans, manrope, firasans, rubik, jost, istokweb, notoserif, ptserif, cousine] }
+  ui_val: { n: 3000, fonts: train, books: heldout, degrade: ui, mix: { ui: 1.0 }, families: *ui }
+  # running text with narrow word gaps, at the production degradation (the first fine-tune dropped spaces between close words)
+  tight_train: { n: 200000, fonts: train, books: train, degrade: page, mix: { tight: 1.0 } }
+  tight_val: { n: 3000, fonts: train, books: heldout, degrade: page, mix: { tight: 1.0 } }
+mix: { receipt: 0.85, numbers: 0.05, book: 0.05, codes: 0.05 }
+gpu_degrade:
+  receipt:
+    ranges:
+      # em 6-16: a word crop of a receipt photograph is 16-30 px high, so the apparent size is small and the strokes are soft
+      em: [[6, 9], [7, 10], [9, 12], [11, 16]]
+      blur_rel: [[0.02, 0.12], [0.06, 0.14]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 8.0], [4.0, 10.0]]
+      shot: [0.0, 0.04]
+      jpeg_q: [30, 90]
+      contrast: [[55, 255], [55, 140]]
+      persp: [0.0, 0.15]
+      light: [0.0, 0.4]
+    p: { blur: 0.9, motion: 0.15, jpeg: 0.6, persp: 0.3, light: 0.4, subpixel: 0.05, dark: 0.05, tint: 0.3, sliver_v: 0.3, sliver_h: 0.2, rule: 0.2 }
+  # the production training side of lines-v4, for the gap lines
+  page:
+    ranges:
+      em: [[12, 16], [12, 16], [12, 16], [16, 21], [16, 21], [16, 21], [23, 30], [23, 30], [30, 55], [55, 100]]
+      blur_rel: [[0.0, 0.09], [0.05, 0.09]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 8.0], [4.0, 8.0]]
+      shot: [0.0, 0.03]
+      jpeg_q: [40, 95]
+      contrast: [[65, 255], [65, 130]]
+      persp: [0.0, 0.15]
+      light: [0.0, 0.35]
+    p: { blur: 0.85, motion: 0.1, jpeg: 0.4, persp: 0.3, light: 0.35, subpixel: 0.2, dark: 0.25, tint: 0.3, sliver_v: 0.25, sliver_h: 0.2, rule: 0.2 }
+  # screen text: little blur, high contrast, often light on dark, sub-pixel anti-aliasing
+  ui:
+    ranges:
+      em: [[8, 10], [10, 12], [12, 15], [13, 16], [18, 30]]
+      blur_rel: [[0.0, 0.05], [0.0, 0.10]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 3.0]]
+      shot: [0.0, 0.01]
+      jpeg_q: [60, 95]
+      contrast: [[110, 255]]
+      persp: [0.0, 0.03]
+      light: [0.0, 0.1]
+    p: { blur: 0.6, motion: 0.02, jpeg: 0.2, persp: 0.1, light: 0.1, subpixel: 0.4, dark: 0.3, tint: 0.4, sliver_v: 0.2, sliver_h: 0.1, rule: 0.2 }
