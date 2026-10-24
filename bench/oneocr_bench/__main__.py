@@ -47,7 +47,7 @@ def main() -> None:
 
     gt = sub.add_parser("gate", help="the whole gate table (quality, calibration; speed and memory with --timing) in one run",
                         description=gate.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    gt.add_argument("--model", required=True, help="recognizer container")
+    gt.add_argument("--model", default=None, help="recognizer container (not needed with --tess-timing)")
     gt.add_argument("--detector", default=None, help="detector container (omit for the classical line finder)")
     gt.add_argument("--eval", default=os.environ.get("ONEOCR_EVAL", "~/oneocr/eval/bench-v2"),
                     help="frozen sets: <set>/pages and <set>/truth (env ONEOCR_EVAL)")
@@ -59,6 +59,10 @@ def main() -> None:
     gt.add_argument("--tess", default=os.path.expanduser("~/tools/tesseract/tess"))
     gt.add_argument("--psms", nargs="+", type=int, default=[3, 4, 6, 11])
     gt.add_argument("--timing", action="store_true", help="speed and memory mode; refuses unless this job holds the machine lock")
+    gt.add_argument("--tess-timing", action="store_true",
+                    help="with --timing: time Tesseract best and fast (one process per page, 1 and default-degree OpenMP threads) instead of our engine; "
+                         "writes tess-timing.json, merged per set")
+    gt.add_argument("--pages", type=int, default=None, help="Tesseract timing: first N pages of each set only (2 or fewer is a smoke run)")
     gt.add_argument("--repeats", type=int, default=3)
     gt.add_argument("--reuse", action="store_true", help="accuracy: score engine outputs already under WORK/out instead of running the engine")
     gt.add_argument("--dotnet", default="dotnet")

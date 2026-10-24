@@ -264,15 +264,18 @@ appears once a timing run exists. Accuracy is not timing-sensitive and can run u
   recall-WER (CORD truth is partial); their order is shown, not judged. Tesseract fast is shown beside it.
 - **Calibration verdict**: ECE (15 bins) ≤ 0.05. On receipts ECE is an upper bound; ECE-m is shown next to it.
 - **Detection**: ink-box F1@0.5 of ours, and of the selected Tesseract runs rescored with the same scorer.
-- **Speed and memory** (`--timing` only): per set at degree 1 and at the default degree min(4, cores), one process per run, three
-  runs, mean of the per-run mean ms/page and of peak RSS; Tesseract rows are its one-thread and default-threading timings from
-  `tesseract.json`. Speed passes when ours is faster than `tessdata_fast`; slower than fast but faster than best with the quality
-  row won is reported as an *exception*; memory passes when RSS is below both. Both sides are timed per process, start and model
-  load included (Tesseract pays them for every page, ours once per run, divided over the pages); our page-only ms/page is shown
-  as information. The table records the CPU, core count and
-  load average before, after every run, and after.
-- **The lock**: `--timing` exits with status 75 and does nothing else unless the lock file (`~/WORKER-BENCH.lock`, env `ONEOCR_LOCK`)
-  names one of its own ancestor processes as `pid=`. Claim it in the job's shell, so it is released however the job ends:
+- **Speed and memory** (`--timing` only), two parts so each fits a timing window:
+  - `--timing --model M [--detector D]` times our engine per set at degree 1 and at the default degree min(4, cores): one process per run,
+    three runs, mean of the runs (whole-process ms/page with start and model load included, page-only ms as information, peak RSS).
+    Writes `timing.json`.
+  - `--timing --tess-timing` (no model needed) times Tesseract the same way: stock `tessdata_best` and `tessdata_fast` at the PSM `tess` selected
+    for that set (read from `--tess-results`), one process per page, `OMP_THREAD_LIMIT` 1 and the default degree, three runs, mean ms/page and
+    peak RSS from `wait4`. Writes `tess-timing.json`, merged per set (`--sets` runs a few sets per window; `--pages N` takes the first N pages).
+  - The report pairs them: degree 1 against one Tesseract thread, the default degree against the same number of threads. Speed passes when
+    ours is faster than `tessdata_fast`; slower than fast but faster than best with the quality row won is an *exception*; memory passes when
+    RSS is below both. Each file records CPU, cores, and load before, after every run and after.
+- **The lock**: Either `--timing` mode exits with status 75 and does nothing else unless the lock file (`~/WORKER-BENCH.lock`, env `ONEOCR_LOCK`)
+  names one of its own ancestor processes as `pid=` (the one exception: `--tess-timing --pages 2` or fewer runs as a smoke test while no lock file exists). Claim it in the job's shell, so it is released however the job ends:
 
 ```
 set -o noclobber; echo "gate pid=$$ $(date -Is)" > ~/WORKER-BENCH.lock || exit 75

@@ -221,25 +221,25 @@ def calibration(set_name: str, ours: dict) -> dict:
     return {"ece": e["ece"], "ece_matched": e["ece_matched"], "words": e["words"], "verdict": v, "pass": v == "pass", "note": note}
 
 
-def speed_rows(timing: dict, tess_by_set: dict, quality_by_set: dict) -> dict:
-    """Per set and degree label: ours vs fast and best. The 1-degree row compares with Tesseract's one thread, the default row
-    with Tesseract's own threading."""
+def speed_rows(timing: dict, tess_timing: dict | None, quality_by_set: dict) -> dict:
+    """Per set and degree label: ours vs Tesseract fast and best, timed the same way (one process per run, start and model load
+    included, mean of the runs). Our degree 1 row is compared with Tesseract at one OpenMP thread, the default-degree row with
+    Tesseract at the same number of threads."""
     out = {}
+    dd = str(timing["default_degree"])
     for name, t in timing["sets"].items():
-        tb = tess_by_set.get(name)
+        tt = ((tess_timing or {}).get("sets") or {}).get(name)
         rows = []
-        for tag, deg in (("degree 1", "1"), (f"default degree ({timing['default_degree']})", "default")):
+        for tag, deg, tkey in (("degree 1", "1", "1"), (f"default degree ({dd})", "default", dd)):
             r = t[deg]
             row = {"config": tag, "ours_ms": r["mean_ms_per_page"], "ours_rss_mb": r["mean_peak_rss_mb"],
                    "ours_ms_runs": r["ms_per_page_runs"], "ours_rss_runs": r["peak_rss_mb_runs"],
                    "ours_process_ms_per_page": r["mean_process_ms_per_page"], "model_load_ms": r["mean_model_load_ms"]}
-            if tb and "best" in tb["models"] and "fast" in tb["models"]:
-                sfx = "1thread" if deg == "1" else "default"
-                fast_ms = tb["models"]["fast"][f"s_per_page_{sfx}"] * 1000
-                best_ms = tb["models"]["best"][f"s_per_page_{sfx}"] * 1000
-                fast_rss, best_rss = tb["models"]["fast"][f"peak_rss_mb_{sfx}"], tb["models"]["best"][f"peak_rss_mb_{sfx}"]
+            if tt and all(m in tt["models"] and tkey in tt["models"][m]["threads"] for m in ("best", "fast")):
+                f, b = (tt["models"][m]["threads"][tkey] for m in ("fast", "best"))
+                fast_ms, best_ms = f["mean_ms_per_page"], b["mean_ms_per_page"]
+                fast_rss, best_rss = f["mean_peak_rss_mb"], b["mean_peak_rss_mb"]
                 won = quality_by_set.get(name, {}).get("pass", False)
-                # Tesseract is timed per process (start and model load included), so ours is too.
                 ours = row["ours_process_ms_per_page"]
                 if ours < fast_ms:
                     sv = "pass"
@@ -248,12 +248,74 @@ def speed_rows(timing: dict, tess_by_set: dict, quality_by_set: dict) -> dict:
                 else:
                     sv = "fail"
                 mv = "pass" if row["ours_rss_mb"] < min(fast_rss, best_rss) else "fail"
-                row.update(fast_ms=fast_ms, best_ms=best_ms, fast_rss_mb=fast_rss, best_rss_mb=best_rss, speed=sv, memory=mv)
+                row.update(fast_ms=fast_ms, best_ms=best_ms, fast_rss_mb=fast_rss, best_rss_mb=best_rss, speed=sv, memory=mv,
+                           tess_psm={m: tt["models"][m]["psm"] for m in ("best", "fast")})
             else:
-                row.update(speed="no baseline", memory="no baseline")
+                row.update(speed="no Tesseract timing", memory="no Tesseract timing")
             rows.append(row)
         out[name] = rows
     return out
+
+
+def time_tesseract(args, names: list[str], tess_results: Path, default_degree: int, out_dir: Path) -> None:
+    """Tesseract (black-box binary, stock models) timed like our engine: one process per page, start and model load included,
+    peak RSS from wait4, whole set per run, `repeats` runs, at one OpenMP thread and at the default degree. The PSM per model is
+    the one `tess` selected for that set. Sets already in tess-timing.json are kept unless re-run."""
+    path = out_dir / "tess-timing.json"
+    doc = json.loads(path.read_text()) if path.exists() else {"sets": {}}
+    doc.update(env=_env_info(), repeats=args.repeats, default_degree=default_degree,
+               lock=LOCK.read_text().strip() if LOCK.exists() else "none (smoke)")
+    during = doc.setdefault("load", {}).setdefault("during", [])
+    doc["load"]["before"] = _load()
+    scratch = Path(args.work).expanduser() / "tess-timing-tmp"
+    scratch.mkdir(parents=True, exist_ok=True)
+    for n in names:
+        pages = sorted(p for p in (Path(args.eval) / n / "pages").iterdir() if p.suffix in (".png", ".jpg"))
+        if args.pages:
+            pages = pages[: args.pages]
+        meta = tess_results / n / "tesseract.json"
+        psms = json.loads(meta.read_text())["best_psm"] if meta.exists() else {}
+        entry: dict = {"pages": len(pages), "models": {}}
+        for model in ("best", "fast"):
+            psm = psms.get(model)
+            if psm is None:
+                psm = 6
+                print(f"warning: no selected PSM for {model}/{n} in {meta}; using 6", file=sys.stderr)
+            m: dict = {"psm": psm, "threads": {}}
+            for threads in sorted({1, default_degree}):
+                ms, rss = [], []
+                for i in range(args.repeats):
+                    why = lock_ok(args)
+                    if why:
+                        raise SystemExit(f"lost the lock during timing: {why}")
+                    times, peaks = [], []
+                    for img in pages:
+                        dt, kb = tess_run_one(args.tess, model, psm, img, scratch / img.stem, threads)
+                        times.append(dt)
+                        peaks.append(kb)
+                    ms.append(statistics.fmean(times) * 1000)
+                    rss.append(max(peaks) / 1024)
+                    during.append(_load()[0])
+                    print(f"tesseract {n} {model} psm{psm} threads {threads} run {i}: {ms[-1]:.0f} ms/page, {rss[-1]:.0f} MB, load1 {during[-1]}", flush=True)
+                m["threads"][str(threads)] = {"ms_per_page_runs": ms, "mean_ms_per_page": statistics.fmean(ms),
+                                              "peak_rss_mb_runs": rss, "mean_peak_rss_mb": statistics.fmean(rss)}
+            entry["models"][model] = m
+        doc["sets"][n] = entry
+        doc["load"]["after"] = _load()
+        path.write_text(json.dumps(doc, indent=1) + "\n")  # after every set, so a lost job keeps what it measured
+
+
+def tess_run_one(tess: str, model: str, psm: int, img: Path, out_base: Path, threads: int) -> tuple[float, int]:
+    env = dict(os.environ, OMP_THREAD_LIMIT=str(threads))
+    t0 = time.perf_counter()
+    p = subprocess.Popen([tess, model, str(img), str(out_base), "-l", "eng", "--psm", str(psm)], env=env,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _, status, ru = os.wait4(p.pid, 0)
+    dt = time.perf_counter() - t0
+    out_base.with_suffix(".txt").unlink(missing_ok=True)
+    if status != 0:
+        raise RuntimeError(f"tesseract failed on {img.name} (status {status})")
+    return dt, ru.ru_maxrss  # KiB on Linux
 
 
 # --------------------------------------------------------------------------- report
@@ -266,6 +328,8 @@ def render(out_dir: Path) -> None:
     acc_p, tim_p = out_dir / "accuracy.json", out_dir / "timing.json"
     acc = json.loads(acc_p.read_text()) if acc_p.exists() else None
     tim = json.loads(tim_p.read_text()) if tim_p.exists() else None
+    tt_p = out_dir / "tess-timing.json"
+    tt = json.loads(tt_p.read_text()) if tt_p.exists() else None
     report: dict = {"accuracy": None, "timing": None}
     md = ["# Gate table", ""]
     if acc:
@@ -298,14 +362,15 @@ def render(out_dir: Path) -> None:
         md += ["No accuracy run yet (`gate` without `--timing`).", ""]
     if tim:
         qmap = {n: d["quality"] for n, d in acc["sets"].items()} if acc else {}
-        tmap = {n: x["tess"] for n, x in tim["sets"].items() if x.get("tess")}
-        sp = speed_rows(tim, tmap, qmap)
+        sp = speed_rows(tim, tt, qmap)
         report["timing"] = {"env": tim["env"], "sets": sp, "load": tim["load"]}
         md += ["## Speed and memory", "",
                f"{tim['env']['cpu']}, {tim['env']['cores']} threads. Load (1 min) before {tim['load']['before']}, during (after each run) "
                f"min {min(tim['load']['during'])} / max {max(tim['load']['during'])}, after {tim['load']['after']}; lock held by the job: {tim['lock']}. "
                f"Each cell is the mean of {tim['repeats']} runs (one process per run, one pass over the set). Rule: faster than Tesseract fast, peak RSS below both; "
+               f"{(tt or {}).get('repeats', '-')} runs; load before {((tt or {}).get('load') or {}).get('before')}, after {((tt or {}).get('load') or {}).get('after')}). "
                "slower than fast but faster than best with the quality row won is an exception, not a pass. "
+               f"Tesseract timed the same way (stock models, PSM per set as selected by `tess`, one process per page, OMP_THREAD_LIMIT = 1 / {tim['default_degree']}, "
                "The verdict uses `process ms/page`: ours is the whole process (start and model load included) over the pages, as Tesseract is timed; "
                "`page ms` (model loaded once) is information only.", "",
                "| category | config | ours page ms (info) | ours process ms/page | Tess fast | Tess best | speed | ours RSS MB | Tess fast | Tess best | memory |", "|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -354,25 +419,44 @@ def rerun_tess(args, names: list[str], work: Path) -> None:
         tess_mod.main(n, ["best", "fast"], args.psms, args.tess, None)
 
 
+def lock_ok(args) -> str | None:
+    """None when timing may go on. A smoke run of at most two pages is allowed while no lock file exists at all."""
+    why = lock_held_by_this_job()
+    if why and args.tess_timing and args.pages and args.pages <= 2 and not LOCK.exists():
+        return None
+    return why
+
+
 def main(args) -> None:
     work = Path(args.work).expanduser()
     out_dir = Path(args.out).expanduser() if args.out else work / "gate"
+    args.work = str(work)
+    args.eval = str(Path(args.eval).expanduser())
+    args.tess = str(Path(args.tess).expanduser())
+    tess_only = args.timing and args.tess_timing
+    if args.tess_timing and not args.timing:
+        raise SystemExit("--tess-timing is a timing mode: use it with --timing")
+    if not tess_only and not args.model:
+        raise SystemExit("--model is required")
     if args.timing:
-        why = lock_held_by_this_job()
+        why = lock_ok(args)
         if why:
             print(f"gate --timing refused: {why}.\nClaim the lock inside the job (see `python -m oneocr_bench gate --help`) and retry.", file=sys.stderr)
             raise SystemExit(75)
     names = _eval_sets(args)
     work.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
-    args.eval = str(Path(args.eval).expanduser())
-    args.model = str(Path(args.model).expanduser())
+    args.model = str(Path(args.model).expanduser()) if args.model else None
     args.detector = str(Path(args.detector).expanduser()) if args.detector else None
     if args.rerun_tess:
         rerun_tess(args, names, work)
     tess_results = _tess_results(args, work)
-    dll = Path(args.bench_dll) if args.bench_dll else build_bench(work, args.dotnet)
     default_degree = min(4, os.cpu_count() or 1)
+    if tess_only:
+        time_tesseract(args, names, tess_results, default_degree, out_dir)
+        render(out_dir)
+        return
+    dll = Path(args.bench_dll) if args.bench_dll else build_bench(work, args.dotnet)
     sums = Path(args.eval) / "SHA256SUMS"
 
     if not args.timing:
@@ -409,13 +493,11 @@ def main(args) -> None:
     # timing: separate processes per set and degree so peak RSS belongs to one configuration.
     load_before, during, sets = _load(), [], {}
     for n in names:
-        truth = Path(args.eval) / n / "truth"
-        tb = tess_baselines(n, truth, tess_results)
-        entry: dict = {"tess": tb}
+        entry: dict = {}
         for tag, deg in (("1", 1), ("default", 0)):
             ms, rss, proc, load_ms = [], [], [], []
             for i in range(args.repeats):
-                why = lock_held_by_this_job()
+                why = lock_ok(args)
                 if why:
                     raise SystemExit(f"lost the lock during timing: {why}")
                 wall, t = run_engine(args.dotnet, dll, args, n, work / "timing" / f"{n}-d{tag}-r{i}", deg, False)
@@ -432,6 +514,6 @@ def main(args) -> None:
         sets[n] = entry
     (out_dir / "timing.json").write_text(json.dumps({
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "env": _env_info(), "repeats": args.repeats, "default_degree": default_degree,
-        "lock": LOCK.read_text().strip(), "load": {"before": load_before, "during": during, "after": _load()},
+        "lock": LOCK.read_text().strip() if LOCK.exists() else "none (smoke)", "load": {"before": load_before, "during": during, "after": _load()},
         "model_sha256": _sha(args.model), "detector_sha256": _sha(args.detector), "sets": sets}, indent=1) + "\n")
     render(out_dir)
