@@ -24,12 +24,14 @@ public sealed class OcrEngine
     private readonly DecodeOptions _decoding;
     private readonly IOrientationDetector _orientation;
     private readonly IPageDetector? _detector;
+    private readonly bool _confirmTurns;
 
     private OcrEngine(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixels, BufferPool<byte> masks, ResizerPool resizers, DecodeOptions decoding,
-        IPageDetector? detector)
+        IPageDetector? detector, bool confirmTurns = true)
     {
         _detector = detector;
+        _confirmTurns = confirmTurns;
         _resizers = resizers;
         _masks = masks;
         _recognizer = recognizer;
@@ -60,7 +62,7 @@ public sealed class OcrEngine
     {
         ArgumentNullException.ThrowIfNull(decoding);
         decoding.Validate(_limits);
-        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, decoding, _detector);
+        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, decoding, _detector, _confirmTurns);
     }
 
     /// <summary>
@@ -97,8 +99,9 @@ public sealed class OcrEngine
     internal OcrEngine WithDetector(ModelContainer container, KernelPath path) =>
         WithDetector(new PageDetector(DbNetModel.FromContainer(container, _limits), _limits, path));
 
-    internal OcrEngine WithDetector(IPageDetector detector) =>
-        new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, detector);
+    // confirmTurns: whether a quarter turn the detector's head asks for is checked by the classical decision before it is acted on.
+    internal OcrEngine WithDetector(IPageDetector detector, bool confirmTurns = true) =>
+        new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, detector, confirmTurns);
 
     /// <summary>Loads a recognition model from a container file.</summary>
     /// <param name="modelPath">A model container (architecture <c>crnn-v0</c>).</param>
@@ -266,7 +269,7 @@ public sealed class OcrEngine
     }
 
     // The orientation decision in use: the detector's head when a detector is loaded, the classical one otherwise.
-    private IOrientationDetector Seam => _detector is null ? _orientation : new HeadOrientation(_detector, _pixels, _resizers, _orientation);
+    private IOrientationDetector Seam => _detector is null ? _orientation : new HeadOrientation(_detector, _pixels, _resizers, _confirmTurns ? _orientation : null);
 
     // Turns and straightens the page (see PagePreparation), reads it, and puts the result in the frame the caller asked about.
     private OcrPage ReadPrepared(
