@@ -106,11 +106,13 @@ internal static class DetectorLines
     /// </remarks>
     public static LocatedPage Locate(
         IPageDetector detector, Gray8[] gray, int width, int height, BufferPool<Gray8> pixels, ResizerPool resizers, int degree, CancellationToken cancellationToken,
-        PageDetection? first = null, bool turn = true)
+        PageDetection? first = null, bool turn = true, (int Level, bool InkIsBright)? known = null)
     {
         var notes = new List<string>();
         int count = checked(width * height);
+        long clock = StageClock.Start();
         PageDetection detection = first ?? detector.Detect(gray.AsSpan(0, count), width, height, pixels, resizers, degree, cancellationToken);
+        StageClock.Stop("6 detect again", clock);
         Gray8[] work = gray;
         bool owns = false;
         int turns = turn ? PageOrientation.QuarterTurnsClockwise(detection) : 0;
@@ -134,7 +136,9 @@ internal static class DetectorLines
 
         try
         {
-            (int threshold, bool inkIsBright) = LineFinder.Binarize(work, count, degree);
+            clock = StageClock.Start();
+            // The binarization is the caller's when it made it on these pixels (a page that was turned has new pixels).
+            (int threshold, bool inkIsBright) = owns ? LineFinder.Binarize(work, count, degree) : known ?? LineFinder.Binarize(work, count, degree);
             var strips = new List<StripLine>(detection.Lines.Count);
             ReadOnlySpan<byte> page = Kernels.PixelSpans.AsBytes(work.AsSpan(0, count));
             for (int i = 0; i < detection.Lines.Count; i++)
@@ -148,6 +152,7 @@ internal static class DetectorLines
                 }
             }
 
+            StageClock.Stop("7 binarize+ink boxes", clock);
             return new LocatedPage
             {
                 Gray = work, OwnsGray = owns, Width = width, Height = height, Strips = strips, Regions = detection.Regions,

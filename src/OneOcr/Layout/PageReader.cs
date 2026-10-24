@@ -33,7 +33,7 @@ internal static partial class PageReader
     public static OcrPage Read(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, BufferPool<byte> masks, ResizerPool resizers, IPageDetector? detector,
         Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, PageDetection? first, bool turn,
-        FoundStrips? found, CancellationToken cancellationToken)
+        FoundStrips? found, CancellationToken cancellationToken, (int Level, bool InkIsBright)? known = null)
     {
         if (detector is null)
         {
@@ -46,12 +46,16 @@ internal static partial class PageReader
                 cancellationToken);
         }
 
-        LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken, first, turn);
+        LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken, first, turn, known);
         try
         {
-            List<RuleGrid> ruled = FindGrids(located.Gray, located.Width, located.Height, degree);
+            long clock = StageClock.Start();
+            List<RuleGrid> ruled = FindGrids(located.Gray, located.Width, located.Height, degree, (located.Threshold, located.InkIsBright));
+            StageClock.Stop("8a table rules", clock);
+            clock = StageClock.Start();
             List<StripLine> cut = TableStructure.SplitStrips(
                 located.Strips, ruled, PixelSpans.AsBytes(located.Gray.AsSpan(0, located.Width * located.Height)), located.Width, located.Height, located.Threshold, located.InkIsBright);
+            StageClock.Stop("8b split strips", clock);
             return ReadStrips(
                 recognizer, limits, pixelPool, resizers, located.Gray, located.Width, located.Height, cut, located.Threshold, located.InkIsBright,
                 located.Regions, located.Notes, ruled, pageIndex, dpi, degree, includeChars, cancellationToken);
@@ -156,11 +160,16 @@ internal static partial class PageReader
                 for (int k = 0; k < lineCount; k++)
                 {
                     int index = queue[first + k].Index;
+                    long c0 = StageClock.Start();
                     pixels[k] = LinePreprocessor.Prepare(page, width, crops[index], modelHeight, pixelPool, resizers, out int cropWidth);
                     images[k] = new LineImage(pixels[k], cropWidth);
+                    StageClock.Stop("8c line crops", c0);
                 }
 
+                long r0 = StageClock.Start();
                 LineWords[] lines = recognizer.RecognizeWordsGroup(images, cancellationToken, includeChars);
+                StageClock.Stop("8d recognize", r0);
+                r0 = StageClock.Start();
                 for (int k = 0; k < lineCount; k++)
                 {
                     int index = queue[first + k].Index;
@@ -179,6 +188,8 @@ internal static partial class PageReader
                         Words = words,
                     };
                 }
+
+                StageClock.Stop("8e word boxes", r0);
             }
             finally
             {
@@ -207,8 +218,11 @@ internal static partial class PageReader
             }
         }
 
+        long t = StageClock.Start();
         List<OrderBlock> plan = TableStructure.Infer(TableStructure.Apply(ReadingOrder.Arrange(ordered, cancellationToken), grids), regions, null);
-        return Assemble(plan, ordered, regions, pageIndex, width, height, units, diagnostics);
+        OcrPage assembled = Assemble(plan, ordered, regions, pageIndex, width, height, units, diagnostics);
+        StageClock.Stop("8f order+tables+assemble", t);
+        return assembled;
     }
 
     private static double Nearest(double estimate)

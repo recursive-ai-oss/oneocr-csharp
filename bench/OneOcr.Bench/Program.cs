@@ -63,6 +63,7 @@ internal static class Program
             "detlines" => DetLines(options),
             "grids" => Grids(options),
             "skew" => Skew(options),
+            "profile" => Profile(options),
             _ => 2,
         };
     }
@@ -222,6 +223,45 @@ internal static class Program
             Console.WriteLine($"turn {degrees}");
         }
 
+        return 0;
+    }
+
+    // Mean per-stage time of the page reader over a folder of pages: OneOcr.Bench profile --model F [--detector F] --pages DIR [--degree N] [--limit N]
+    private static int Profile(Dictionary<string, string> o)
+    {
+        int degree = Int(o, "degree", 1), limit = Int(o, "limit", int.MaxValue);
+        OcrEngine engine = OcrEngine.Load(Need(o, "model"));
+        if (o.TryGetValue("detector", out string? detectorFile))
+        {
+            engine = engine.WithDetector(detectorFile);
+        }
+
+        string[] files = [.. Directory.GetFiles(Need(o, "pages")).Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).Take(limit)];
+        engine.Ocr(Image.Load(files[0]), new OcrOptions { MaxDegreeOfParallelism = degree });
+        OneOcr.StageClock.Enabled = true;
+        OneOcr.StageClock.Take();
+        var totals = new SortedDictionary<string, double>(StringComparer.Ordinal);
+        double wall = 0;
+        var clock = new Stopwatch();
+        foreach (string f in files)
+        {
+            Image image = Image.Load(f);
+            clock.Restart();
+            engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
+            wall += clock.Elapsed.TotalMilliseconds;
+            foreach (var (k, v) in OneOcr.StageClock.Take())
+            {
+                totals[k] = totals.GetValueOrDefault(k) + v;
+            }
+        }
+
+        Console.WriteLine($"{files.Length} pages, degree {degree}, mean ms per page:");
+        foreach (var (k, v) in totals)
+        {
+            Console.WriteLine($"  {k,-28} {v / files.Length,8:F1}");
+        }
+
+        Console.WriteLine($"  {"total",-28} {wall / files.Length,8:F1}");
         return 0;
     }
 
