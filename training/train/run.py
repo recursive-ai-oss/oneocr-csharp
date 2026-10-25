@@ -38,6 +38,7 @@ from data import charset as cs
 from degrade.gpu import degrade
 from eval.lines import evaluate
 from models import build, default_config, macs_per_column
+from train.adaptive import Adaptive
 from train.data import LineSet, PackSet, to_input
 
 BASE = Path(__file__).resolve().parents[1]
@@ -130,6 +131,10 @@ def main() -> None:
     sets = {"train": PackSet(data_root / "clean" / "train", charset), "val": LineSet(data_root / "val", charset),
             "eval": LineSet(data_root / "eval", charset)}  # fmt: skip
     side = yaml.safe_load((BASE / cfg["line_set"]).read_text(encoding="utf-8"))["gpu_degrade"]["train"]
+    for k, v in cfg.get(
+        "main_override", {}
+    ).items():  # e.g. the reader's resampling on the production mix: {p: {resample: 0.3}, ranges: {...}}
+        side = {**side, k: {**side[k], **v}}
     # extra training sources mixed into every batch (fine-tune stages): a clean pack degraded on the GPU with its own side of a line-set
     # config (kind pack), or real crops already at model height (kind crops); extra validation sets are scored next to `val`
     sources = []
@@ -140,6 +145,12 @@ def main() -> None:
         else:
             ds, sd = LineSet(Path(sc["dir"]), charset), None
         sources.append((sc, ds, sd))
+    adaptive = None
+    for sc, ds, sd in sources:
+        if sc.get("adaptive"):  # the targeted-error stream: weighted draws from this pack, degradation bins from the measured errors
+            stream = PackSet(Path(sc["adaptive"]["stream_dir"]), charset)
+            adaptive = Adaptive(ds, stream, charset, sc["adaptive"], sd, seed, run_dir)
+            adaptive_src = sc["name"]
     extra_val = {k: LineSet(Path(v), charset) for k, v in cfg.get("extra_val", {}).items()}
     n_extra = sum(sc["per_batch"] for sc, _, _ in sources)
     main_batch = tc["batch"] - n_extra
@@ -187,10 +198,12 @@ def main() -> None:
         if step == 0:
             tc["val_baseline"] = {"val": evaluate(model, sets["val"], charset, dev, limit=1500)["cer"]} | {
                 k: evaluate(model, d, charset, dev, limit=3000)["cer"] for k, d in extra_val.items()}  # fmt: skip
-            emit({"baseline": tc["val_baseline"]})
+            tc["val_baseline_wer"] = {k: evaluate(model, d, charset, dev, limit=3000)["wer"] for k, d in extra_val.items()}
+            emit({"baseline": tc["val_baseline"], "baseline_wer": tc["val_baseline_wer"]})
         else:
             lines = (run_dir / "metrics.jsonl").read_text().splitlines()
-            tc["val_baseline"] = next(json.loads(ln)["baseline"] for ln in lines if '"baseline"' in ln)
+            first = next(json.loads(ln) for ln in lines if '"baseline"' in ln)
+            tc["val_baseline"], tc["val_baseline_wer"] = first["baseline"], first.get("baseline_wer", {})
 
     def producer(first: int, q: queue.Queue) -> None:
         """Builds batches on a background thread so the GPU is not waiting for numpy."""
@@ -204,10 +217,20 @@ def main() -> None:
             groups = [(0, x.pin_memory(), widths, [train.targets[k] for k in idx])]
             srng = random.Random(seed * 7919 + st)
             for si, (sc, ds, _) in enumerate(sources, 1):
-                sidx = [srng.randrange(len(ds)) for _ in range(sc["per_batch"])]
+                if adaptive is not None and sc["name"] == adaptive_src:
+                    sidx = adaptive.sample(st, sc["per_batch"])
+                else:
+                    sidx = [srng.randrange(len(ds)) for _ in range(sc["per_batch"])]
                 sx, sw = ds.batch(sidx)
                 groups.append((si, sx.pin_memory(), sw, [ds.targets[k] for k in sidx]))
             q.put(groups)
+
+    if adaptive is not None:  # weights versions are files next to the checkpoint; the producer needs the current one before it starts
+        for v in (step // adaptive.every - 1, step // adaptive.every):
+            if v >= 0:
+                adaptive.load(v)
+        if step % adaptive.every and (step // adaptive.every) not in adaptive.versions:
+            raise SystemExit(f"adapt-v{step // adaptive.every:03d}.json is missing next to the checkpoint")
 
     q: queue.Queue = queue.Queue(maxsize=24)
     threading.Thread(target=producer, args=(step, q), daemon=True).start()
@@ -217,6 +240,13 @@ def main() -> None:
     emit({"chunk_start": step, "until": stop, "started": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "git_commit": manifest["git_commit"]})
     run_loss, run_n = 0.0, 0
     while step < stop:
+        if adaptive is not None and step % adaptive.every == 0 and (step // adaptive.every) not in adaptive.versions:
+            v = step // adaptive.every
+            if not adaptive.load(v):
+                prev = adaptive.versions[v - 1] if v - 1 in adaptive.versions else adaptive.initial()
+                state, report = adaptive.measure(model, v, dev, prev)
+                adaptive.publish(v, state)
+                emit({"adapt": report})
         groups = q.get()
         gen.manual_seed(seed * 1_000_003 + step)
         imgs, ws, tl = [], [], []
@@ -225,7 +255,10 @@ def main() -> None:
             if si == 0:
                 gx, gw, _ = degrade(gx, gw, side, gen)
             elif sources[si - 1][2] is not None:
-                gx, gw, _ = degrade(gx, gw, sources[si - 1][2], gen)
+                sd = sources[si - 1][2]
+                if adaptive is not None and sources[si - 1][0]["name"] == adaptive_src:
+                    sd = {**sd, "_bins": adaptive.bins_for(step // adaptive.every)}
+                gx, gw, _ = degrade(gx, gw, sd, gen)
             else:
                 gx, gw = augment_real(gx, gw, gen)
             for k in range(gx.shape[0]):
@@ -268,6 +301,14 @@ def main() -> None:
                 base = tc["val_baseline"]
                 score = (v["cer"] / base["val"] + sum(r["cer"] / base[k] for k, r in ev.items())) / (1 + len(ev))
                 score += tc.get("val_penalty", 3.0) * max(0.0, v["cer"] / base["val"] - 1.0)
+                # hard guard: a named set more than `tol` worse than the starting model cannot give the best checkpoint
+                cur = {"val": v["cer"]} | {k: r["cer"] for k, r in ev.items()}
+                # word-level guard (space errors show up as word errors): a set whose WER rises above the starting model's by more
+                # than `tol` (relative) cannot give the best checkpoint
+                for name, tol in tc.get("guard_wer", {}).items():
+                    score += 100.0 * max(0.0, ev[name]["wer"] / tc["val_baseline_wer"][name] - 1.0 - tol)
+                for name, tol in tc.get("guard", {}).items():
+                    score += 100.0 * max(0.0, cur[name] / base[name] - 1.0 - tol)
             if score < best:  # the best checkpoint is picked on validation sets, never on the held-out or page evaluation sets
                 best = score
                 save(run_dir / "best.pt")
