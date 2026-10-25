@@ -43,6 +43,7 @@ LAB = {  # en|de|fr|es|it|nl
     "taxable": _l("Net|Netto|Base|Base|Imponibile|Netto"), "thanks": _l("Thank you for your business.|Vielen Dank für Ihren Auftrag.|Merci de votre confiance.|Gracias por su confianza.|Grazie per la fiducia.|Bedankt voor uw opdracht."),
     "tel": _l("Tel.|Tel.|Tél.|Tel.|Tel.|Tel."),
 }  # fmt: skip
+CONTRACT = _l("Contract no.|Vertragsnr.|N° de contrat|N.º de contrato|N. contratto|Contractnr.")
 TERMS = _l(
     "Payable within {n} days|Zahlbar innerhalb von {n} Tagen|Payable sous {n} jours|Pagadero en {n} días|Pagabile entro {n} giorni|Betaalbaar binnen {n} dagen"
 )
@@ -57,6 +58,7 @@ IDS = {
     "taxTotal": "BT-110", "total": "BT-112", "amountDue": "BT-115", "lineId": "BT-126", "lineNet": "BT-131", "quantity": "BT-129",
     "unitCode": "BT-130", "unitPrice": "BT-146", "lineVatRate": "BT-152", "itemName": "BT-153", "taxableAmount": "BT-116",
     "taxAmount": "BT-117", "taxRate": "BT-119",
+    "contractNumber": "custom.contractNumber",  # only on the contract variant of the invoice page (invoice_page(contract=True))
 }  # fmt: skip
 
 
@@ -119,7 +121,9 @@ def _qty_txt(q: float, loc: str) -> str:
     return s.replace(".", "," if loc != "en" else ".")
 
 
-def invoice_page(ctx: Ctx, seed: int, n_items: int) -> PageSpec:
+def invoice_page(ctx: Ctx, seed: int, n_items: int, contract: bool = False) -> PageSpec:
+    """An invoice page. With `contract` the meta block also carries a contract number, a field the shipped extraction model has no
+    class for; it is drawn from its own random stream, so pages without it are unchanged."""
     rng = random.Random(seed)
     ctx.rng = rng
     li = rng.randrange(len(LOCALES))
@@ -172,6 +176,11 @@ def invoice_page(ctx: Ctx, seed: int, n_items: int) -> PageSpec:
         meta.append((LAB["delivery"][li], fld("deliveryDate", inv["delivery"].isoformat(), D(inv["delivery"]))))
     if inv["po"]:
         meta.append((LAB["po"][li], fld("poNumber", inv["po"])))
+    if contract:
+        crng = random.Random(seed * 7919 + 13)
+        number = crng.choice(["CT-", "K", "AG/", "C", ""]) + str(crng.randint(100, 99999999)).zfill(crng.choice([4, 6]))
+        pos = crng.randrange(len(meta) + 1)
+        meta.insert(pos, (CONTRACT[li], fld("contractNumber", number)))
     cur_in_meta = rng.random() < 0.3
     if cur_in_meta:
         meta.append((LAB["currency"][li], fld("currency", inv["cur"])))

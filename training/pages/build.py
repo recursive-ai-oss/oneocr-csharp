@@ -78,6 +78,8 @@ def build_spec(kind: str, ps: int, attempt: int, n_items: int):
         return layouts.form_page(ctx)
     if kind == "invoice":
         return docs.invoice_page(ctx, ps ^ attempt, n_items)
+    if kind == "contract":  # invoices that also print a contract number (configs/pages-contract.yaml)
+        return docs.invoice_page(ctx, ps ^ attempt, n_items, contract=True)
     return docs.receipt_page(ctx, ps ^ attempt)
 
 
