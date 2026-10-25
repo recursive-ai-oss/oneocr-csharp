@@ -19,11 +19,16 @@ extra=()
 for s in lines-v5/calib:calib_receipt cord-lines/calib/finder:calib_cord lines-v5/gaps_val:gaps_val cord-lines/val/finder:cord_dev lines-v5/val:receipt_synth_val \
   lines-v5/ui_val:ui_val lines-v5/tight_val:tight_val; do extra+=(--extra "${s#*:}=$ONEOCR_FT/data/${s%%:*}"); done
 for s in figures_val small_val reader_val shot_val calib; do extra+=(--extra "${s}6=$h/data/lines-v6/$s"); done
+# lines-v7 (separators, mixed-case interface words), when this stage rendered them: held-out validation sets and their calibration crops
+v7=()
+for s in sep_val uiword_val numneg_val calib7; do [ -d "$h/data/lines-v7/$s" ] && { extra+=(--extra "${s}=$h/data/lines-v7/$s"); v7+=("$s"); }; done
+cal7=(); [ -d "$h/data/lines-v7/calib7" ] && cal7=("$o/hyps/calib7.hyps.jsonl")
+also7=""; [ -d "$h/data/lines-v7/sep_val" ] && also7=",sep_val,uiword_val,numneg_val"
 uv run python -m eval.model_hyps --device cpu --checkpoint "$ck" --sets-dir "$ONEOCR_PREV/data/lines-v4" --bench-dir "$BENCH_LINES" --out "$o/hyps" "${extra[@]}" | tail -2
-uv run python -m eval.calibrate fit --hyps "$o/hyps/calib.hyps.jsonl" "$o/hyps/calib_receipt.hyps.jsonl" "$o/hyps/calib6.hyps.jsonl" \
+uv run python -m eval.calibrate fit --hyps "$o/hyps/calib.hyps.jsonl" "$o/hyps/calib_receipt.hyps.jsonl" "$o/hyps/calib6.hyps.jsonl" "${cal7[@]}" \
   "$o/hyps/calib_cord.hyps.jsonl:${CORD_WEIGHT:-8}" --out "$o/calibration.json"
 uv run python -m eval.calibrate table --calibration "$o/calibration.json" --hyps-dir "$o/hyps" --out "$o/ece.md" \
-  --also gaps_val,cord_dev,receipt_synth_val,ui_val,tight_val,figures_val6,small_val6,reader_val6,shot_val6 > /dev/null
+  --also gaps_val,cord_dev,receipt_synth_val,ui_val,tight_val,figures_val6,small_val6,reader_val6,shot_val6$also7 > /dev/null
 uv run python -m eval.gate --ours "$o/hyps" --tess "$TESS_DIR" --out "$o/gate.md" --json "$o/gate.json" > /dev/null
 uv run python -m export.export --checkpoint "$ck" --out "$x/model-v0.onm" --version "${VERSION:?}" | grep -E '"sha256"|fp16_tensor|cpu_ms'
 uv run python -m export.export --checkpoint "$ck" --out "$x/model-v1.onm" --version "$VERSION" --format-version 1 --calibration "$o/calibration.json" | grep '"sha256"'

@@ -1,0 +1,70 @@
+# Second try of the separator and small-interface-text fine-tune from the 0.6.0 recognizer. crnn-v11 fixed separators (held-out-font
+# separator lines 6.0% -> 1.9% CER) but put spaces inside numbers on page text ("78, 731.67", "03/ 01/2008", "No. -63894"): clean-print
+# word errors doubled. This stage halves the two new sources (6 lines per batch each, the main stream keeps the 0.6.0 stage's 56 lines),
+# adds ordinary-spacing figure text in the production degradation as negative examples, and guards it on a held-out-font validation
+# set. ${ONEOCR_HOME} is this stage's state directory, ${ONEOCR_PREV} the production run, ${ONEOCR_FT} the receipt/interface
+# fine-tune stage and ${ONEOCR_RECOG} the 0.6.0 run directory.
+name: crnn-v12
+seed: 12
+init_from: ${ONEOCR_RECOG}/best.pt
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_PREV}/data/lines-v4
+run_dir: ${ONEOCR_HOME}/runs/crnn-v12
+main_override:
+  p: { resample: 0.5, resample2: 0.25 }
+  ranges: { tilt_deg: [0.0, 0.3] }
+sources:
+  - name: adaptive
+    kind: pack
+    dir: ${ONEOCR_HOME}/data/lines-v6/clean/adapt_train
+    line_set: configs/lines-v6.yaml
+    side: adapt
+    per_batch: 12
+    provenance: exact-truth synthetic (configs/lines-v6.yaml)
+    adaptive:
+      stream_dir: ${ONEOCR_HOME}/data/lines-v6/clean/adapt_stream
+      every: 3000
+      gamma: 0.7
+      clip: [0.4, 4.0]
+      smooth: 0.5
+      beta: 1.0
+      bins:
+        em: [6, 8, 10, 12, 14, 16, 21, 30, 60, 100]
+        blur_rel: [0.0, 0.03, 0.06, 0.09, 0.125, 0.16]
+        contrast: [45, 65, 90, 130, 180, 256]
+        noise: [0, 2, 4, 6, 8, 12]
+  - { name: receipt-synth, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/train", line_set: configs/lines-v5.yaml, side: receipt, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: gap-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/gaps_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: ui-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: tight-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/tight_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: separator-lines, kind: pack, dir: "${ONEOCR_HOME}/data/lines-v7/clean/sep_train", line_set: configs/lines-v7.yaml, side: sdark, per_batch: 6, provenance: "exact-truth synthetic (configs/lines-v7.yaml)" }
+  - { name: interface-words, kind: pack, dir: "${ONEOCR_HOME}/data/lines-v7/clean/uiword_train", line_set: configs/lines-v7.yaml, side: sdark, per_batch: 6, provenance: "exact-truth synthetic (configs/lines-v7.yaml)" }
+  - { name: figure-text, kind: pack, dir: "${ONEOCR_HOME}/data/lines-v7/clean/numneg_train", line_set: configs/lines-v7.yaml, side: reader, per_batch: 12, provenance: "exact-truth synthetic (configs/lines-v7.yaml)" }
+  - { name: cord-train, kind: crops, dir: "${ONEOCR_FT}/data/cord-lines/train/finder", per_batch: 12, provenance: "CORD v2 train annotations, CC BY 4.0" }
+extra_val:
+  receipt_synth: ${ONEOCR_FT}/data/lines-v5/val
+  gaps: ${ONEOCR_FT}/data/lines-v5/gaps_val
+  ui: ${ONEOCR_FT}/data/lines-v5/ui_val
+  tight: ${ONEOCR_FT}/data/lines-v5/tight_val
+  cord_dev: ${ONEOCR_FT}/data/cord-lines/val/finder
+  figures: ${ONEOCR_HOME}/data/lines-v6/figures_val
+  small: ${ONEOCR_HOME}/data/lines-v6/small_val
+  reader: ${ONEOCR_HOME}/data/lines-v6/reader_val
+  shot: ${ONEOCR_HOME}/data/lines-v6/shot_val
+  sep: ${ONEOCR_HOME}/data/lines-v7/sep_val
+  uiword: ${ONEOCR_HOME}/data/lines-v7/uiword_val
+  numneg: ${ONEOCR_HOME}/data/lines-v7/numneg_val
+train:
+  steps: 6000
+  batch: 152
+  lr: 0.00004
+  warmup: 200
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 1000
+  ckpt_every: 2000
+  val_penalty: 3.0
+  guard: { val: 0.01, ui: 0.02, tight: 0.02, shot: 0.02, gaps: 0.03, cord_dev: 0.02, receipt_synth: 0.03, figures: 0.03, small: 0.03, reader: 0.03, numneg: 0.03 }
+  guard_wer: { shot: 0.0, ui: 0.02, tight: 0.02, numneg: 0.02 }
