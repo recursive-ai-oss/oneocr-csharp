@@ -32,13 +32,13 @@ internal static class LayoutParameters
     internal const double TableRowFraction = 0.6;
 
     /// <summary>The topmost band of a region is a header row (a bar of menu items) when it is at most this many em tall ...</summary>
-    internal const double HeaderHeightEm = 2;
+    internal const double HeaderHeightEm = 2.5;
 
     /// <summary>... spans at least this fraction of the region's width ...</summary>
     internal const double HeaderSpan = 0.6;
 
     /// <summary>... and stands clear of the rest by at least this many em.</summary>
-    internal const double HeaderGapEm = 3;
+    internal const double HeaderGapEm = 2.5;
 
     /// <summary>A column is inside another when the other has text above and below it, each at least this many em away.</summary>
     internal const double EmbedMarginEm = 2;
@@ -57,6 +57,39 @@ internal static class LayoutParameters
 
     /// <summary>Lines whose spacing alternates short and long by at least this factor are fields (label above value), not table rows.</summary>
     internal const double FieldPitchRatio = 1.25;
+
+    /// <summary>A column is a sidebar only when at most this fraction of its lines sit on a line shared with the rest of the region.</summary>
+    internal const double SidebarSharedLines = 0.5;
+
+    /// <summary>A sidebar is at most this fraction of the region's width.</summary>
+    internal const double SidebarMaxWidth = 0.35;
+
+    /// <summary>The body starts within this fraction of the region's width after the sidebar's right edge.</summary>
+    internal const double SidebarMaxGutter = 0.25;
+
+    /// <summary>The gaps between a sidebar's items differ from their median by at most this fraction.</summary>
+    internal const double SidebarPitchTolerance = 0.3;
+
+    /// <summary>A sidebar has at least this many lines.</summary>
+    internal const int SidebarMinLines = 3;
+
+    /// <summary>A column of short fragments with a vertical gap this wide is not a text column: its text comes in cells.</summary>
+    internal const double CellColumnGapEm = 3;
+
+    /// <summary>A column whose runs of lines (gaps under half an em) are at most this long is a column of cells, not of paragraphs.</summary>
+    internal const int CellColumnMaxRun = 2;
+
+    /// <summary>... and its fragments are at most this many em wide at the median (lines of text are longer).</summary>
+    internal const double CellColumnWidthEm = 15;
+
+    /// <summary>A row of fields may sit under at most this many one-fragment heading lines in one region.</summary>
+    internal const int FieldHeadingLines = 1;
+
+    /// <summary>A column is a column of labels when this fraction of its fragments ends in a colon.</summary>
+    internal const double LabelColumnShare = 0.6;
+
+    /// <summary>A field's value starts within this many em of its label's left edge.</summary>
+    internal const double FieldAlignEm = 2;
 }
 
 /// <summary>A recognized strip handed to the reading-order analysis: one line found in one leaf region, with its words left to right.</summary>
@@ -88,6 +121,9 @@ internal sealed class OrderFragment
 
     /// <summary>Index into <see cref="OrderBlock.Cells"/> of the table cell the fragment lies in; -1 outside a ruled table.</summary>
     public int Cell = -1;
+
+    /// <summary>The fragment ends in a colon: the label of a "Total: 45.00" row.</summary>
+    public bool Label;
 }
 
 /// <summary>A cell of a table whose structure was read: from its ruling lines, or from the gaps between its columns.</summary>
@@ -103,6 +139,9 @@ internal sealed class OrderLine
 internal sealed class OrderBlock
 {
     public required bool IsTable { get; init; }
+
+    /// <summary>The block is part of a screen's menu bar or sidebar, or one field of a form: it is read on its own and no table is built across it.</summary>
+    public bool IsStandalone { get; init; }
     public required int Columns { get; init; }
     public required List<OrderLine> Lines { get; init; }
 
@@ -132,9 +171,9 @@ internal static partial class ReadingOrder
 
         AssignLines(strips, frags);
         var blocks = new List<OrderBlock>();
-        foreach ((int[] ids, bool table, int columns) in XyCut(frags, cancellationToken))
+        foreach ((int[] ids, bool table, int columns, bool chrome) in XyCut(frags, cancellationToken))
         {
-            OrderBlock? block = MakeBlock(frags, ids, table, columns);
+            OrderBlock? block = MakeBlock(frags, ids, table, columns, chrome);
             if (block is not null)
             {
                 blocks.Add(block);
@@ -205,6 +244,7 @@ internal static partial class ReadingOrder
             Bot = bot,
             Base = (strip.Box.Top + strip.Box.Bottom) / 2,
             Size = strip.Size,
+            Label = strip.Words[end - 1].Text.EndsWith(':'),
         };
     }
 
@@ -270,10 +310,11 @@ internal static partial class ReadingOrder
     // OnePDF TextLayout.XyCut: cut a region at empty vertical stripes (columns) when there are any, else at empty horizontal
     // bands (blocks), else where lines with several fragments alternate with single-fragment lines. A region whose columns are
     // the cells of a table is kept whole. The explicit stack keeps the work independent of how deeply the page nests.
-    private static List<(int[] Ids, bool Table, int Columns)> XyCut(List<OrderFragment> f, CancellationToken ct)
+    private static List<(int[] Ids, bool Table, int Columns, bool Chrome)> XyCut(List<OrderFragment> f, CancellationToken ct)
     {
-        var leaves = new List<(int[], bool, int)>();
+        var leaves = new List<(int[], bool, int, bool)>();
         var stack = new Stack<int[]>();
+        var standalone = new HashSet<int[]>(ReferenceEqualityComparer.Instance);
         var all = new int[f.Count];
         for (int i = 0; i < all.Length; i++)
         {
@@ -290,6 +331,7 @@ internal static partial class ReadingOrder
             }
 
             int[] reg = stack.Pop();
+            bool chrome = standalone.Contains(reg);
             if (reg.Length == 0)
             {
                 continue;
@@ -297,13 +339,28 @@ internal static partial class ReadingOrder
 
             if (reg.Length == 1 || DistinctLines(f, reg) <= 1)
             {
-                leaves.Add((reg, false, 1));
+                leaves.Add((reg, false, 1, chrome));
                 continue;
             }
 
+            if (TrailingFields(f, reg) is { } fieldCells)
+            {
+                foreach ((int[] ids, bool alone) in fieldCells)
+                {
+                    leaves.Add((ids, false, 1, alone));
+                }
+
+                continue;
+            }
+
+            bool firstIsStandalone = false;
             double ms = Median(reg.Select(i => f[i].Size).ToArray());
             List<int[]>? groups = Partition(f, reg, true, LayoutParameters.ColumnGutterEm * ms);
-            if (groups is not null)
+            if (groups is not null && LabelBlocks(f, groups) is { } blocks)
+            {
+                groups = blocks;
+            }
+            else if (groups is not null)
             {
                 if (IsTable(f, reg, groups, ms))
                 {
@@ -315,7 +372,7 @@ internal static partial class ReadingOrder
                         }
                     }
 
-                    leaves.Add((reg, true, groups.Count));
+                    leaves.Add((reg, true, groups.Count, chrome));
                     continue;
                 }
             }
@@ -325,23 +382,28 @@ internal static partial class ReadingOrder
                 groups = Partition(f, reg, false, LayoutParameters.BlockGapEm * ms);
                 if (groups is not null)
                 {
-                    groups = MergeColumnRuns(f, groups, ms);
+                    groups = MergeFieldCells(f, MergeColumnRuns(f, groups, ms), ms, standalone);
                 }
             }
             else
             {
-                groups = ChooseCut(f, reg, groups, ms);
+                (groups, firstIsStandalone) = ChooseCut(f, reg, groups, ms);
             }
 
             groups ??= SplitByLineKind(f, reg);
             if (groups is null)
             {
-                leaves.Add((reg, false, 1));
+                leaves.Add((reg, false, 1, chrome));
                 continue;
             }
 
             for (int j = groups.Count - 1; j >= 0; j--)
             {
+                if (chrome || (j == 0 && firstIsStandalone))
+                {
+                    standalone.Add(groups[j]);
+                }
+
                 stack.Push(groups[j]);
             }
         }
@@ -457,8 +519,11 @@ internal static partial class ReadingOrder
             }
         }
 
+        // Rows of "label: value" are read across even when there are only two, and their uneven spacing (an address block, then a
+        // payment block) does not make them fields: a label that ends in a colon is a label whatever its size.
+        bool keyValue = LabelColumns(f, columns).Count(l => l) == 1;
         int rows = firstColumn.Count;
-        if (rows < LayoutParameters.TableMinRows || multi.Count < LayoutParameters.TableRowFraction * rows)
+        if (rows < (keyValue ? 2 : LayoutParameters.TableMinRows) || multi.Count < LayoutParameters.TableRowFraction * rows)
         {
             return false;
         }
@@ -474,7 +539,7 @@ internal static partial class ReadingOrder
             return false;
         }
 
-        return !(SparseColumns(f, columns) || UnevenRows(f, reg) || AlternatingPitch(f, reg));
+        return !(SparseColumns(f, columns) || UnevenRows(f, reg) || (!keyValue && AlternatingPitch(f, reg)));
     }
 
     // OnePDF TextLayout.SplitByLineKind: lines with a gutter (several fragments) alternating with single-fragment lines are cut
@@ -541,7 +606,7 @@ internal static partial class ReadingOrder
     // ---- blocks -------------------------------------------------------------------------------------------------------------
 
     // OnePDF TextLayout.MakeBlock: lines in the order of their first fragment's position, fragments left to right.
-    private static OrderBlock? MakeBlock(List<OrderFragment> f, int[] ids, bool table, int columns)
+    private static OrderBlock? MakeBlock(List<OrderFragment> f, int[] ids, bool table, int columns, bool chrome)
     {
         var byLine = new Dictionary<int, List<OrderFragment>>();
         var firstSeen = new List<int>();
@@ -575,6 +640,6 @@ internal static partial class ReadingOrder
             return c != 0 ? c : a.Seen.CompareTo(b.Seen);
         });
 
-        return lines.Count == 0 ? null : new OrderBlock { IsTable = table, Columns = columns, Lines = [.. lines.Select(l => l.Line)] };
+        return lines.Count == 0 ? null : new OrderBlock { IsTable = table, IsStandalone = chrome, Columns = columns, Lines = [.. lines.Select(l => l.Line)] };
     }
 }

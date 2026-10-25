@@ -150,7 +150,7 @@ public class ReadingOrderTests
         {
             for (int l = 0; l < 3; l++)
             {
-                double y = 70 + (p * 85) + (l * 20);
+                double y = 70 + (p * 60) + (l * 14);
                 strips.Add(Line(30, y, $"left{p}{l} text of the left column"));
                 strips.Add(Line(330, y, $"right{p}{l} text of the right column"));
                 left += $" left{p}{l} text of the left column";
@@ -204,5 +204,115 @@ public class ReadingOrderTests
 
         Assert.Equal(expected, Read(out List<OrderBlock> blocks, [.. strips]));
         Assert.Contains(blocks, b => b.IsTable && b.Lines.Count >= 6);
+    }
+
+    private static (List<OrderStrip> Strips, string Expected) LabelValueRows(double labelX, double valueX, double y0, int rows, string[] labels, string[] values, double pitch = 22)
+    {
+        var strips = new List<OrderStrip>();
+        string expected = "";
+        for (int r = 0; r < rows; r++)
+        {
+            strips.Add(Line(labelX, y0 + (r * pitch), labels[r]));
+            strips.Add(Line(valueX, y0 + (r * pitch), values[r]));
+            expected += $" {labels[r]} {values[r]}";
+        }
+
+        return (strips, expected);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(5)]
+    public void LabelAndValueOnOneLineAreReadAcross(int rows)
+    {
+        // "Invoice no: 123" lines: a label column and a value column that share every baseline, under a title and a paragraph.
+        string[] labels = ["Invoice no:", "Date:", "Total:", "Currency:", "Terms:"];
+        string[] values = ["123", "2026-10-01", "45.00", "EUR", "net 30"];
+        var strips = new List<OrderStrip> { Line(30, 20, "Invoice", 14), Line(30, 50, "Thank you for your order with us") };
+        (List<OrderStrip> body, string expected) = LabelValueRows(30, 150, 100, rows, labels, values);
+        strips.AddRange(body);
+        Assert.Equal("Invoice Thank you for your order with us" + expected, Read([.. strips]));
+    }
+
+    [Fact]
+    public void LabelAndValueRowsAloneOnThePageAreReadAcross()
+    {
+        (List<OrderStrip> body, string expected) = LabelValueRows(30, 150, 40, 3, ["Invoice no:", "Date:", "Total:"], ["123", "2026-10-01", "45.00"]);
+        Assert.Equal(expected.TrimStart(), Read([.. body]));
+    }
+
+    [Fact]
+    public void LabelAndValueRowsWithUnevenSpacingAreReadAcross()
+    {
+        // Not a table: the rows are grouped in twos by their spacing, as the lines of an address block and a payment block are.
+        var strips = new List<OrderStrip>();
+        string expected = "";
+        string[] labels = ["Name:", "Street:", "Bank:", "IBAN:"];
+        string[] values = ["Acme Ltd", "1 High Road", "First Bank", "DE00 1234"];
+        double[] ys = [40, 62, 120, 142];
+        for (int r = 0; r < 4; r++)
+        {
+            strips.Add(Line(30, ys[r], labels[r]));
+            strips.Add(Line(130, ys[r], values[r]));
+            expected += $" {labels[r]} {values[r]}";
+        }
+
+        Assert.Equal(expected.TrimStart(), Read([.. strips]));
+    }
+
+    [Fact]
+    public void TwoLabelValueBlocksSideBySideAreReadBlockByBlock()
+    {
+        // Seller on the left, buyer on the right, rows sharing baselines: each block is read down (every row across) before the
+        // next block, because the gap between the blocks is wider than the gap between a label and its value.
+        var strips = new List<OrderStrip>();
+        string left = "", right = "";
+        string[] labels = ["Name:", "Street:", "City:", "VAT:"];
+        for (int r = 0; r < 4; r++)
+        {
+            double y = 40 + (r * 22);
+            strips.Add(Line(30, y, labels[r]));
+            strips.Add(Line(110, y, $"seller{r}"));
+            strips.Add(Line(420, y, labels[r]));
+            strips.Add(Line(500, y, $"buyer{r}"));
+            left += $" {labels[r]} seller{r}";
+            right += $" {labels[r]} buyer{r}";
+        }
+
+        Assert.Equal((left + right).TrimStart(), Read([.. strips]));
+    }
+
+    [Fact]
+    public void SettingsListIsNotASidebar()
+    {
+        // A column of names with a value far to the right of each is one list read row by row, not a sidebar.
+        var strips = new List<OrderStrip>();
+        string expected = "";
+        for (int r = 0; r < 5; r++)
+        {
+            double y = 40 + (r * 30);
+            strips.Add(Line(30, y, $"Setting{r}"));
+            strips.Add(Line(700, y, $"On{r}"));
+            expected += $" Setting{r} On{r}";
+        }
+
+        Assert.Equal(expected.TrimStart(), Read([.. strips]));
+    }
+
+    [Fact]
+    public void FieldRowsUnderAHeadingAreReadCellByCell()
+    {
+        // Three cells in a row, each a label over a value, under a section title; none is read down the page.
+        var strips = new List<OrderStrip> { Line(30, 20, "Payment", 14) };
+        string expected = "Payment";
+        for (int c = 0; c < 3; c++)
+        {
+            strips.Add(Line(30 + (c * 220), 60, $"Label{c}", 8));
+            strips.Add(Line(30 + (c * 220), 82, $"value number {c}"));
+            expected += $" Label{c} value number {c}";
+        }
+
+        Assert.Equal(expected, Read([.. strips]));
     }
 }
