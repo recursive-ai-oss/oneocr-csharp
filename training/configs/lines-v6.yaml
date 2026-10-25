@@ -12,7 +12,7 @@ seed: 20261201
 charset: data/charset-v1.txt
 fonts: data/fonts.yaml
 sets:
-  adapt_train: { n: 800000, fonts: train, books: train, degrade: adapt, mix: &adaptmix { figures: 0.30, receipt: 0.12, numbers: 0.08, codes: 0.08, book: 0.25, pseudo: 0.05, rare: 0.04 } }
+  adapt_train: { n: 600000, fonts: train, books: train, degrade: adapt, mix: &adaptmix { figures: 0.30, receipt: 0.12, numbers: 0.08, codes: 0.08, book: 0.25, pseudo: 0.05, rare: 0.04 } }
   adapt_stream: { n: 12000, fonts: train, books: heldout, degrade: adapt, mix: *adaptmix }
   figures_val: { n: 3000, fonts: train, books: heldout, degrade: adapt, mix: { figures: 1.0 } }
   small_val: { n: 3000, fonts: train, books: heldout, degrade: thermal, mix: { receipt: 0.6, figures: 0.4 } }
