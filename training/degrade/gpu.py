@@ -237,7 +237,7 @@ def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> t
 
     if "streak" in p:
         gain = 1 + p["streak"].view(n, 1, 1, 1) * F.avg_pool2d(
-            torch.randn(n, 1, h, 1, generator=g, device=dev), (3, 1), 1, 1, count_include_pad=False
+            torch.randn(n, 1, h, 1, generator=g, device=dev), (3, 1), 1, (1, 0), count_include_pad=False
         )
         img = img * gain
 
