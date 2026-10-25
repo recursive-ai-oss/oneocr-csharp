@@ -13,6 +13,7 @@ using OneOcr.Layout;
 //       decode time and the median-of-K recognition time, and the process's peak working set. --degree 0 is the library default.
 //       --words 1 also writes <page-id>.json, the scorer's word sidecar {"words":[{"box":[x0,y0,x1,y1],"text":..,"conf":..,"conf_raw":..}]}
 //       from OcrEngine.Ocr (greedy; word boxes are ink extents; calibrated and raw word confidence). It runs after the timed loop, so timings are unaffected.
+//       --sepoff 1 keeps the separators as the network read them (OcrOptions.FixSeparators off).
 //       --noorient 1 reads with orientation detection and deskew off (the text of a page that needs neither is the same either way).
 //       --metaonly 1 skips the timed text run and its .txt (with --meta 1: orientation and skew only).
 //       --meta 1 also writes <page-id>.meta.json {"orientation":..,"skew":..} as the engine reports them.
@@ -396,10 +397,10 @@ internal static class Program
         // --digits off: keep an O read inside a number as the letter (OcrOptions.FixDigitLookalikes off).
         bool digitsOff = o.TryGetValue("digits", out string? digitsSpec) && digitsSpec == "off";
         OcrOptions Page() => !o.TryGetValue("junk", out string? junkSpec)
-            ? new OcrOptions { MaxDegreeOfParallelism = degree, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, JunkTuning = controlsOff ? new OneOcr.Layout.JunkParameters(ControlConfidence: 0) : null }
+            ? new OcrOptions { MaxDegreeOfParallelism = degree, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff"), JunkTuning = controlsOff ? new OneOcr.Layout.JunkParameters(ControlConfidence: 0) : null }
             : junkSpec == "off"
-                ? new OcrOptions { MaxDegreeOfParallelism = degree, DropNoise = false, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff }
-                : new OcrOptions { MaxDegreeOfParallelism = degree, JunkTuning = ParseJunk(junkSpec), FixWordSpacing = respace, FixDigitLookalikes = !digitsOff };
+                ? new OcrOptions { MaxDegreeOfParallelism = degree, DropNoise = false, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff") }
+                : new OcrOptions { MaxDegreeOfParallelism = degree, JunkTuning = ParseJunk(junkSpec), FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff") };
         bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
         var errors = new List<(string Id, string Message)>();
@@ -420,7 +421,7 @@ internal static class Program
                     clock.Restart();
                     text = noOrient
                         ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, IncludeChars = false }).ToText()
-                        : o.ContainsKey("junk") || !respace || controlsOff || digitsOff ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
+                        : o.ContainsKey("junk") || !respace || controlsOff || digitsOff || o.ContainsKey("sepoff") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
                     times.Add(clock.Elapsed.TotalMilliseconds);
                 }
 

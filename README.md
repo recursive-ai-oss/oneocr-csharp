@@ -148,9 +148,11 @@ foreach (OcrBlock block in page.Blocks)
 }
 ```
 
-Other `OcrOptions` switches are `DropNoise`, `FixWordSpacing` and `FixDigitLookalikes` (reads the
-letter `O` as `0` inside identifiers and dates; the only step after recognition that changes a
-character). All are on by default and documented on the type.
+Other `OcrOptions` switches are `DropNoise`, `FixWordSpacing`, `FixDigitLookalikes` (reads the
+letter `O` as `0` inside identifiers and dates) and `FixSeparators` (reads a middle dot, bullet or
+vertical bar between words from its pixels when the network gave it as a hyphen or another small
+mark). These two are the only steps after recognition that change a character. All are on by
+default and documented on the type.
 
 - **Errors.** Public methods throw only the typed exceptions (all derive from `OcrException`),
   argument exceptions, I/O exceptions and `OperationCanceledException`: `OcrFormatException`
