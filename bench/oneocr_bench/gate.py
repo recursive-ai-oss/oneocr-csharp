@@ -17,12 +17,13 @@ directories); `--rerun-tess` runs them again first. The baseline for each metric
 for that metric of the `best` model (the hardest baseline), as in the Tesseract tables of bench/README.md.
 
 Verdicts
-  quality      beat Tesseract best-of on CER, WER and reading order (recall-CER / recall-WER on receipts, whose
-               order is shown but not judged); on clean print an error within 0.2 percentage points of the baseline
-               (not better) is a tie and passes.
+  quality      beat the best engine measured, per metric, on CER, WER and reading order (recall-CER / recall-WER on
+               receipts, whose order is shown but not judged). The candidates are Tesseract best-of and, with
+               --competitors DIR, every gated competitor configuration of a frozen results directory. On clean print an
+               error within 0.2 percentage points above the baseline is a tie and passes.
   calibration  ECE <= 0.05 (receipts: ECE is an upper bound because the truth is partial; ECE-m is shown).
   speed        faster than Tesseract fast; slower than fast but faster than best, with the quality row won, is an
-               "exception" (reported, decided elsewhere). Memory: peak RSS below both.
+               "exception" (reported, decided elsewhere). Memory: peak RSS at the default degree at most 300 MB.
 
 The timing lock: the job itself must have written ~/WORKER-BENCH.lock with a `pid=<shell pid>` token naming one of
 this process's ancestors, e.g. in the job's shell:
@@ -53,6 +54,7 @@ from .sets import SETS
 LOCK = Path(os.environ.get("ONEOCR_LOCK", "~/WORKER-BENCH.lock")).expanduser()
 TIE_PP = 0.2  # clean print may tie within this many percentage points
 ECE_GATE = 0.05
+MEM_CAP_MB = 300  # peak RSS per page at the default degree
 CLEAN = "clean300-v1"
 RECEIPTS = "receipts-v1"
 
@@ -181,31 +183,61 @@ def metric_keys(set_name: str) -> list[tuple[str, str, bool]]:
     return [("CER", "cer", True), ("WER", "wer", True), ("order", "order_err", True)]
 
 
-def quality(set_name: str, ours: dict, tess: dict | None) -> dict:
+def load_competitors(path: str | None) -> dict | None:
+    """scores.json of a frozen competitor-results directory: {config: {set: {metric: value}}} plus the gate flag per config."""
+    if not path:
+        return None
+    p = Path(path).expanduser() / "scores.json"
+    if not p.exists():
+        raise SystemExit(f"{p} not found: build the directory with `competitors-freeze`")
+    return json.loads(p.read_text())
+
+
+def candidates(set_name: str, key: str, tess: dict | None, comp: dict | None) -> list[tuple[str, float]]:
+    """(engine and configuration, value) for one metric: Tesseract best-of and every gated competitor configuration."""
+    out = []
+    if tess and "best" in tess["models"]:
+        b = tess["models"]["best"]["best_per_metric"][key]
+        out.append((f"tesseract-best psm{b['psm']}", b["value"]))
+    if comp:
+        for cfg, c in comp["configs"].items():
+            if c.get("gate", True) and set_name in c["sets"] and c["sets"][set_name].get(key) is not None:
+                out.append((cfg, c["sets"][set_name][key]))
+    return out
+
+
+def quality(set_name: str, ours: dict, tess: dict | None, comp: dict | None = None) -> dict:
+    """Win / tie / loss per metric against the best value any measured engine reaches (Tesseract best-of included). Without a
+    competitor directory the baseline is Tesseract best-of alone. Clean print may tie within TIE_PP percentage points."""
     rows = []
-    ok = tess is not None and "best" in tess["models"]
+    ok = True
     for label, key, judged in metric_keys(set_name):
         o = ours[key]
         row = {"metric": label, "key": key, "ours": o, "judged": judged}
+        cands = candidates(set_name, key, tess, comp)
+        if tess and "fast" in tess["models"]:
+            row["tess_fast"] = tess["models"]["fast"]["best_per_metric"][key]["value"]
         if tess and "best" in tess["models"]:
-            b = tess["models"]["best"]["best_per_metric"][key]
-            f = tess["models"]["fast"]["best_per_metric"][key]["value"] if "fast" in tess["models"] else None
-            row.update(best=b["value"], best_psm=b["psm"], fast=f)
-            diff_pp = (o - b["value"]) * 100
+            row["tess_best"] = tess["models"]["best"]["best_per_metric"][key]["value"]
+        if cands:
+            engine, best = min(cands, key=lambda c: c[1])
+            row.update(best=best, best_engine=engine, others={e: v for e, v in sorted(cands, key=lambda c: c[1])})
+            diff_pp = (o - best) * 100
             if not judged:
                 v = "info"
-            elif o < b["value"]:
+            elif o < best:
                 v = "win"
             elif set_name == CLEAN and diff_pp <= TIE_PP:
                 v = "tie"
             else:
                 v = "loss"
             row["verdict"] = v
-            ok = ok and (v in ("win", "tie", "info"))
+            ok = ok and v in ("win", "tie", "info")
         else:
             row["verdict"] = "no baseline"
+            ok = False
         rows.append(row)
-    return {"rows": rows, "pass": bool(ok)}
+    return {"rows": rows, "pass": bool(ok), "baseline": "best competitor" if comp else "Tesseract best-of"}
 
 
 def calibration(set_name: str, ours: dict) -> dict:
@@ -247,11 +279,14 @@ def speed_rows(timing: dict, tess_timing: dict | None, quality_by_set: dict) -> 
                     sv = "exception"
                 else:
                     sv = "fail"
-                mv = "pass" if row["ours_rss_mb"] < min(fast_rss, best_rss) else "fail"
-                row.update(fast_ms=fast_ms, best_ms=best_ms, fast_rss_mb=fast_rss, best_rss_mb=best_rss, speed=sv, memory=mv,
+                row.update(fast_ms=fast_ms, best_ms=best_ms, fast_rss_mb=fast_rss, best_rss_mb=best_rss, speed=sv,
                            tess_psm={m: tt["models"][m]["psm"] for m in ("best", "fast")})
             else:
-                row.update(speed="no Tesseract timing", memory="no Tesseract timing")
+                row.update(speed="no Tesseract timing")
+            if deg == "default":
+                row["memory"] = "pass" if row["ours_rss_mb"] <= MEM_CAP_MB else "fail"
+            else:
+                row["memory"] = "info"
             rows.append(row)
         out[name] = rows
     return out
@@ -336,16 +371,30 @@ def render(out_dir: Path) -> None:
         md += [f"Accuracy: model `{acc['model_sha256'][:12]}…`" + (f", detector `{acc['detector_sha256'][:12]}…`" if acc["detector_sha256"] else ", no detector (classical finder)"),
                f"engine {acc['runtime']}; eval sets `{acc['eval']}` (SHA256SUMS `{(acc['eval_sums_sha256'] or 'n/a')[:12]}…`); scorer boxes: ink.",
                f"{acc['env']['cpu']}, {acc['env']['cores']} threads; load before {acc['load_before']}, after {acc['load_after']}; started {acc['started']}.", "",
-               "Quality: error rates in %, ours vs Tesseract best-of (best model, best PSM per metric) and fast (same rule). "
-               "Receipts: recall-CER / recall-WER (order is not judged there).", "",
-               "| category (set) | metric | ours | Tess best (PSM) | Tess fast | verdict |", "|---|---|---|---|---|---|"]
+               "Quality: error rates in %. Baseline per metric: " + ("the best value any measured engine reaches (Tesseract best-of with its best PSM per metric, and the competitor configurations of the frozen results directory)" if acc.get("competitors") else "Tesseract best-of (best PSM per metric)") +
+               ". Receipts: recall-CER / recall-WER (order is shown, not judged).", "",
+               "| category (set) | metric | ours | best | best engine / configuration | Tesseract best | Tesseract fast | verdict |", "|---|---|---|---|---|---|---|---|"]
         report["accuracy"] = {}
         for name, d in acc["sets"].items():
             q = d["quality"]
             for r in q["rows"]:
-                b = f"{_pct(r.get('best'))} ({r.get('best_psm')})" if "best" in r else "-"
-                md.append(f"| {SETS[name].category} ({name}) | {r['metric']} | {_pct(r['ours'])} | {b} | {_pct(r.get('fast'))} | {r['verdict']} |")
+                md.append(f"| {SETS[name].category} ({name}) | {r['metric']} | {_pct(r['ours'])} | {_pct(r.get('best'))} | {r.get('best_engine', '-')} | "
+                          f"{_pct(r.get('tess_best'))} | {_pct(r.get('tess_fast'))} | {r['verdict']} |")
             report["accuracy"][name] = {"quality": q, "calibration": d["calibration"], "f1": d["f1"]}
+        if acc.get("competitors"):
+            md += ["", "All engines, error rate % per metric (the best per row is in bold):", ""]
+            for name, d in acc["sets"].items():
+                rows = d["quality"]["rows"]
+                engines = sorted({e for r in rows for e in r.get("others", {})})
+                md += [f"{SETS[name].category} ({name})", "", "| metric | ours | " + " | ".join(engines) + " |", "|---|---|" + "---|" * len(engines)]
+                for r in rows:
+                    best = r.get("best")
+                    cells = []
+                    for e in engines:
+                        v = r.get("others", {}).get(e)
+                        cells.append("-" if v is None else (f"**{v * 100:.2f}**" if v == best else f"{v * 100:.2f}"))
+                    md.append(f"| {r['metric']} | {_pct(r['ours'])} | " + " | ".join(cells) + " |")
+                md.append("")
         md += ["", "| category | quality | pages | ECE | ECE-m | calibration (≤ 0.05) | F1@0.5 ink: ours | Tess best | Tess fast |", "|---|---|---|---|---|---|---|---|---|"]
         for name, d in acc["sets"].items():
             c, q, f = d["calibration"], d["quality"], d["f1"]
@@ -367,11 +416,11 @@ def render(out_dir: Path) -> None:
         md += ["## Speed and memory", "",
                f"{tim['env']['cpu']}, {tim['env']['cores']} threads. Load (1 min) before {tim['load']['before']}, during (after each run) "
                f"min {min(tim['load']['during'])} / max {max(tim['load']['during'])}, after {tim['load']['after']}; lock held by the job: {tim['lock']}. "
-               f"Each cell is the mean of {tim['repeats']} runs (one process per run, one pass over the set). Rule: faster than Tesseract fast, peak RSS below both; "
-               f"{(tt or {}).get('repeats', '-')} runs; load before {((tt or {}).get('load') or {}).get('before')}, after {((tt or {}).get('load') or {}).get('after')}). "
+               f"Each cell is the mean of {tim['repeats']} runs (one process per run, one pass over the set). Speed: faster than Tesseract fast; "
                "slower than fast but faster than best with the quality row won is an exception, not a pass. "
+               f"Memory: peak RSS at the default degree at most {MEM_CAP_MB} MB (degree 1 is shown for information). "
                f"Tesseract timed the same way (stock models, PSM per set as selected by `tess`, one process per page, OMP_THREAD_LIMIT = 1 / {tim['default_degree']}, "
-               "The verdict uses `process ms/page`: ours is the whole process (start and model load included) over the pages, as Tesseract is timed; "
+               f"{(tt or {}).get('repeats', '-')} runs; load before {((tt or {}).get('load') or {}).get('before')}, after {((tt or {}).get('load') or {}).get('after')}). "
                "`page ms` (model loaded once) is information only.", "",
                "| category | config | ours page ms (info) | ours process ms/page | Tess fast | Tess best | speed | ours RSS MB | Tess fast | Tess best | memory |", "|---|---|---|---|---|---|---|---|---|---|---|"]
         for name, rows in sp.items():
@@ -451,6 +500,7 @@ def main(args) -> None:
     if args.rerun_tess:
         rerun_tess(args, names, work)
     tess_results = _tess_results(args, work)
+    comp = load_competitors(args.competitors)
     default_degree = min(4, os.cpu_count() or 1)
     if tess_only:
         time_tesseract(args, names, tess_results, default_degree, out_dir)
@@ -475,7 +525,7 @@ def main(args) -> None:
             if tb is None:
                 print(f"warning: no Tesseract results for {n} under {tess_results}; run with --rerun-tess", file=sys.stderr)
             sets[n] = {"pages": s["pages"], "missing": s["missing"], "scores": {k: s[k] for k in ("cer", "wer", "order_err", "cer_recall", "wer_recall")},
-                       "quality": quality(n, s, tb), "calibration": calibration(n, s),
+                       "quality": quality(n, s, tb, comp), "calibration": calibration(n, s),
                        "f1": {"ours": s["det"]["f1"] if s["det"] else None,
                               "tess_best": tb["models"]["best"]["f1_ink"] if tb and "best" in tb["models"] else None,
                               "tess_fast": tb["models"]["fast"]["f1_ink"] if tb and "fast" in tb["models"] else None},
@@ -485,6 +535,7 @@ def main(args) -> None:
         (out_dir / "accuracy.json").write_text(json.dumps({
             "started": started, "env": env, "load_before": load_before, "load_after": _load(), "runtime": runtime,
             "model": args.model, "model_sha256": _sha(args.model), "detector": args.detector, "detector_sha256": _sha(args.detector),
+            "competitors": args.competitors, "competitors_sha256": _sha(str(Path(args.competitors).expanduser() / "scores.json")) if args.competitors else None,
             "eval": args.eval, "eval_sums_sha256": _sha(str(sums)) if sums.exists() else None, "scorer_sha256": _sha(str(Path(__file__).with_name("score.py"))),
             "sets": sets}, indent=1) + "\n")
         render(out_dir)

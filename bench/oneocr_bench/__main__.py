@@ -59,6 +59,8 @@ def main() -> None:
     gt.add_argument("--tess", default=os.path.expanduser("~/tools/tesseract/tess"))
     gt.add_argument("--psms", nargs="+", type=int, default=[3, 4, 6, 11])
     gt.add_argument("--timing", action="store_true", help="speed and memory mode; refuses unless this job holds the machine lock")
+    gt.add_argument("--competitors", default=None,
+                    help="frozen competitor-results directory (scores.json from competitors-freeze): the baseline per metric becomes the best engine measured")
     gt.add_argument("--tess-timing", action="store_true",
                     help="with --timing: time Tesseract best and fast (one process per page, 1 and default-degree OpenMP threads) instead of our engine; "
                          "writes tess-timing.json, merged per set")
@@ -67,6 +69,12 @@ def main() -> None:
     gt.add_argument("--reuse", action="store_true", help="accuracy: score engine outputs already under WORK/out instead of running the engine")
     gt.add_argument("--dotnet", default="dotnet")
     gt.add_argument("--bench-dll", default=None, help="use this OneOcr.Bench.dll instead of building")
+
+    cf = sub.add_parser("competitors-freeze", help="copy competitor hypotheses into a frozen directory and score them (input of gate --competitors)")
+    cf.add_argument("--src", action="append", required=True, metavar="[PREFIX=]ROOT", help="directory with one subdirectory per configuration; repeatable")
+    cf.add_argument("--eval", default=os.environ.get("ONEOCR_EVAL", "~/oneocr/eval/bench-v2"))
+    cf.add_argument("--out", required=True)
+    cf.add_argument("--info-only", nargs="*", default=["fast"], metavar="WORD", help="configurations whose name contains one of these words do not set the baseline (default: fast)")
 
     sub.add_parser("tess-report", help="merge per-set Tesseract results into one table")
 
@@ -95,6 +103,8 @@ def main() -> None:
         tess.main(a.set, a.models, a.psms, a.tess, a.results)
     elif a.cmd == "competitors-report":
         print(competitors.report(a.root, a.eval, a.timing))
+    elif a.cmd == "competitors-freeze":
+        competitors.freeze(a.src, a.eval, a.out, a.info_only)
     elif a.cmd == "gate":
         gate.main(a)
     elif a.cmd == "tess-report":
