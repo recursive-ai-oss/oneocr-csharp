@@ -54,6 +54,15 @@ internal sealed class PageDetection
 
     /// <summary>The softmax probability of <see cref="Quarter"/>.</summary>
     public required float OrientationConfidence { get; init; }
+
+    /// <summary>The page noise estimate, when the model carries the page-conditional threshold rule.</summary>
+    public double? Sigma { get; init; }
+
+    /// <summary>The speck density of the text map, when the model carries the rule.</summary>
+    public double? Junk { get; init; }
+
+    /// <summary>Whether the rule chose its own text threshold for this page.</summary>
+    public bool RuleApplied { get; init; }
 }
 
 /// <summary>Something that finds text lines, layout regions and the orientation of a gray page.</summary>
@@ -141,6 +150,7 @@ internal sealed class PageDetector : IPageDetector
                 source = scaled.AsSpan(0, nw * nh);
             }
 
+            double? sigma = _model.Postprocess.HasRule ? PageNoise.Sigma(source, nw, nh) : null;
             canvas = _floats.Rent((long)paddedW * paddedH);
             Normalize(source, nw, nh, paddedW, paddedH, _model.Input, canvas);
             if (scaled is not null)
@@ -152,7 +162,7 @@ internal sealed class PageDetector : IPageDetector
             DetectorMaps maps = DbNetForward.Run(_model, _path, degree, _floats, canvas, paddedH, paddedW, _limits, null, cancellationToken, pooledMaps: true);
             try
             {
-                return DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits);
+                return DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits, sigma);
             }
             finally
             {

@@ -63,6 +63,7 @@ internal static class Program
             "docextract" => DocExtractBench.Run(options),
             "strips" => Strips(options),
             "detlines" => DetLines(options),
+            "noise" => Noise(options),
             "grids" => Grids(options),
             "skew" => Skew(options),
             "profile" => Profile(options),
@@ -166,6 +167,58 @@ internal static class Program
         foreach (StripLine s in located.Strips)
         {
             Console.WriteLine($"strip leaf {s.Leaf,7}  x {s.Box.X,5} y {s.Box.Y,5} w {s.Box.Width,5} h {s.Box.Height,3}");
+        }
+
+        return 0;
+    }
+
+    // Per page of a folder, the page-noise measures and whether the rule applies: OneOcr.Bench noise --pages DIR --detector FILE (a model with the rule), or --time 1
+    private static int Noise(Dictionary<string, string> o)
+    {
+        if (o.ContainsKey("time"))
+        {
+            // Cost of the noise estimate on a detector-sized page (1024 x 724).
+            var rng = new Random(1);
+            var page = new Gray8[1024 * 724];
+            for (int i = 0; i < page.Length; i++)
+            {
+                page[i] = new Gray8((byte)rng.Next(256));
+            }
+
+            double sink = 0;
+            for (int i = 0; i < 20; i++)
+            {
+                sink += OneOcr.Detection.PageNoise.Sigma(page, 1024, 724);
+            }
+
+            var clock = Stopwatch.StartNew();
+            for (int i = 0; i < 200; i++)
+            {
+                sink += OneOcr.Detection.PageNoise.Sigma(page, 1024, 724);
+            }
+
+            Console.WriteLine($"Sigma 1024x724: {clock.Elapsed.TotalMilliseconds / 200:F3} ms ({sink:F0})");
+            return 0;
+        }
+
+        var detector = new OneOcr.Detection.PageDetector(
+            OneOcr.Detection.DbNetModel.FromContainer(OneOcr.Model.ModelContainer.Load(Need(o, "detector"), null), OneOcr.OcrLimits.Default),
+            OneOcr.OcrLimits.Default, OneOcr.Kernels.Dispatch.Best);
+        var pixels = new OneOcr.BufferPool<Gray8>(1L << 28, 1);
+        var resizers = new ResizerPool();
+        foreach (string file in Directory.GetFiles(Need(o, "pages")).Order(StringComparer.Ordinal))
+        {
+            if (!(file.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            Image image = Image.Load(file);
+            var gray = new Gray8[image.Width * image.Height];
+            image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+            OneOcr.Detection.PageDetection d = detector.Detect(gray, image.Width, image.Height, pixels, resizers, 1, System.Threading.CancellationToken.None);
+            Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"{Path.GetFileNameWithoutExtension(file)}\t{d.Sigma * 4.047:F0}\t{d.Sigma:R}\t{d.Junk:R}\t{(d.RuleApplied ? 1 : 0)}\t{d.Lines.Count}"));
         }
 
         return 0;

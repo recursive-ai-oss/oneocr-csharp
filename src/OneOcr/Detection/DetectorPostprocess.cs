@@ -43,8 +43,16 @@ internal static class DetectorPostprocess
     /// <param name="TextExpand">Factor on the growth of a text line core.</param>
     /// <param name="LayoutThreshold">Probability above which a layout cell is on.</param>
     /// <param name="LayoutExpand">Factor on the growth of a layout region core.</param>
-    internal readonly record struct Options(double TextThreshold, double TextExpand, double LayoutThreshold, double LayoutExpand)
+    /// <param name="RuleSigmaMin">Page noise above which the page-conditional text threshold may apply; null (with the other two) turns the rule off.</param>
+    /// <param name="RuleJunkMax">Speck density (per megapixel) below which the rule applies.</param>
+    /// <param name="RuleTextThreshold">Probability above which a text cell is on when the rule applies.</param>
+    internal readonly record struct Options(
+        double TextThreshold, double TextExpand, double LayoutThreshold, double LayoutExpand,
+        double? RuleSigmaMin = null, double? RuleJunkMax = null, double? RuleTextThreshold = null)
     {
+        /// <summary>Whether the page-conditional text threshold is configured.</summary>
+        public bool HasRule => RuleSigmaMin is not null && RuleJunkMax is not null && RuleTextThreshold is not null;
+
         /// <summary>Text 0.3 / 1.0, layout 0.6 / 0.85.</summary>
         public static Options Default { get; } = new(0.3, 1.0, 0.6, 0.85);
 
@@ -71,19 +79,32 @@ internal static class DetectorPostprocess
     /// <param name="pageWidth">Page width in pixels.</param>
     /// <param name="pageHeight">Page height in pixels.</param>
     /// <param name="limits">Bounds on the number of lines and regions.</param>
+    /// <param name="sigma">Noise estimate of the page at detector scale (<see cref="PageNoise.Sigma"/>), when the model's rule needs it.</param>
     /// <returns>Lines, regions and orientation in page pixels.</returns>
-    public static PageDetection Decode(DetectorMaps maps, DbNetModel model, double scale, int pageWidth, int pageHeight, OcrLimits limits) =>
+    public static PageDetection Decode(DetectorMaps maps, DbNetModel model, double scale, int pageWidth, int pageHeight, OcrLimits limits, double? sigma = null) =>
         Decode(
             maps.Prob, maps.ProbWidth, maps.ProbHeight, maps.Layout, maps.LayoutWidth, maps.LayoutHeight, maps.LayoutStride,
-            model.LayoutClasses, model.LayoutTrained, maps.Orientation, scale, pageWidth, pageHeight, limits, model.Postprocess);
+            model.LayoutClasses, model.LayoutTrained, maps.Orientation, scale, pageWidth, pageHeight, limits, model.Postprocess, sigma);
 
     /// <summary>Decodes maps given as plain arrays: text logits <c>[h][w]</c> and layout logits <c>[h][w][stride]</c>.</summary>
     internal static PageDetection Decode(
         float[] prob, int probWidth, int probHeight, float[] layout, int layoutWidth, int layoutHeight, int layoutStride,
-        IReadOnlyList<string> classNames, IReadOnlyList<bool> trained, float[] orientation, double scale, int pageWidth, int pageHeight, OcrLimits limits, Options? options = null)
+        IReadOnlyList<string> classNames, IReadOnlyList<bool> trained, float[] orientation, double scale, int pageWidth, int pageHeight, OcrLimits limits, Options? options = null, double? sigma = null)
     {
         Options o = options ?? Options.Default;
         float textThreshold = Options.Logit(o.TextThreshold, 0.3, TextLogitThreshold);
+        double? junk = null;
+        bool ruleApplied = false;
+        if (o.HasRule && sigma is not null)
+        {
+            junk = PageNoise.JunkDensity(prob, probWidth, probHeight);
+            if (sigma > o.RuleSigmaMin && junk < o.RuleJunkMax)
+            {
+                textThreshold = Options.Logit(o.RuleTextThreshold!.Value, 0.3, TextLogitThreshold);
+                ruleApplied = true;
+            }
+        }
+
         float layoutThreshold = Options.Logit(o.LayoutThreshold, 0.6, LayoutLogitThreshold);
         // Lines, in network pixels first: regions snap to them before everything is scaled back to the page.
         List<(double X0, double Y0, double X1, double Y1, float Score, CellAxis? Axis)> lines = [];
@@ -140,7 +161,7 @@ internal static class DetectorPostprocess
         }
 
         (int quarter, float confidence) = Orientation(orientation);
-        return new PageDetection { Lines = outLines, Regions = outRegions, Quarter = quarter, OrientationConfidence = confidence };
+        return new PageDetection { Lines = outLines, Regions = outRegions, Quarter = quarter, OrientationConfidence = confidence, Sigma = sigma, Junk = junk, RuleApplied = ruleApplied };
     }
 
     // The axis extent grown like the axis-aligned box: by k * expand times the shorter side, on each side, in network pixels.

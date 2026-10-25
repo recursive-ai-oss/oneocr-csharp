@@ -247,6 +247,25 @@ internal sealed class DbNetModel
                 CheckExpand(pp.TextExpand ?? post.TextExpand, "text_expand"),
                 CheckProbability(pp.LayoutThreshold ?? post.LayoutThreshold, "layout_threshold"),
                 CheckExpand(pp.LayoutExpand ?? post.LayoutExpand, "layout_expand"));
+            if (pp.RuleSigmaMin is not null || pp.RuleJunkMax is not null || pp.RuleTextThreshold is not null)
+            {
+                if (pp.RuleSigmaMin is null || pp.RuleJunkMax is null || pp.RuleTextThreshold is null)
+                {
+                    throw new OcrModelException("config.postprocess rule_sigma_min, rule_junk_max and rule_text_threshold must be given together.");
+                }
+
+                if (!double.IsFinite(pp.RuleSigmaMin.Value) || pp.RuleSigmaMin.Value < 0 || !double.IsFinite(pp.RuleJunkMax.Value) || pp.RuleJunkMax.Value < 0)
+                {
+                    throw new OcrModelException("config.postprocess rule_sigma_min and rule_junk_max must be finite and not negative.");
+                }
+
+                post = post with
+                {
+                    RuleSigmaMin = pp.RuleSigmaMin,
+                    RuleJunkMax = pp.RuleJunkMax,
+                    RuleTextThreshold = CheckProbability(pp.RuleTextThreshold.Value, "rule_text_threshold"),
+                };
+            }
         }
 
         int stem = config.Stem;
