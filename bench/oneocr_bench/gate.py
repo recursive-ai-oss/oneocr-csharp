@@ -50,7 +50,7 @@ from pathlib import Path
 from . import tess as tess_mod
 from .paths import BENCH, data_dir
 from .score import score_dir
-from .sets import SETS
+from .sets import ALL_SETS as SETS
 
 LOCK = Path(os.environ.get("ONEOCR_LOCK", "~/WORKER-BENCH.lock")).expanduser()
 TIE_PP = 0.2  # clean print may tie within this many percentage points
@@ -264,8 +264,10 @@ def tess_baselines(set_name: str, truth: Path, tess_results: Path) -> dict | Non
 
 # --------------------------------------------------------------------------- verdicts
 
-def metric_keys(set_name: str) -> list[tuple[str, str, bool]]:
-    """(label, key in score result, judged)"""
+def metric_keys(set_name: str, order_info: bool = False) -> list[tuple[str, str, bool]]:
+    """(label, key in score result, judged); `order_info` shows the order row without judging it (a set whose order truth is not firm)."""
+    if order_info:
+        return [("CER", "cer", True), ("WER", "wer", True), ("order", "order_err", False)]
     if set_name == RECEIPTS:
         return [("recall-CER", "cer_recall", True), ("recall-WER", "wer_recall", True), ("order", "order_err", False)]
     return [("CER", "cer", True), ("WER", "wer", True), ("order", "order_err", True)]
@@ -294,12 +296,12 @@ def candidates(set_name: str, key: str, tess: dict | None, comp: dict | None) ->
     return out
 
 
-def quality(set_name: str, ours: dict, tess: dict | None, comp: dict | None = None) -> dict:
+def quality(set_name: str, ours: dict, tess: dict | None, comp: dict | None = None, order_info: bool = False) -> dict:
     """Win / tie / loss per metric against the best value any measured engine reaches (Tesseract best-of included). Without a
     competitor directory the baseline is Tesseract best-of alone. Clean print may tie within TIE_PP percentage points."""
     rows = []
     ok = True
-    for label, key, judged in metric_keys(set_name):
+    for label, key, judged in metric_keys(set_name, order_info):
         o = ours[key]
         row = {"metric": label, "key": key, "ours": o, "judged": judged}
         cands = candidates(set_name, key, tess, comp)
@@ -533,8 +535,15 @@ def render(out_dir: Path) -> None:
 
 # --------------------------------------------------------------------------- modes
 
+def sets_in_root(root: str) -> set[str]:
+    return {p.name for p in Path(root).iterdir() if (p / "pages").is_dir()} if Path(root).is_dir() else set()
+
+
+SIX = ("clean300-v1", "degraded-v1", "screenshot-v1", "layout-v1", "phone-v1", "receipts-v1")
+
+
 def _eval_sets(args) -> list[str]:
-    names = args.sets or list(SETS)
+    names = args.sets or [n for n in SETS if n in sets_in_root(args.eval) or n in SIX]
     for n in names:
         if not (Path(args.eval) / n / "pages").is_dir():
             raise SystemExit(f"{Path(args.eval) / n / 'pages'} not found (--eval / ONEOCR_EVAL)")
@@ -628,6 +637,8 @@ def main(args) -> None:
     else:
         dll = Path(args.bench_dll) if args.bench_dll else build_bench(work, args.dotnet)
     sums = Path(args.eval) / "SHA256SUMS"
+    meta = Path(args.eval) / "SEALED.json"
+    order_info = {n: d.get("order_metric") == "information" for n, d in json.loads(meta.read_text())["sets"].items()} if meta.exists() else {}
 
     if not args.timing:
         env, load_before, sets = _env_info(), _load(), {}
@@ -645,7 +656,7 @@ def main(args) -> None:
             if tb is None:
                 print(f"warning: no Tesseract results for {n} under {tess_results}; run with --rerun-tess", file=sys.stderr)
             sets[n] = {"pages": s["pages"], "missing": s["missing"], "scores": {k: s[k] for k in ("cer", "wer", "order_err", "cer_recall", "wer_recall")},
-                       "quality": quality(n, s, tb, comp), "calibration": calibration(n, s),
+                       "quality": quality(n, s, tb, comp, order_info.get(n, False)), "calibration": calibration(n, s),
                        "f1": {"ours": s["det"]["f1"] if s["det"] else None,
                               "tess_best": tb["models"]["best"]["f1_ink"] if tb and "best" in tb["models"] else None,
                               "tess_fast": tb["models"]["fast"]["f1_ink"] if tb and "fast" in tb["models"] else None},

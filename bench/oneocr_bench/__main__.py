@@ -4,13 +4,14 @@ import argparse
 import os
 from pathlib import Path
 
-from . import assets, competitors, gate, score, seal, sets, tess
+from . import assets, competitors, gate, realpdf, realweb, score, seal, sets, tess
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(prog="oneocr_bench")
     sub = ap.add_subparsers(dest="cmd", required=True)
     names = list(sets.SETS)
+    all_names = list(sets.ALL_SETS)
 
     f = sub.add_parser("fetch", help="download and verify fonts and public-domain text")
     f.add_argument("--update", action="store_true")
@@ -25,14 +26,17 @@ def main() -> None:
     g.add_argument("--avoid-text", nargs="*", default=[], metavar="DIR", help="with --seed: eval roots (<set>/truth) whose passages are not reused")
 
     sl = sub.add_parser("seal", help="cut or verify a sealed page set (all six categories, seeds from a private file)")
-    sl.add_argument("action", choices=["build", "verify"])
+    sl.add_argument("action", choices=["build", "verify", "add-real"])
+    sl.add_argument("--web", help="add-real: directory of the real screenshot set (pages/, truth/)")
+    sl.add_argument("--replace", action="store_true", help="add-real: swap sets that are already in the tree (real-sourced sets only)")
+    sl.add_argument("--pdf", help="add-real: directory holding clean-real, layout-real, degraded-real")
     sl.add_argument("root", help="sealed eval root: <set>/pages, <set>/truth, SHA256SUMS")
     sl.add_argument("--seeds", help="build: JSON file {set: seed}, kept outside the repository")
     sl.add_argument("--avoid-text", nargs="*", default=[], metavar="DIR", help="eval roots whose passages (and page hashes) must not recur")
-    sl.add_argument("--sets", nargs="+", choices=names, default=None)
+    sl.add_argument("--sets", nargs="+", choices=all_names, default=None)
 
     d = sub.add_parser("draw", help="overlay truth boxes on a page")
-    d.add_argument("--set", default="clean300-v1", choices=names)
+    d.add_argument("--set", default="clean300-v1", choices=all_names)
     d.add_argument("page")
 
     s = sub.add_parser("score", help="score hypotheses: <id>.txt (and optional <id>.json boxes) per page")
@@ -66,7 +70,7 @@ def main() -> None:
                     help="frozen sets: <set>/pages and <set>/truth (env ONEOCR_EVAL)")
     gt.add_argument("--sealed", default=None, metavar="DIR", help="score the sealed set at DIR (same layout as --eval) and mark the report as sealed")
     gt.add_argument("--dry-run", action="store_true", help="list the eval files and exit without building or running anything")
-    gt.add_argument("--sets", nargs="+", choices=names, default=None)
+    gt.add_argument("--sets", nargs="+", choices=all_names, default=None)
     gt.add_argument("--work", default=os.environ.get("ONEOCR_WORK", "~/oneocr/work/gate"), help="engine outputs and the build (env ONEOCR_WORK)")
     gt.add_argument("--out", default=None, help="where gate.md, gate.json, accuracy.json and timing.json go (default WORK/gate)")
     gt.add_argument("--tess-results", default=None, help="Tesseract results root holding <set>/tesseract.json (default $ONEOCR_BENCH_DIR/results)")
@@ -92,6 +96,26 @@ def main() -> None:
     cf.add_argument("--out", required=True)
     cf.add_argument("--info-only", nargs="*", default=["fast"], metavar="WORD", help="configurations whose name contains one of these words do not set the baseline (default: fast)")
 
+    rw = sub.add_parser("realweb", help="capture real web pages as screenshot eval pages (list file is private)")
+    rw.add_argument("action", choices=["capture"])
+    rw.add_argument("--list", required=True)
+    rw.add_argument("--out", required=True)
+    rw.add_argument("--target", type=int, default=40)
+    rw.add_argument("--seconds", type=float, default=1e9, help="stop starting new pages after this many seconds")
+
+    rp = sub.add_parser("realpdf", help="fetch real PDFs and cut verified pages from them (list file is private)")
+    rp.add_argument("action", choices=["fetch", "cut", "hashdir"])
+    rp.add_argument("--list")
+    rp.add_argument("--out")
+    rp.add_argument("--dir", help="hashdir: directory of PDFs")
+    rp.add_argument("--pdfs", help="cut: directory written by fetch")
+    rp.add_argument("--seeds")
+    rp.add_argument("--pdftruth", help="cut: PdfTruth.dll")
+    rp.add_argument("--exclude", help="cut: file of SHA-256 hashes of PDFs that may be in training data")
+    rp.add_argument("--clean", type=int, default=30)
+    rp.add_argument("--layout", type=int, default=40)
+    rp.add_argument("--degraded", type=int, default=40)
+
     sub.add_parser("tess-report", help="merge per-set Tesseract results into one table")
 
     a = ap.parse_args()
@@ -101,6 +125,10 @@ def main() -> None:
         if a.set == "all" or not a.out or a.check:
             ap.error("--seed needs one --set, --out, and no --check")
         sets.run_gen_seeded(a.set, a.count, a.seed, Path(a.out).expanduser(), a.synthetic_receipts, [Path(p).expanduser() for p in a.avoid_text])
+    elif a.cmd == "realweb":
+        realweb.capture(a)
+    elif a.cmd == "realpdf":
+        {"fetch": realpdf.fetch, "cut": realpdf.cut, "hashdir": realpdf.hashdir}[a.action](a)
     elif a.cmd == "seal":
         seal.main(a)
     elif a.cmd == "gen":
