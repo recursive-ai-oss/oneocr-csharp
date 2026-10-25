@@ -548,6 +548,10 @@ def plan_shard(job) -> list[dict]:
                 text = {"numbers": s.numbers_line, "codes": s.codes_line, "rare": s.rare, "pseudo": s.pseudo_line}[kind]()
             src = f"synthetic:{kind}"
         text = unicodedata.normalize("NFC", " ".join(text.split()))
+        # `single_script`: a line's letters come from one script, as on a printed receipt (each word of a line is drawn from its own book
+        # window, so a line could mix Latin and Cyrillic words, which teaches look-alike letters to stand for each other)
+        if spec.get("single_script") and len({cs.script_of(c) for c in text if c.isalpha()}) > 1:
+            continue
         # every character must be a charset class that the chosen font can draw (generated strings use literal symbols like "№")
         if not text or file is None or text in seen or text in banned or not set(text) - {" "} <= cov.of(file):
             continue

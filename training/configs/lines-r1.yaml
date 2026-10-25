@@ -10,15 +10,15 @@ seed: 20261301
 charset: data/charset-v1.txt
 fonts: data/fonts.yaml
 sets:
-  recv_train: { n: 600000, fonts: train, books: train, degrade: rcpt, families: &rfam [courierprime, cutivemono, sharetechmono, anonymouspro, firamono, inconsolata, notosansmono, ptmono, sourcecodepro, spacemono, cousine, specialelite, robotocondensed, ubuntucondensed, oswald, arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans], mix: &rmix { receipt2: 0.80, figures: 0.10, receipt: 0.10 }, tight_ends: 0.35 }
+  recv_train: { n: 600000, fonts: train, books: train, degrade: rcpt, families: &rfam [courierprime, cutivemono, sharetechmono, anonymouspro, firamono, inconsolata, notosansmono, ptmono, sourcecodepro, spacemono, cousine, specialelite, robotocondensed, ubuntucondensed, oswald, arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans], mix: &rmix { receipt2: 0.80, figures: 0.10, receipt: 0.10 }, tight_ends: 0.35, single_script: true }
   # held-out families (three of them monospace) and books, the training degradation
-  recv_val: { n: 3000, fonts: heldout, books: heldout, degrade: rcpt, families: &hfam [jetbrainsmono, robotomono, ubuntumono, karla, cabin, alegreyasans, ptsansnarrow], mix: *rmix }
+  recv_val: { n: 3000, fonts: heldout, books: heldout, degrade: rcpt, families: &hfam [jetbrainsmono, robotomono, ubuntumono, karla, cabin, alegreyasans, ptsansnarrow], mix: *rmix, single_script: true }
   # the faint end alone (contrast 30-55; below that a line is unreadable), for the selection guard and for reading per-contrast results
-  faint_val: { n: 3000, fonts: heldout, books: heldout, degrade: faint, families: *hfam, mix: *rmix }
+  faint_val: { n: 3000, fonts: heldout, books: heldout, degrade: faint, families: *hfam, mix: *rmix, single_script: true }
   # first and last letters at the crop edge (side margins 0-0.2 of the line height): the held-out check for end-letter drops, read with
   # eval/end_drops.py as well as by CER
-  ends_val: { n: 3000, fonts: heldout, books: heldout, degrade: rcpt, families: *hfam, mix: *rmix, tight_ends: 1.0 }
-  dots_val: { n: 3000, fonts: heldout, books: heldout, degrade: dots, families: *hfam, mix: *rmix }
+  ends_val: { n: 3000, fonts: heldout, books: heldout, degrade: rcpt, families: *hfam, mix: *rmix, single_script: true, tight_ends: 1.0 }
+  dots_val: { n: 3000, fonts: heldout, books: heldout, degrade: dots, families: *hfam, mix: *rmix, single_script: true }
 mix: *rmix
 gpu_degrade:
   # apparent crop heights of 16-65 px (CORD words), contrast over the whole range with 40% of the draws below 60 grey levels (floor 30),
