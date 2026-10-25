@@ -54,6 +54,15 @@ def _uniform(ranges, n: int, g: torch.Generator, dev) -> torch.Tensor:
     return t[i, 0] + (t[i, 1] - t[i, 0]) * torch.rand(n, generator=g, device=dev)
 
 
+def _binned(spec: dict, n: int, g: torch.Generator, dev) -> torch.Tensor:
+    """Draw from bins [edges[i], edges[i+1]) chosen with probabilities spec["probs"], uniform inside a bin (the targeted-error loop sets
+    these from the model's measured errors; see train/adaptive.py)."""
+    e = torch.tensor(spec["edges"], dtype=torch.float32, device=dev)
+    pr = torch.tensor(spec["probs"], dtype=torch.float32, device=dev)
+    i = torch.multinomial(pr, n, replacement=True, generator=g)
+    return e[i] + (e[i + 1] - e[i]) * torch.rand(n, generator=g, device=dev)
+
+
 def sample_params(side: dict, n: int, g: torch.Generator, dev) -> dict[str, torch.Tensor]:
     """Per-sample parameters from one side ('train' or 'heldout') of the config's gpu_degrade section."""
     R, P = side["ranges"], side["p"]
@@ -61,11 +70,16 @@ def sample_params(side: dict, n: int, g: torch.Generator, dev) -> dict[str, torc
     def flag(name: str) -> torch.Tensor:
         return torch.rand(n, generator=g, device=dev) < P[name]
 
-    em = _uniform(R["em"], n, g, dev)
+    bins = side.get("_bins", {})
+
+    def draw(name: str) -> torch.Tensor:
+        return _binned(bins[name], n, g, dev) if name in bins else _uniform(R[name], n, g, dev)
+
+    em = draw("em")
     src_h = em * CROP_PER_EM
     wh = torch.tensor(LEVELS, device=dev)[(src_h.unsqueeze(1) <= torch.tensor(LEVELS, device=dev).unsqueeze(0)).int().argmax(1)]
     wh = torch.where(src_h > LEVELS[-1], torch.full_like(wh, LEVELS[-1]), wh)
-    delta = _uniform(R["contrast"], n, g, dev)
+    delta = draw("contrast")
     paper = delta + (255 - delta) * torch.rand(n, generator=g, device=dev)
     paper = torch.maximum(paper, torch.full_like(paper, 140.0)).clamp(max=255.0)
     ink = (paper - delta).clamp(min=0.0)
@@ -75,12 +89,23 @@ def sample_params(side: dict, n: int, g: torch.Generator, dev) -> dict[str, torc
     bg = (torch.where(dark, ink, paper).view(-1, 1) + chroma[:, 0]).clamp(0, 255)
     fg = (torch.where(dark, paper, ink).view(-1, 1) + chroma[:, 1]).clamp(0, 255)
     q = _uniform(R["jpeg_q"], n, g, dev).round().clamp(1, 100)
-    return {
+    extra = {}
+    if "resample" in P:  # the reader's own resampling: a second bilinear pass at a random phase and a residual tilt (0-2 passes)
+        tilt = R.get("tilt_deg", [0.0, 0.3])
+        extra["resample"] = (torch.rand(n, generator=g, device=dev) < P["resample"]).int() + (
+            torch.rand(n, generator=g, device=dev) < P.get("resample2", 0.0)).int()  # fmt: skip
+        extra["rs_angle"] = (torch.rand(n, 2, generator=g, device=dev) * 2 - 1) * _uniform(tilt, n, g, dev).view(-1, 1) * math.pi / 180
+        extra["rs_shift"] = torch.rand(n, 2, 2, generator=g, device=dev)
+    if "thermal" in P:  # thermal print: ink dropout and row-wise gain streaks
+        on = flag("thermal")
+        extra["dropout"] = _uniform(R["dropout"], n, g, dev) * on
+        extra["streak"] = _uniform(R["streak"], n, g, dev) * on
+    return extra | {
         "em": em,
         "src_h": wh.float(),
-        "blur_rel": _uniform(R["blur_rel"], n, g, dev) * (torch.rand(n, generator=g, device=dev) < P["blur"]),
+        "blur_rel": draw("blur_rel") * (torch.rand(n, generator=g, device=dev) < P["blur"]),
         "motion": _uniform(R["motion"], n, g, dev) * flag("motion"),
-        "noise": _uniform(R["noise"], n, g, dev),
+        "noise": draw("noise"),
         "shot": _uniform(R["shot"], n, g, dev),
         "jpeg_q": torch.where(flag("jpeg"), q, torch.zeros_like(q)),
         "contrast": delta,
@@ -192,6 +217,9 @@ def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> t
     h, w = cov.shape[2:]
     # corner jitter: vertical moves are full strength, horizontal ones a third of it (a line is far wider than it is high)
     cov = _warp(cov, p["persp_offsets"] * p["persp"].view(-1, 1, 1) * torch.tensor([0.35, 1.0], device=dev))
+    if "dropout" in p:
+        keep = (torch.rand(cov.shape, generator=g, device=dev) >= p["dropout"].view(-1, 1, 1, 1)).float()
+        cov = cov * keep
     cov3 = cov.expand(-1, 3, -1, -1)
     sp = F.conv2d(F.pad(cov, (1, 1, 0, 0), mode="replicate"), torch.tensor(_SUBPIXEL, device=dev).view(3, 1, 1, 3))
     cov3 = torch.where(p["subpixel"].view(-1, 1, 1, 1), sp, cov3)
@@ -206,6 +234,12 @@ def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> t
     field = 1 + p["light"].view(n, 1, 1, 1) * (0.6 * (d[:, 0:1] * xs + d[:, 1:2] * ys) + 0.4 * coarse)
     field = field.clamp(min=0.55)
     img = img * field / field.amax(dim=(1, 2, 3), keepdim=True).clamp(min=1.0)  # shading darkens; the brightest spot stays at paper white
+
+    if "streak" in p:
+        gain = 1 + p["streak"].view(n, 1, 1, 1) * F.avg_pool2d(
+            torch.randn(n, 1, h, 1, generator=g, device=dev), (3, 1), 1, 1, count_include_pad=False
+        )
+        img = img * gain
 
     # blur: Gaussian sigma follows the working height, so it is the same fraction of the crop whatever the resolution
     sigma = p["blur_rel"] * wh / CROP_PER_EM
@@ -225,7 +259,26 @@ def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> t
     if bool(on.any()):
         luma = luma.clone()
         luma[on] = jpeg_roundtrip(luma[on].round(), p["jpeg_q"][on])
+    if "resample" in p:
+        for k in range(2):
+            m = p["resample"] > k
+            if bool(m.any()):
+                luma = luma.clone()
+                luma[m] = _resample(luma[m], p["rs_angle"][m, k], p["rs_shift"][m, k])
     return luma
+
+
+def _resample(img: torch.Tensor, angle: torch.Tensor, shift: torch.Tensor) -> torch.Tensor:
+    """Bilinear resampling of img [n, 1, h, w] about its centre by `angle` radians and a sub-pixel `shift` [n, 2] (x, y) in pixels, edge
+    pixels repeated: what reading a line along its own axis does to the page's pixels (docs/spec/detector-v1.md, Sampling)."""
+    n, _, h, w = img.shape
+    ys, xs = torch.meshgrid(torch.arange(h, device=img.device) + 0.5, torch.arange(w, device=img.device) + 0.5, indexing="ij")
+    dx, dy = xs.view(1, h, w) - w / 2, ys.view(1, h, w) - h / 2
+    c, s = torch.cos(angle).view(n, 1, 1), torch.sin(angle).view(n, 1, 1)
+    xi = c * dx + s * dy + w / 2 + shift[:, 0].view(n, 1, 1)
+    yi = -s * dx + c * dy + h / 2 + shift[:, 1].view(n, 1, 1)
+    grid = torch.stack([2 * xi / w - 1, 2 * yi / h - 1], -1)
+    return F.grid_sample(img, grid, mode="bilinear", padding_mode="border", align_corners=False)
 
 
 def _extent(mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

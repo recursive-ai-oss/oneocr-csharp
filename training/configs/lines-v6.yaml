@@ -1,0 +1,66 @@
+# Lines for the targeted-error fine-tune of the production recognizer (crnn-v8). Exact-truth synthetic, training-split fonts and
+# books only for the pack and the stream; validation and calibration sets use unseen books. Sets:
+#   adapt_train   the pack the targeted-error loop draws from (train/adaptive.py): figures (digits, prices, totals, tax lines, codes),
+#                 receipt-style tokens, running text, rare characters; every training font family, so font weights can follow the errors
+#   adapt_stream  clean lines the loop measures the model on every few thousand steps (unseen books; degraded fresh each time)
+#   figures_val, small_val, reader_val   validation sets materialised once (selection); calib   per-script confidence calibration
+# The degradation sides add what the library's reader does to a crop: a residual tilt of up to 0.3 degrees and one or two bilinear
+# resampling passes at random sub-pixel phases (detector-v1, Sampling), and for small receipt text the thermal-print look
+# (ink dropout, row-wise gain streaks). Render with gen/make_lines_v6.sh.
+name: lines-v6
+seed: 20261201
+charset: data/charset-v1.txt
+fonts: data/fonts.yaml
+sets:
+  adapt_train: { n: 800000, fonts: train, books: train, degrade: adapt, mix: &adaptmix { figures: 0.30, receipt: 0.12, numbers: 0.08, codes: 0.08, book: 0.25, pseudo: 0.05, rare: 0.04 } }
+  adapt_stream: { n: 12000, fonts: train, books: heldout, degrade: adapt, mix: *adaptmix }
+  figures_val: { n: 3000, fonts: train, books: heldout, degrade: adapt, mix: { figures: 1.0 } }
+  small_val: { n: 3000, fonts: train, books: heldout, degrade: thermal, mix: { receipt: 0.6, figures: 0.4 } }
+  reader_val: { n: 3000, fonts: train, books: heldout, degrade: reader }
+  calib: { n: 24000, fonts: any, books: heldout, degrade: reader, mix: { book: 0.55, figures: 0.2, receipt: 0.1, numbers: 0.05, codes: 0.05, rare: 0.03, pseudo: 0.02 } }
+mix: { book: 0.80, numbers: 0.07, codes: 0.05, rare: 0.03, pseudo: 0.05 }
+gpu_degrade:
+  adapt:
+    ranges:
+      em: [[6, 9], [7, 10], [9, 12], [11, 16], [16, 21], [21, 30], [30, 60]]
+      blur_rel: [[0.0, 0.12], [0.04, 0.14]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 8.0], [3.0, 10.0]]
+      shot: [0.0, 0.04]
+      jpeg_q: [30, 95]
+      contrast: [[55, 255], [55, 140]]
+      persp: [0.0, 0.15]
+      light: [0.0, 0.4]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.0, 0.04]
+      streak: [0.0, 0.08]
+    p: { blur: 0.9, motion: 0.12, jpeg: 0.5, persp: 0.4, light: 0.4, subpixel: 0.1, dark: 0.1, tint: 0.3, sliver_v: 0.2, sliver_h: 0.15, rule: 0.15, resample: 0.6, resample2: 0.3, thermal: 0.25 }
+  thermal:
+    ranges:
+      em: [[6, 9], [7, 10], [9, 13]]
+      blur_rel: [[0.02, 0.12], [0.06, 0.14]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 8.0], [4.0, 10.0]]
+      shot: [0.0, 0.04]
+      jpeg_q: [30, 90]
+      contrast: [[55, 255], [55, 140]]
+      persp: [0.0, 0.15]
+      light: [0.0, 0.4]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.01, 0.05]
+      streak: [0.02, 0.1]
+    p: { blur: 0.9, motion: 0.15, jpeg: 0.6, persp: 0.3, light: 0.4, subpixel: 0.05, dark: 0.05, tint: 0.3, sliver_v: 0.3, sliver_h: 0.2, rule: 0.2, resample: 0.7, resample2: 0.3, thermal: 0.7 }
+  # the production training side of lines-v4 with the reader's resampling added
+  reader:
+    ranges:
+      em: [[12, 16], [12, 16], [12, 16], [16, 21], [16, 21], [16, 21], [23, 30], [23, 30], [30, 55], [55, 100]]
+      blur_rel: [[0.0, 0.09], [0.05, 0.09]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 8.0], [4.0, 8.0]]
+      shot: [0.0, 0.03]
+      jpeg_q: [40, 95]
+      contrast: [[65, 255], [65, 130]]
+      persp: [0.0, 0.15]
+      light: [0.0, 0.35]
+      tilt_deg: [0.0, 0.3]
+    p: { blur: 0.85, motion: 0.1, jpeg: 0.4, persp: 0.3, light: 0.35, subpixel: 0.2, dark: 0.25, tint: 0.3, sliver_v: 0.25, sliver_h: 0.2, rule: 0.2, resample: 0.6, resample2: 0.3 }
