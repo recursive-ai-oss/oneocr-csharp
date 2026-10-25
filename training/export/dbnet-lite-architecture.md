@@ -142,6 +142,54 @@ to trust blindly on pages with little text).
 The layout threshold and expansion were picked on DocLayNet validation pages; the text values are the training-geometry defaults.
 Both text expansions were reported on the benchmark pages, which were not used to select anything.
 
+## Proposed: per-line angle and rotated line boxes (post-processing only)
+
+Why: on phone photos one page skew leaves many lines tilted (perspective), and a tilted line read as an upright crop is the largest
+remaining page error. The text map already carries each line's angle, because its training targets are oriented rectangles. No new
+layer, no new tensor, no retraining; this is a replacement for step 3-4 of *Text lines* when a component qualifies.
+
+Measured on the bench-v2 pages with the 0.2.0 detector (`eval.quad_diag`; angle from the map compared with a least-squares line
+through the truth word centres of the same line; absolute error in degrees):
+
+| set | angle source | median | p90 | p99 | within 0.5 deg |
+|---|---|---|---|---|---|
+| phone, 931 lines | this method | 0.07 | 0.33 | 0.83 | 95 % |
+| phone | the single page skew removed today | 0.23 | 0.92 | 1.79 | 73 % |
+| degraded, 885 lines | this method | 0.08 | 0.33 | 0.84 | 95 % |
+| degraded | page skew | 0.07 | 0.35 | 0.71 | 96 % |
+
+**Method** (per text component, on its cells; cell (i, j) is column i, row j of the stride-2 map, y down):
+1. *Qualify.* The component has at least 40 cells and its cell-index extent along x is at least 8 times its extent along y
+   (`(maxCol - minCol + 1) >= 8 * (maxRow - minRow + 1)`). This is the set that was validated (long, thin components); anything
+   else keeps the axis-aligned rule above. A component that fails is a short line, a stamp or a blob, where an angle is not
+   defined well (a near-square cell set has no principal axis). Engineers may replace the test by an eigenvalue ratio, but must
+   re-check it on phone and degraded (it was not measured).
+2. *Moments, exactly.* With n cells and integer cell coordinates (x = i, y = j), compute the integer sums
+   Sx, Sy, Sxx, Syy, Sxy in 64-bit integers, then the exact integers
+   `a = n * Sxx - Sx * Sx - (n * Syy - Sy * Sy)` and `b = 2 * (n * Sxy - Sx * Sy)`.
+   (These are n^2 times the covariance difference and twice the covariance; the scale cancels.) Integers keep the result
+   identical on every path.
+3. *Direction without trigonometry.* `r = sqrt(a * a + b * b)` (double; if r = 0 the component is not qualified). With
+   `c2 = a / r` (cos 2 theta) and `s2 = b / r` (sin 2 theta): `cos = sqrt((1 + c2) / 2)`, `sin = copysign(sqrt((1 - c2) / 2), s2)`.
+   Only IEEE `+ - * / sqrt` appear, so no library trigonometry is needed. The axis `u = (cos, sin)` is the line direction with
+   |theta| <= 90 deg and, because the component qualified, in practice |theta| < 20 deg; `v = (-sin, cos)` points down the line's
+   height. Positive theta is clockwise on screen (y down). Reference: `eval.quad_diag` takes the principal axis of the cell
+   coordinates by an eigen decomposition and `atan2`; the two agree to 3e-13 degrees on 2,000 random lines (checked).
+4. *Rotated rectangle.* Project the four corners of every cell (corner coordinates `2 * i`, `2 * (i + 1)`, likewise for j) on `u` and `v`:
+   `u0, u1, v0, v1` = min and max. Core length `L = u1 - u0`, core height `c = v1 - v0`. At theta = 0 this is exactly the axis-aligned
+   core of step 3 above. Grow each side by `d = (0.3 / (1 - 2 * 0.3)) * c * text_expand`, as step 4 does, along both axes.
+5. *Quad.* Corners in order top-left, top-right, bottom-right, bottom-left, in the input frame:
+   `p = (u0 - d) * u + (v0 - d) * v` and the three others from `u1 + d`, `v1 + d`; divide by the pre-processing scale `s`. The
+   axis-aligned bounding box of the quad replaces the old box wherever a box is still needed (reading order, page model `bounds`).
+6. *Page model.* The quad goes in the line's optional `quad` member (the page model already has it for rotated text); the angle
+   is `atan2(u.y, u.x)` rounded as other page-model numbers.
+
+Not validated and to be decided on the gate by whoever builds it: whether the page-level skew straightening is still run first
+(the residual per-line angle after it is smaller and equally measurable) or replaced by the line quads; how the recognizer crop is
+resampled from the quad (rotate about the quad centre by minus theta, then the usual height-32 resize with the usual padding); and
+components that merge two touching lines (they get one angle; the diagnosis found none among the 1,816 single-line comparisons,
+but that count excluded any it would have skipped as multi-line, and zero were skipped).
+
 ## Numeric notes for the C# kernels
 
 - Depthwise 3x3 (stride 1 and 2) is new relative to the recognizer's kernels: per channel, 9 taps in (ky, kx) order, FMA, same
