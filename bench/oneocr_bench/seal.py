@@ -214,6 +214,9 @@ def add_real(a) -> None:
     """Add the real-sourced sets (screenshot from --web, the PDF sets from --pdf) to a sealed tree and rewrite SEALED.json and
     SHA256SUMS. Every file of the original sets keeps its hash; the old SHA256SUMS digest is recorded."""
     root = Path(a.root).expanduser()
+    for n, src in ((("screenshot-real", a.web), *((k, a.pdf and f"{a.pdf}/{k}") for k in ("clean-real", "layout-real", "degraded-real")))):
+        if src and (Path(src).expanduser() / "pages").is_dir():
+            sets.sanity(n, Path(src).expanduser())  # a bad truth stops here, before the sealed tree is touched
     old_sums = (root / "SHA256SUMS").read_text()
     old_digest = hashlib.sha256(old_sums.encode()).hexdigest()
     _unlock(root)
@@ -225,17 +228,22 @@ def add_real(a) -> None:
         if src is None or not (src / "pages").is_dir():
             continue
         if (root / n).exists():
-            raise SystemExit(f"{n} already in the sealed tree")
+            if not a.replace:
+                raise SystemExit(f"{n} already in the sealed tree (--replace swaps a real-sourced set)")
+            shutil.rmtree(root / n)
         shutil.copytree(src, root / n, ignore=shutil.ignore_patterns("page.html"))
         pages = len(list((root / n / "pages").iterdir()))
         meta["sets"][n] = {"pages": pages, **REAL_KINDS[n], "real_images": False, "real_sourced": True}
         print(f"{n}: {pages} pages added")
     meta["no_real_source"] = NO_REAL_SOURCE
-    meta["real_sets_added"] = {"previous_sha256sums_digest": old_digest}
+    prev = meta.get("real_sets_added", {})
+    history = prev.get("previous_sha256sums_digests") or ([prev["previous_sha256sums_digest"]] if "previous_sha256sums_digest" in prev else [])
+    meta["real_sets_added"] = {"previous_sha256sums_digests": [*history, old_digest]}
     (root / "SEALED.json").write_text(json.dumps(meta, indent=1) + "\n")
     digest = write_sums(root)
     new_lines = set((root / "SHA256SUMS").read_text().splitlines())
-    kept = [ln for ln in old_sums.splitlines() if ln.split("  ", 1)[1] != "SEALED.json"]
+    originals = tuple(f"{n}/" for n in sets.SETS)
+    kept = [ln for ln in old_sums.splitlines() if ln.split("  ", 1)[1].startswith(originals)]
     if not set(kept) <= new_lines:
         raise SystemExit("a file of the original sets changed")
     lock(root)

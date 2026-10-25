@@ -216,6 +216,8 @@ def judge(path: Path, page: int, truth_page: dict) -> tuple[dict | None, str, di
         return None, "no text", info
     if len(raw) < 150:
         return None, "too few words", info
+    if any(w["b"][2] - w["b"][0] < 1.0 or w["b"][3] - w["b"][1] < 2.0 for w in raw):
+        return None, "degenerate word box", info
     if any(BAD_CHARS.search(w["t"]) for w in raw):
         return None, "replacement, private-use or control characters", info
     if truth_page.get("error"):

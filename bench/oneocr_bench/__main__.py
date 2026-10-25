@@ -28,6 +28,7 @@ def main() -> None:
     sl = sub.add_parser("seal", help="cut or verify a sealed page set (all six categories, seeds from a private file)")
     sl.add_argument("action", choices=["build", "verify", "add-real"])
     sl.add_argument("--web", help="add-real: directory of the real screenshot set (pages/, truth/)")
+    sl.add_argument("--replace", action="store_true", help="add-real: swap sets that are already in the tree (real-sourced sets only)")
     sl.add_argument("--pdf", help="add-real: directory holding clean-real, layout-real, degraded-real")
     sl.add_argument("root", help="sealed eval root: <set>/pages, <set>/truth, SHA256SUMS")
     sl.add_argument("--seeds", help="build: JSON file {set: seed}, kept outside the repository")
