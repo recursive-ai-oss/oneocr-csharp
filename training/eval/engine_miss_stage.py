@@ -48,7 +48,13 @@ def main() -> None:
                 iy = max(0.0, min(tb[i, 3], hb[j, 3]) - max(tb[i, 1], hb[j, 1]))
                 if ix * iy > 0:
                     near.append((h.get("text", ""), round(float(h.get("conf", 1.0)), 2)))
-            c = "no recognised box touches it" if not near else "a box touches it but covers less than the share"
+            same = [t for t, _ in near if t.strip() == w["text"].strip()]
+            if not near:
+                c = "no recognised box touches it"
+            elif same:
+                c = "a touching box reads the word exactly (box smaller than the truth box)"
+            else:
+                c = "touching boxes read something else"
             cases[c] += 1
             cases1[c] += one
             if len(ex) < a.examples and one and near:
