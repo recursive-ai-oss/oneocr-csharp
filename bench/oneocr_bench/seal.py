@@ -158,7 +158,10 @@ def verify(a) -> None:
                 w = line.split()
                 for i in range(len(w) - 7):
                     new_windows.add(" ".join(w[i : i + 8]))
-        reused = len(new_windows & old_windows)
+        shared = new_windows & old_windows
+        # a run with digits is a generated figure line (dates, amounts, item counts) that two seeds can draw alike;
+        # a digit-free run in a prose set would be a repeated passage
+        reused = sum(1 for k in shared if not any(c.isdigit() for c in k)) if n in PROSE_SETS else len(shared)
         same_pages = sum(1 for rel, h in listed.items() if rel.startswith(f"{n}/pages/") and h in old_hashes)
         # screens and layouts reuse fixed interface and form wording by design; only prose sets must not repeat passages
         if (reused and n in PROSE_SETS) or same_pages:
