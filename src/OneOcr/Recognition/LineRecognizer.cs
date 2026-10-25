@@ -26,11 +26,22 @@ public sealed class LineRecognizer
     private readonly OcrLimits _limits;
     private readonly BufferPool<float> _pool;
     private readonly bool[] _isSpace;
+    private WordPlausibility? _words;
 
     /// <summary>The scratch pool of this recognizer, for a page detector to share (it is thread-safe).</summary>
     internal BufferPool<float> ScratchPool => _pool;
 
     internal KernelPath UsedPath => _path;
+
+    internal bool HasWordModel => _words is not null;
+
+    /// <summary>A recognizer that shares this one's weights and buffers and lets <paramref name="words"/> judge word breaks (null: pixels only).</summary>
+    internal LineRecognizer WithWordModel(WordPlausibility? words)
+    {
+        var copy = (LineRecognizer)MemberwiseClone();
+        copy._words = words;
+        return copy;
+    }
 
     internal LineRecognizer(CrnnModel model, OcrLimits limits, KernelPath path)
     {
@@ -432,6 +443,101 @@ public sealed class LineRecognizer
         }
 
         return new LineWords(line.Text, line.Confidence, words);
+    }
+
+    /// <summary>
+    /// Re-decides where the spaces of a line go from its pixels (see <see cref="WordSegmenter"/>): words the network cut across
+    /// continuous ink are joined and words it fused across an empty stretch are cut. The characters are untouched. Returns
+    /// <paramref name="line"/> itself when nothing changes. The line needs its per-character lists.
+    /// </summary>
+    internal LineWords Resegment(LineWords line, ReadOnlySpan<byte> gray, int width, int height)
+    {
+        int n = 0;
+        foreach (RecognizedWord w in line.Words)
+        {
+            n += w.Chars.Count;
+            if (w.Chars.Count != w.Characters)
+            {
+                return line;
+            }
+        }
+
+        if (n < 2)
+        {
+            return line;
+        }
+
+        var chars = new List<RecognizedChar>(n);
+        var wasSpace = new bool[n - 1];
+        foreach (RecognizedWord w in line.Words)
+        {
+            if (chars.Count > 0)
+            {
+                wasSpace[chars.Count - 1] = true;
+            }
+
+            chars.AddRange(w.Chars);
+        }
+
+        bool[]? plan = WordSegmenter.Plan(chars, wasSpace, gray, width, height, _words);
+        if (plan is null)
+        {
+            return line;
+        }
+
+        var words = new List<RecognizedWord>(line.Words.Count + 2);
+        int original = 0, originalStart = 0;
+        int first = 0;
+        for (int i = 0; i < n; i++)
+        {
+            if (i < n - 1 && !plan[i])
+            {
+                continue;
+            }
+
+            // chars[first..i] is one word. It is kept as it was when it is exactly one of the network's words.
+            while (original < line.Words.Count && originalStart + line.Words[original].Chars.Count <= first)
+            {
+                originalStart += line.Words[original].Chars.Count;
+                original++;
+            }
+
+            if (original < line.Words.Count && originalStart == first && line.Words[original].Chars.Count == i - first + 1)
+            {
+                words.Add(line.Words[original]);
+            }
+            else
+            {
+                words.Add(BuildWord(chars, first, i));
+            }
+
+            first = i + 1;
+        }
+
+        return new LineWords(line.Text, line.RawConfidence, words);
+    }
+
+    // A word from the characters first..last of a line, with the edges of SplitWords: halfway across the gap to a neighbouring
+    // character, the line's own first and last edge at the ends.
+    private RecognizedWord BuildWord(List<RecognizedChar> chars, int first, int last)
+    {
+        var text = new StringBuilder();
+        float total = 0f;
+        var list = new List<RecognizedChar>(last - first + 1);
+        for (int k = first; k <= last; k++)
+        {
+            text.Append(chars[k].Text);
+            total += chars[k].Probability;
+            list.Add(chars[k]);
+        }
+
+        double left = first == 0 ? chars[first].X0 : (chars[first - 1].X1 + chars[first].X0) / 2.0;
+        double right = last == chars.Count - 1 ? chars[last].X1 : (chars[last].X1 + chars[last + 1].X0) / 2.0;
+        string word = text.ToString();
+        float raw = total / (last - first + 1);
+        OcrScript script = ScriptDetector.Of(word);
+        float calibrated = _model.Calibration is { } c ? c.Apply(script, raw) : raw;
+        return new RecognizedWord(word, (float)left, (float)right, calibrated, raw, script, last - first + 1, list);
     }
 
     // Greedy CTC (Graves et al. 2006, sec. 3.1): arg-max per step (lowest index on ties), merge repeats, drop blanks. A run is

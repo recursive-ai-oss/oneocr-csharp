@@ -75,3 +75,10 @@ over the file, and that the bytes of a table are present. Violations are `OcrLim
 
 The model shipped with the recognizer (order 4, minimum counts 1, 3, 4, 6; the 187 training books, case-folded) is 1.42 MB: latin 1,015,999 bytes
 (130 characters), greek 301,157 bytes (57), cyrillic 104,747 bytes (57).
+
+## Use for word breaks
+
+Besides ranking beam-search prefixes, the model judges whether two neighbouring words are really one: `docs/spec/oneocr-page-v1.md`,
+"Word segmentation", compares the word score of the joined letters with the sum of the two pieces' scores. The shipped file is a
+SHA-256-pinned asset of the models package (role `language-model`).
+

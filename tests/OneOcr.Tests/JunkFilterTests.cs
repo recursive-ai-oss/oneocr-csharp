@@ -94,4 +94,30 @@ public class JunkFilterTests
         Assert.Equal(["-"], strips[4]!.Words.Select(w => w.Text));
         Assert.Equal(["ok"], strips[5]!.Words.Select(w => w.Text));
     }
+
+    [Fact]
+    public void DotsAndTicksAreDroppedOnPagesThatHaveSeveral()
+    {
+        List<OrderStrip?> list = Body();
+        list.Add(Strip(200, 20, (".", 0.3f), ("word", 0.99f), ("'", 0.5f)));
+        list.Add(Strip(240, 20, ("..", 0.2f), ("-", 0.2f), ("\u00B7", 0.4f), (".", 0.95f)));
+        OrderStrip?[] strips = [.. list];
+
+        // Three dots and ticks are unsure; the dash and the middle dot are words of their own, and a confident dot stays.
+        Assert.Equal(3, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Equal(["word"], strips[4]!.Words.Select(w => w.Text));
+        Assert.Equal(["-", "\u00B7", "."], strips[5]!.Words.Select(w => w.Text));
+    }
+
+    [Fact]
+    public void DotsAndTicksStayOnPagesThatHaveFewOfThem()
+    {
+        List<OrderStrip?> list = Body();
+        list.Add(Strip(200, 20, (".", 0.3f), ("word", 0.99f), ("'", 0.5f)));
+        OrderStrip?[] strips = [.. list];
+
+        Assert.Equal(0, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Equal(3, strips[4]!.Words.Count);
+        Assert.Equal(2, JunkFilter.Apply(strips, new JunkParameters(SpeckPageMin: 2)));
+    }
 }

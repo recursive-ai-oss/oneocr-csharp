@@ -1,0 +1,170 @@
+using OneOcr.Decoding;
+using OneOcr.Recognition;
+
+namespace OneOcr.Tests;
+
+/// <summary>Word breaks from the line's pixels: numbers and dates are joined, wide empty stretches are cut, letter-spaced print is left alone.</summary>
+public class WordSegmenterTests
+{
+    [Theory]
+    [InlineData("£96,", "221.95", true)]
+    [InlineData("$40,", "181.65", true)]
+    [InlineData("1,234,", "567", true)]
+    [InlineData("16,0", "80.65", true)]
+    [InlineData("2014-", "02-15.", true)]
+    [InlineData("24/07", "/2010.", true)]
+    [InlineData("total:", "1,000", false)]
+    [InlineData("1,", "2345", false)]
+    [InlineData("on", "5", false)]
+    [InlineData("5", "3", false)]
+    [InlineData("order", "-12", false)]
+    [InlineData("Invoice", "12", false)]
+    [InlineData("12,345", "6", false)]
+    public void NumbersAndDatesAreJoinedOnlyWhenTheyAreHalvesOfOne(string left, string right, bool joined) =>
+        Assert.Equal(joined, WordSegmenter.JoinsNumber(left, right));
+
+    // A line image 32 pixels high, white with black blocks at the given [from, to] column ranges.
+    private static byte[] Image(int width, params (int From, int To)[] ink)
+    {
+        var pixels = new byte[width * 32];
+        Array.Fill(pixels, (byte)255);
+        foreach ((int from, int to) in ink)
+        {
+            for (int y = 8; y < 24; y++)
+            {
+                for (int x = from; x <= to; x++)
+                {
+                    pixels[(y * width) + x] = 0;
+                }
+            }
+        }
+
+        return pixels;
+    }
+
+    // One character per ink block, with the block as its extent.
+    private static List<RecognizedChar> Chars(string text, params (int From, int To)[] ink) =>
+        [.. text.Select((c, i) => new RecognizedChar(c.ToString(), ink[i].From, ink[i].To + 1, 1f))];
+
+    [Fact]
+    public void ASpaceInsideAThousandsGroupIsTakenOutWhenTheInkIsClose()
+    {
+        (int, int)[] ink = [(5, 12), (15, 17), (22, 29), (32, 39), (42, 49)];
+        bool[] was = [false, true, false, false];
+
+        bool[]? plan = WordSegmenter.Plan(Chars("1,234", ink), was, Image(60, ink), 60, 32, null);
+
+        Assert.NotNull(plan);
+        Assert.All(plan!, b => Assert.False(b));
+    }
+
+    [Fact]
+    public void TheSameSpaceStaysWhenTheStretchIsAsWideAsAWordGap()
+    {
+        (int, int)[] ink = [(5, 12), (15, 17), (30, 37), (40, 47), (50, 57)];
+
+        Assert.Null(WordSegmenter.Plan(Chars("1,234", ink), [false, true, false, false], Image(70, ink), 70, 32, null));
+    }
+
+    [Fact]
+    public void ASpaceBetweenDigitsThatAreNotAGroupStays()
+    {
+        (int, int)[] ink = [(5, 12), (15, 22), (25, 27), (30, 37), (40, 47)];
+
+        Assert.Null(WordSegmenter.Plan(Chars("12,34", ink), [false, false, true, false], Image(60, ink), 60, 32, null));
+    }
+
+    [Fact]
+    public void AWideEmptyStretchInsideAWordBecomesASpace()
+    {
+        (int, int)[] ink = [(5, 12), (15, 22), (45, 52), (55, 62), (65, 72)];
+
+        bool[]? plan = WordSegmenter.Plan(Chars("Iagre", ink), [false, false, false, false], Image(80, ink), 80, 32, null);
+
+        Assert.NotNull(plan);
+        Assert.Equal([false, true, false, false], plan!);
+    }
+
+    [Fact]
+    public void LetterSpacedPrintIsNotCut()
+    {
+        // Every letter gap is 10 pixels, as in spaced capitals; none stands out.
+        (int, int)[] ink = [(5, 12), (23, 30), (41, 48), (59, 66), (77, 84)];
+
+        Assert.Null(WordSegmenter.Plan(Chars("TOTAL", ink), [false, false, false, false], Image(90, ink), 90, 32, null));
+    }
+
+    [Fact]
+    public void AStretchThatANetworkSpaceAccountsForIsNotACut()
+    {
+        (int, int)[] ink = [(5, 12), (15, 22), (45, 52), (55, 62)];
+
+        Assert.Null(WordSegmenter.Plan(Chars("abcd", ink), [false, true, false], Image(70, ink), 70, 32, null));
+    }
+
+    [Fact]
+    public void NumbersAreNeverCutBetweenDigits()
+    {
+        (int, int)[] ink = [(5, 12), (15, 22), (45, 52), (55, 62)];
+
+        Assert.Null(WordSegmenter.Plan(Chars("1234", ink), [false, false, false], Image(70, ink), 70, 32, null));
+    }
+
+    [Fact]
+    public void FaintLinesAreLeftAsRead()
+    {
+        (int, int)[] ink = [(5, 12), (15, 22), (45, 52), (55, 62)];
+        byte[] image = Image(70, ink);
+        for (int i = 0; i < image.Length; i++)
+        {
+            image[i] = (byte)(200 + (image[i] / 8)); // contrast under the floor
+        }
+
+        Assert.Null(WordSegmenter.Plan(Chars("abcd", ink), [false, false, false], image, 70, 32, null));
+    }
+
+    [Fact]
+    public void AnImageShorterThanItsSizeGivesNoPlan() =>
+        Assert.Null(WordSegmenter.Plan(Chars("ab", (1, 2), (5, 6)), [false], new byte[10], 70, 32, null));
+
+    private static WordPlausibility Words() =>
+        new(CharLanguageModel.Parse(TestLm.Build("test", ["a", "b", "c", "d"], [.. Enumerable.Repeat("abcd", 20), .. Enumerable.Repeat("dcba", 20)], order: 4)));
+
+    [Fact]
+    public void TheWordModelScoresWordsLikeItsTrainingWordsHigher()
+    {
+        WordPlausibility words = Words();
+
+        Assert.True(words.Score("abcd") > words.Score("abdc"));
+        Assert.True(words.Score("abcd") > words.Score("ab") + words.Score("cd"));
+        Assert.Null(words.Score("ab1"));
+        Assert.Null(words.Score("abz"));
+        Assert.Null(words.Score(""));
+    }
+
+    [Fact]
+    public void ASpaceBetweenFragmentsOfAWordIsTakenOutWhenTheModelPrefersTheJoinedWord()
+    {
+        (int, int)[] ink = [(5, 12), (15, 22), (25, 32), (35, 42)];
+        byte[] image = Image(50, ink);
+
+        bool[]? plan = WordSegmenter.Plan(Chars("abcd", ink), [false, true, false], image, 50, 32, Words());
+        Assert.NotNull(plan);
+        Assert.All(plan!, b => Assert.False(b));
+
+        // Without the model there is no evidence that the fragments belong together.
+        Assert.Null(WordSegmenter.Plan(Chars("abcd", ink), [false, true, false], image, 50, 32, null));
+    }
+
+    [Fact]
+    public void CapitalsInsideAPieceKeepTheModelOut()
+    {
+        (int, int)[] ink = [(5, 12), (15, 22), (25, 32), (35, 42)];
+        var chars = new List<RecognizedChar>
+        {
+            new("a", 5, 13, 1f), new("b", 15, 23, 1f), new("C", 25, 33, 1f), new("D", 35, 43, 1f),
+        };
+
+        Assert.Null(WordSegmenter.Plan(chars, [false, true, false], Image(50, ink), 50, 32, Words()));
+    }
+}

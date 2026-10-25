@@ -8,6 +8,8 @@ namespace OneOcr.Layout;
 /// <param name="TinyHeight">Lines under this many pixels (and under the relative limit) are specks, not text: their words need <paramref name="TinyConfidence"/> to stay.</param>
 /// <param name="TinyConfidence">The confidence a word in a tiny line needs to be kept.</param>
 /// <param name="MinAnchorLines">Pages with fewer reference lines are left alone: there is no text to be small against.</param>
+/// <param name="SpeckPageMin">Dots and ticks are only dropped on a page with at least this many of them: a dusty page has many, a clean page has none or a stray one.</param>
+/// <param name="SpeckConfidence">A word made only of dots, commas, quotes, colons and similar marks is a speck read as text when its confidence is below this. 0 turns the rule off.</param>
 internal sealed record JunkParameters(
     float MaxConfidence = 0.5f,
     double RelativeHeight = 0.6,
@@ -15,7 +17,9 @@ internal sealed record JunkParameters(
     float AnchorConfidence = 0.9f,
     int MinAnchorLines = 3,
     int TinyHeight = 8,
-    float TinyConfidence = 0.99f);
+    float TinyConfidence = 0.99f,
+    float SpeckConfidence = 0.9f,
+    int SpeckPageMin = 3);
 
 /// <summary>
 /// Removes detections that are noise read as text: specks, scan grain and edges that the detector cut as tiny lines and the
@@ -25,10 +29,98 @@ internal sealed record JunkParameters(
 internal static class JunkFilter
 {
     /// <summary>
-    /// Drops the unsure words of small lines from <paramref name="strips"/> (entries become null when no word is left) and returns
-    /// how many words were dropped. The reference height is the median ink height of the lines that were read with high confidence.
+    /// Drops noise words from <paramref name="strips"/>: the unsure words of small lines, and lone dots and ticks that are unsure.
+    /// Entries become null when no word is left. Returns how many words were dropped.
     /// </summary>
     public static int Apply(OrderStrip?[] strips, JunkParameters p)
+    {
+        int dropped = DropSmall(strips, p);
+        if (p.SpeckConfidence > 0)
+        {
+            dropped += DropSpecks(strips, p.SpeckConfidence, p.SpeckPageMin);
+        }
+
+        return dropped;
+    }
+
+    // Dust, grain and stray ink are read as dots and ticks. Such a mark on its own is a word to the layout and to the text, and it
+    // is nearly never one in the truth: a real full stop or comma is read with its word. Dashes, bullets and separators such as
+    // the middle dot are not in the set, since they are words of their own on real pages.
+    private static int DropSpecks(OrderStrip?[] strips, float below, int pageMin)
+    {
+        int found = 0;
+        foreach (OrderStrip? s in strips)
+        {
+            if (s is not null)
+            {
+                foreach (OcrWord w in s.Words)
+                {
+                    found += w.Confidence < below && IsSpeck(w.Text) ? 1 : 0;
+                }
+            }
+        }
+
+        if (found < pageMin)
+        {
+            return 0;
+        }
+
+        int dropped = 0;
+        for (int i = 0; i < strips.Length; i++)
+        {
+            OrderStrip? s = strips[i];
+            if (s is null)
+            {
+                continue;
+            }
+
+            List<OcrWord>? kept = null;
+            for (int k = 0; k < s.Words.Count; k++)
+            {
+                OcrWord w = s.Words[k];
+                if (w.Confidence < below && IsSpeck(w.Text))
+                {
+                    kept ??= new List<OcrWord>(s.Words.Take(k));
+                    dropped++;
+                }
+                else
+                {
+                    kept?.Add(w);
+                }
+            }
+
+            if (kept is not null)
+            {
+                strips[i] = kept.Count == 0 ? null : new OrderStrip { Leaf = s.Leaf, Box = s.Box, Size = s.Size, Words = kept };
+            }
+        }
+
+        return dropped;
+    }
+
+    private const string SpeckMarks = ".,:;'\"`\u00B4\u2018\u2019\u201C\u201D";
+
+    private static bool IsSpeck(string text)
+    {
+        if (text.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (char c in text)
+        {
+            if (!SpeckMarks.Contains(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Drops the unsure words of small lines (entries become null when no word is left). The reference height is the median ink
+    // height of the lines that were read with high confidence.
+    private static int DropSmall(OrderStrip?[] strips, JunkParameters p)
     {
         var anchors = new List<int>();
         foreach (OrderStrip? s in strips)

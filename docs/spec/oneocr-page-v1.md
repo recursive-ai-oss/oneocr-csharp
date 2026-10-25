@@ -150,28 +150,86 @@ of PDF fragments:
 Word boxes are the ink extent inside the horizontal range the recognizer aligned the word to. Character boxes tile that
 range by the alignment of the network's output and carry `approximate: true`.
 
+## Word segmentation
+
+The recognizer emits a space class where it believes there is a gap, and it is wrong in both directions: it cuts words
+(`immedi ately`, `$40, 181.65`, `2014- 02-15.`) where the ink is continuous, and it fuses words (`Iagree`) across an empty stretch.
+After a line is read and before its words get boxes, the reader re-decides the spaces from the line image. Only spaces change:
+every character, its probability and its extent stay as the network gave them, so numbers, amounts, dates and addresses keep
+exactly the characters that were read. A word whose characters do not change keeps its edges and confidence; a word made by
+joining or cutting gets text from the characters, edges halfway across the neighbouring gaps (the line's ends where the network
+first and last fired), and a raw confidence that is the mean of its characters' probabilities (calibrated as any word).
+
+**Evidence.** The scaled line image (the recognizer's input, 32 rows) gives the ink columns: the line's background is the median
+pixel value; `top` is the 99.5th percentile of the distance from it; a pixel is ink when its distance exceeds `(top + 1) / 2`, and
+a column is ink when any pixel in it is. A line whose `top` is under `MinContrast` (64) is left as read. An *empty stretch* is a
+maximal run of non-ink columns with ink on both sides (the margins are not stretches). A stretch belongs to a pair of neighbouring
+characters when it touches the span between the two characters' centres (a character's run of steps is not always inside its
+glyph); `widest[p]` is the widest stretch touching pair `p`.
+
+**Taking a space out.** A space the network emitted after character `p` is removed when `widest[p]` is small and one of:
+
+1. *Number or date* (`widest[p] <= NumberGap` = 6): the two words are the halves of one number. The left word ends in a number
+   (its longest suffix of digits, `,` `.` `/` `:` `-`, from its first digit) and the right word begins with a digit or a date
+   separator, and either (a) the left number ends in `,` after `1-3 digits (,3 digits)*` and the right word begins with exactly
+   three digits (`$40,` `181.65`); (b) the left number's last comma group has one or two digits and the right word begins with
+   exactly the digits that complete three (`16,0` `80.65`); (c) the left number is only digits and `/ - : .` with at least two
+   digits and ends in `/` or `-`, and the right word begins with a digit (`2014-` `02-15.`); (d) the left number holds a `/` or
+   `-` and the right word begins with `/` or `-` followed by a digit (`24/07` `/2010.`).
+2. *Letters* (`widest[p] <= ModelGap` = 5, only when the engine has a word model): the left word ends and the right word begins
+   with a letter; with their outer non-letters set aside, neither piece has an upper-case letter other than the first letter of
+   the left piece (capitals inside mark codes, abbreviations and headings, which the model cannot judge); when the line has at
+   least `MinSpacesForGap` (4) network spaces, `widest[p]` is also at most `ModelRatio` (0.6) times the median stretch at those
+   spaces; and `Score(joined) - (Score(left) + Score(right)) >= ModelMargin` (2.0 nats), where `Score` is the word score of the
+   character model below. A piece the model has no score for (digits, code symbols, letters outside the script) never joins.
+
+**Putting a space in.** A stretch that no network space accounts for (no pair it touches has a network space) becomes a space at
+the pair it overlaps most when its width is at least `max(SplitGap, SplitRatio x letterGap)` (`SplitGap` = 9 pixels,
+`SplitRatio` = 3.5, `letterGap` the median `widest` over the line's pairs inside words, so letter-spaced print is not cut) and
+the two characters may be separated: both sides are letters, digits or marks that can end or start a word (a closing mark `. , ; :
+! ? ) ] } % ' " » …` and its quotes may end a word, a currency sign or an opening bracket or quote may start one),
+not two digits, not a point or comma that follows a digit, and not inside a word that contains `@` or `//`.
+
+**Word score.** `Score(letters)` (letters only) is the sum, over each letter and the word end, of the character model's
+`LogProb(context, symbol) - MeanLogProb` floored at the decoder's floor (-1), with the case-folded symbols of the script that
+covers the most of the word's letters (the first on ties; no score when it does not cover all of them) and the word start as the
+first context symbol, as in `decoding.md`, in `double` in that order. A typical word scores about zero. The word model is the
+model file that ships with the models package (`charlm-v1`); an engine without one skips rule 2 above and nothing else.
+
+The parameters were chosen on pages that are not part of the benchmark sets (a degraded-scan set and a screenshot set rendered
+with new seeds). `OcrOptions.FixWordSpacing = false` turns the whole step off. Pages from a PDF text layer or an LLM are not
+re-segmented.
+
 ## Noise filter
 
 Before lines are arranged, the reader drops detections that are noise read as text: specks, scan grain and edges that were cut as
-tiny lines and read as a few unsure characters. The rule works on the recognized strips (one strip is one detected line, its
-height is the height of its ink box):
+tiny lines and read as a few unsure characters, and lone dots and ticks. Two rules work on the recognized strips (one strip is
+one detected line, its height is the height of its ink box).
+
+*Small unsure words:*
 
 1. A strip is a reference line when the mean calibrated confidence of its words is at least `AnchorConfidence`. The reference
    height is the median ink height of the reference lines. With fewer than `MinAnchorLines` reference lines the page is left
    alone: there is no text to be small against.
-2. A strip is small when its height is under `min(RelativeHeight × reference, MaxHeight)` pixels. Small is relative to the
+2. A strip is small when its height is under `min(RelativeHeight x reference, MaxHeight)` pixels. Small is relative to the
    page's own text, so a page set entirely in small type keeps everything; the pixel limit keeps proportionally small text on
    high-resolution pages.
 3. In a small strip every word whose calibrated confidence is under `MaxConfidence` is dropped. In a tiny strip (height under
-   `min(RelativeHeight × reference, TinyHeight)`: specks and grain a few pixels high) the bar is `TinyConfidence` instead,
+   `min(RelativeHeight x reference, TinyHeight)`: specks and grain a few pixels high) the bar is `TinyConfidence` instead,
    because such strips hold no real text but the recognizer reads a lone punctuation mark in them with middling confidence. A strip
-   left with no words is dropped. Words in other strips are never touched, whatever their confidence.
+   left with no words is dropped. Words in other strips are never touched by this rule, whatever their confidence.
+
+*Dots and ticks* (after the first rule, in strips of any height): a word made only of the characters . , : ; ' " ` ´ ‘ ’ “ ” (a
+speck read as a mark) is dropped when its calibrated confidence is under `SpeckConfidence`, but only on a page that has at least
+`SpeckPageMin` such words: dust comes in numbers, while a clean page has none or a stray one, and the stray one may be a real mark.
+Dashes, bullets, middle dots and other separators are words of their own on real pages and are never dropped by this rule.
 
 The parameters are `MaxConfidence` = 0.5, `RelativeHeight` = 0.6, `MaxHeight` = 12 px, `TinyHeight` = 8 px, `TinyConfidence` = 0.99,
-`AnchorConfidence` = 0.9, `MinAnchorLines` = 3. They were chosen on pages that are not part of the benchmark sets: a degraded-scan
-set and a screenshot set rendered with new seeds, and the validation split of the generated page set. The dropped words never
-reach reading order, tables, `text` or the JSON; the page gets one diagnostic stating how many words were dropped.
-`OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM are not filtered.
+`AnchorConfidence` = 0.9, `MinAnchorLines` = 3, `SpeckConfidence` = 0.9, `SpeckPageMin` = 3. They were chosen on pages that are
+not part of the benchmark sets: a degraded-scan set and a screenshot set rendered with new seeds, and the validation split of the
+generated page set. The dropped words never reach reading order, tables, `text` or the JSON; the page gets one diagnostic stating
+how many words were dropped. `OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM are not
+filtered.
 
 ## Compatibility
 

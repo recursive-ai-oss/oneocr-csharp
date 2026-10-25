@@ -102,6 +102,20 @@ public sealed class OcrEngine
     public OcrEngine WithDetector(Stream detectorModel, OcrLimits? limits = null) =>
         WithDetector(ModelContainer.Load(detectorModel, limits ?? _limits), Dispatch.Best);
 
+    /// <summary>Whether this engine has a word model that helps decide where the spaces of a line go (see <see cref="WithWordModel"/>).</summary>
+    public bool HasWordModel => _recognizer.HasWordModel;
+
+    /// <summary>
+    /// An engine that shares this one's models and uses <paramref name="model"/>, a character language model, to decide whether the
+    /// network's space between two letters is real: when the empty stretch there is narrow and the letters read much more like one
+    /// word than like two ("immedi ately"), the space is taken out. Only page methods with <see cref="OcrOptions.FixWordSpacing"/> use it, and
+    /// only spaces change. <see cref="LoadBundled"/> sets the model that ships with the models package; <see langword="null"/> removes it.
+    /// </summary>
+    /// <param name="model">The model, for example from <see cref="CharLanguageModel.Load(string, OcrLimits?)"/>, or null for none.</param>
+    /// <returns>The new engine; this one is unchanged.</returns>
+    public OcrEngine WithWordModel(CharLanguageModel? model) =>
+        new(_recognizer.WithWordModel(model is null ? null : new WordPlausibility(model)), _limits, _pixels, _masks, _resizers, _decoding, _detector, _confirmTurns);
+
     /// <summary>An engine that shares this one's recognizer and has no page detector: lines come from the built-in classical finder.</summary>
     /// <returns>The new engine; this one is unchanged.</returns>
     public OcrEngine WithoutDetector() => new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, null);
@@ -131,7 +145,7 @@ public sealed class OcrEngine
     public static OcrEngine Load(Stream model, OcrLimits? limits = null) =>
         Create(ModelContainer.Load(model, limits), limits, Dispatch.Best);
 
-    /// <summary>Loads the recognizer and the page detector that ship in the models package (pinned by SHA-256; checked on every load). A build of the package without the detector file reads pages with the built-in line finder.</summary>
+    /// <summary>Loads the recognizer, the word model and the page detector that ship in the models package (pinned by SHA-256; checked on every load). A build of the package without the detector file reads pages with the built-in line finder.</summary>
     /// <param name="limits">Bounds to enforce; <see cref="OcrLimits.Default"/> when null.</param>
     /// <returns>The engine.</returns>
     /// <exception cref="OcrModelException">The package was built without its weights, or the embedded file does not match its pin.</exception>
@@ -145,6 +159,18 @@ public sealed class OcrEngine
         }
 
         OcrEngine engine = Create(ModelContainer.Parse(data, limits), limits, Dispatch.Best);
+
+        // The character model that helps place word breaks ships next to the recognizer; a build without it keeps the pixel evidence only.
+        if (BundledModels.HasLanguageModel)
+        {
+            problem = BundledModels.TryReadLanguageModel(out byte[] words);
+            if (problem is not null)
+            {
+                throw new OcrModelException(problem);
+            }
+
+            engine = engine.WithWordModel(CharLanguageModel.Parse(words, limits));
+        }
 
         // The page detector ships with the recognizer. A build of the models package without it (a development build) reads pages with
         // the classical line finder; a build with a detector that does not match its pin is an error.
@@ -172,7 +198,7 @@ public sealed class OcrEngine
 
     /// <summary>
     /// Reads the text of a clean, upright, single-column page: finds the text lines, reads each, and joins the non-empty results
-    /// top to bottom with <c>\n</c>. Within a line, spaces are whatever the recognizer produced.
+    /// top to bottom with <c>\n</c>. Within a line, spaces come from the recognizer, checked against the line's pixels (see <see cref="OcrOptions.FixWordSpacing"/>).
     /// Images are converted to 8-bit grayscale first (transparency is not composited; flatten such images yourself).
     /// </summary>
     /// <param name="image">The page.</param>
@@ -202,7 +228,7 @@ public sealed class OcrEngine
         decoding.Validate(_limits);
         if (decoding.Mode != CtcDecoding.Beam)
         {
-            return BuildPage(image, 0, null, maxDegreeOfParallelism, includeChars: false, orient: true, deskew: true, new JunkParameters(), cancellationToken).ToText();
+            return BuildPage(image, 0, null, maxDegreeOfParallelism, includeChars: false, orient: true, deskew: true, new JunkParameters(), respace: true, cancellationToken).ToText();
         }
 
         string[] texts = [];
@@ -252,10 +278,10 @@ public sealed class OcrEngine
         ArgumentNullException.ThrowIfNull(image);
         options ??= new OcrOptions();
         options.Validate();
-        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, cancellationToken);
+        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, options.FixWordSpacing, cancellationToken);
     }
 
-    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, CancellationToken cancellationToken)
+    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, CancellationToken cancellationToken)
     {
         long pixels = (long)image.Width * image.Height;
         if (pixels > _limits.MaxImagePixels)
@@ -272,7 +298,7 @@ public sealed class OcrEngine
             long t = StageClock.Start();
             image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
             StageClock.Stop("1 decode+gray copy", t);
-            return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, junk, cancellationToken);
+            return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, junk, respace, cancellationToken);
         }
         finally
         {
@@ -286,7 +312,7 @@ public sealed class OcrEngine
 
     // Turns and straightens the page (see PagePreparation), reads it, and puts the result in the frame the caller asked about.
     private OcrPage ReadPrepared(
-        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, bool orient, bool deskew, JunkParameters? junk, CancellationToken cancellationToken)
+        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, CancellationToken cancellationToken)
     {
         var evidence = new OrientationEvidence();
         PreparedPage prepared = PagePreparation.Prepare(
@@ -297,7 +323,7 @@ public sealed class OcrEngine
             PageDetection? first = prepared.Detection ?? (ReferenceEquals(prepared.Pixels, gray) ? evidence.Detection : null);
             OcrPage page = PageReader.Read(
                 _recognizer, _limits, _pixels, _masks, _resizers, _detector, prepared.Pixels, prepared.Width, prepared.Height, pageIndex, dpi, degree, includeChars,
-                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken, prepared.Level, junk);
+                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken, prepared.Level, junk, respace);
             long t = StageClock.Start();
             OcrPage finished = prepared.Finish(page);
             StageClock.Stop("9 frame map", t);
