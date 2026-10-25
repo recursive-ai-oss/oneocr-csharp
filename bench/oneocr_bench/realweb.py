@@ -56,6 +56,7 @@ sup.reference,.mw-editsection,.mw-cite-backlink{visibility:hidden !important}
 # Words as the page shows them: visible ones only, with the hit test's verdict on each rectangle.
 EXTRACT_JS = r"""([W, H, css]) => {
   const out = [], ids = new Map(), fonts = {};
+  const partials = [];
   const stats = {hidden: 0, partial: 0, outside: 0, pua: 0, controls: 0, shadow: 0, copyright: 0};
   const roots = [document.body];
   const collect = (node) => node.querySelectorAll('*').forEach(e => {
@@ -146,7 +147,7 @@ EXTRACT_JS = r"""([W, H, css]) => {
         const rect = {left: p.x0, right: p.x1, top: p.y0, bottom: p.y1};
         let v = verdictOf(el, rect);
         if (v === 'visible') { const c = clipped(el, rect); v = c === 0 ? 'visible' : c === 1 ? 'hidden' : 'partial'; }
-        if (v !== 'visible') { stats[v]++; continue; }
+        if (v !== 'visible') { stats[v]++; if (v === 'partial') partials.push([p.y0, p.y1]); continue; }
         if (!ids.has(el)) ids.set(el, ids.size);
         const fam = cs.fontFamily.split(',')[0].trim().replace(/^["']|["']$/g, '');
         fonts[fam] = (fonts[fam] || 0) + 1;
@@ -159,7 +160,7 @@ EXTRACT_JS = r"""([W, H, css]) => {
   puaEls.forEach(e => e.style.setProperty('visibility', 'hidden', 'important'));
   const all = out.map(o => o.t).join(' ');
   if (/©|\(c\)\s*\d{4}|copyright|used with permission|all rights reserved/i.test(all)) stats.copyright = 1;
-  return {words: out, fonts, stats};
+  return {words: out, fonts, stats, partials};
 }"""
 
 
@@ -235,16 +236,25 @@ def capture_one(ctx, entry: dict, k: int, out: Path, pid: str, set_name: str) ->
             return None, f"{stats['hidden']} covered or clipped words"
         if stats["copyright"]:
             return None, "copyright or permission notice in the text"
-        if stats["partial"] > 3 or stats["pua"] > 30:
-            return None, f"partial {stats['partial']}, icon text {stats['pua']}"
+        if stats["pua"] > 30:
+            return None, f"icon text {stats['pua']}"
         if len(words) < 60:
             return None, f"only {len(words)} words"
         if any(x["x0"] < -0.5 or x["x1"] > w + 0.5 for x in words):
             return None, "words cross the left or right edge"
         top = row_cut(words, 0, h * 0.12, True)
         bot = row_cut(words, h * 0.85, h - 1, False)
+        for lo, hi in sorted(res["partials"]):  # move the cut past a partly covered word that touches the top or bottom band
+            if top is not None and lo < top + 1 and hi > 0 and hi <= h * 0.2:
+                top = row_cut(words, hi + 1, h * 0.3, True)
+            if bot is not None and hi > bot - 1 and lo >= h * 0.8:
+                bot = row_cut(words, h * 0.7, lo - 1, False)
         if top is None or bot is None:
             return None, "no clean row to cut at"
+        # a partly covered word (a sticky bar, a popover) is no truth: the cut must leave every such word outside the crop
+        inside = [p for p in res["partials"] if p[1] > top and p[0] < bot]
+        if inside:
+            return None, f"{len(inside)} partly covered words inside the cut"
         words = [x for x in words if x["y0"] >= top and x["y1"] <= bot]
         if len(words) < 60:
             return None, f"only {len(words)} words in the cut"

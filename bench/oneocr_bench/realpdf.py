@@ -326,6 +326,7 @@ def cut(a) -> None:
         tp = dotnet_run(a.pdftruth, path, pages)
         for p in pages:
             if p not in tp:
+                log.append({"file": r["file"], "page": p, "result": "PdfTruth returned no page"})
                 continue
             try:
                 cand, why, info = judge(path, p, tp[p])
@@ -335,7 +336,12 @@ def cut(a) -> None:
             if cand:
                 cand.update(file=r["file"], page=p, info=info, url=r["url"], sha=r["sha256"], source=r["source"])
                 cands[cand["klass"]].append(cand)
-        print(r["file"], {k: len(v) for k, v in cands.items()}, flush=True)
+        why: dict[str, int] = {}
+        for x in log:
+            if x["file"] == r["file"] and "page" in x:
+                k = re.sub(r"\(.*?\)", "", x["result"]).strip()
+                why[k] = why.get(k, 0) + 1
+        print(r["file"], {k: len(v) for k, v in cands.items()}, why, flush=True)
 
     targets = {"clean-real": a.clean, "layout-real": a.layout, "degraded-real": a.degraded}
     rng = random.Random(base)
@@ -363,6 +369,7 @@ def cut(a) -> None:
     for set_name, picks in chosen.items():
         d = out / set_name
         shutil.rmtree(d, ignore_errors=True)
+        d.mkdir(parents=True, exist_ok=True)
         pages_out = []
         for i, c in enumerate(picks):
             pid = f"{set_name[0]}{i + 1:03d}"
