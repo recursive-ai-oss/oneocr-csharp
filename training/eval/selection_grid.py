@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -43,8 +44,7 @@ def build(a: argparse.Namespace) -> None:
         words = [{"text": w["text"], "box": w["bounds"], "block": bi} for bi, b in enumerate(pg["blocks"]) for ln in b["lines"] for w in ln["words"]]
         text = "\n".join(" ".join(w["text"] for w in ln["words"]) for b in pg["blocks"] for ln in b["lines"])
         link = d / "pages" / (tf.stem + img.suffix)
-        link.unlink(missing_ok=True)
-        link.symlink_to(img)
+        shutil.copyfile(img, link)  # a symlink makes the image reader report the file as changed
         (d / "truth" / (tf.stem + ".txt")).write_text(text, encoding="utf-8")
         (d / "truth" / (tf.stem + ".json")).write_text(json.dumps({"words": words}, ensure_ascii=False), encoding="utf-8")
         n += 1
@@ -62,8 +62,7 @@ def build(a: argparse.Namespace) -> None:
         pid = r["id"].replace("/", "-")
         ws = words_of(json.loads(ann[r["id"]]["ground_truth"]))
         link = d / "pages" / (pid + Path(r["file"]).suffix)
-        link.unlink(missing_ok=True)
-        link.symlink_to(ds / r["file"])
+        shutil.copyfile(ds / r["file"], link)
         (d / "truth" / (pid + ".txt")).write_text(" ".join(w["text"] for w in ws), encoding="utf-8")
         (d / "truth" / (pid + ".json")).write_text(json.dumps({"words": [{"text": w["text"], "box": w["box"]} for w in ws]}), encoding="utf-8")
     print("sel-cord", len(rows))
@@ -94,7 +93,7 @@ def grid(a: argparse.Namespace) -> None:
             out.mkdir(exist_ok=True)
             subprocess.run(
                 [a.dotnet, str(dll), "run", "--model", a.recognizer, "--detector", str(x / "model.onm"), "--pages", str(Path(a.sel) / s / "pages"),
-                 "--out", str(out), "--degree", "4", "--repeat", "1", "--words", "1", "--pagejson", "1"],
+                 "--out", str(out), "--degree", str(a.degree), "--repeat", "1", "--words", "1", "--pagejson", "1"],
                 check=True, stdout=subprocess.DEVNULL,
             )  # fmt: skip
             r = score_dir(Path(a.sel) / s / "truth", out, "layout")
@@ -119,5 +118,6 @@ if __name__ == "__main__":
     g.add_argument("--version", default="0.2.1")
     g.add_argument("--layout-expand", type=float, default=0.85)
     g.add_argument("--dotnet", default="dotnet")
+    g.add_argument("--degree", type=int, default=4)
     a = ap.parse_args()
     build(a) if a.cmd == "build" else grid(a)
