@@ -68,6 +68,7 @@ def main() -> None:
     gt.add_argument("--repeats", type=int, default=3)
     gt.add_argument("--reuse", action="store_true", help="accuracy: score engine outputs already under WORK/out instead of running the engine")
     gt.add_argument("--dotnet", default="dotnet")
+    gt.add_argument("--isa", default="auto", help="timing: IlcInstructionSet of the NativeAOT oneocr tool: auto (x86-64-v4 on AVX-512 hosts, else v3), default (the project's), or a value such as x86-64-v3")
     gt.add_argument("--bench-dll", default=None, help="use this OneOcr.Bench.dll instead of building")
 
     cf = sub.add_parser("competitors-freeze", help="copy competitor hypotheses into a frozen directory and score them (input of gate --competitors)")

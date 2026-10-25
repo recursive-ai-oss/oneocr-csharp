@@ -9,7 +9,8 @@
 Accuracy mode runs `OneOcr.Bench run --words 1 --pagejson 1` on every set, scores with the bench scorer (CER, WER,
 reading order, ink F1@0.5, ECE / ECE-m; receipts on recall-CER / recall-WER because CORD truth is partial) and
 writes `accuracy.json`. `--timing` mode runs the engine without sidecars, per set and per degree (1 and the default
-min(4, cores)), three times, and writes `timing.json`. Either mode then rewrites `gate.md` and `gate.json` from
+min(4, cores)), three times, and writes `timing.json`. The timed process is the shipped command line, `oneocr ocr`,
+NativeAOT-published (see `build_tool`); accuracy mode keeps `OneOcr.Bench` because it writes the word-box sidecars. Either mode then rewrites `gate.md` and `gate.json` from
 whatever of the two files exist, so the table carries a speed section only after a timing run.
 
 Tesseract numbers come from the existing `tess` results (`results/<set>/tesseract.json` and its hypothesis
@@ -140,6 +141,57 @@ def run_engine(dotnet: str, dll: Path, args: argparse.Namespace, set_name: str, 
     wall = time.perf_counter() - t0
     if r.returncode != 0:
         raise SystemExit(f"OneOcr.Bench failed on {set_name} (exit {r.returncode}):\n{r.stderr[-1500:]}")
+    return wall, json.loads((out / "timing.json").read_text())
+
+
+def _host_rid() -> str:
+    machine = platform.machine().lower()
+    arch = "arm64" if machine in ("aarch64", "arm64") else "x64"
+    system = {"linux": "linux", "darwin": "osx", "windows": "win"}.get(platform.system().lower(), "linux")
+    return f"{system}-{arch}"
+
+
+def _auto_isa(rid: str) -> str | None:
+    """The x86-64 level the NativeAOT tool is compiled for: v4 (AVX-512) when this host has it, else v3 (AVX2 + FMA). Arm needs none."""
+    if not rid.endswith("-x64"):
+        return None
+    try:
+        flags = set(re.search(r"^flags\s*:\s*(.*)$", Path("/proc/cpuinfo").read_text(), re.M).group(1).split())
+    except (OSError, AttributeError):
+        return "x86-64-v3"
+    return "x86-64-v4" if {"avx512f", "avx512bw", "avx512cd", "avx512dq", "avx512vl"} <= flags else "x86-64-v3"
+
+
+def build_tool(work: Path, dotnet: str, isa: str) -> tuple[Path, dict]:
+    """Publishes `oneocr` (src/OneOcr.Tool) as a NativeAOT executable, the way a user would (`dotnet publish -r <rid>`), and returns it
+    with the build description for the report. `isa` is an `IlcInstructionSet` value, `auto` for the host's best, or `default` for the
+    project's own default. The models are given at run time (`--model`, `--detector`), so the pinned bundled files are not needed."""
+    rid = _host_rid()
+    chosen = _auto_isa(rid) if isa == "auto" else (None if isa == "default" else isa)
+    out = work / "tool"
+    cmd = [dotnet, "publish", str(BENCH.parent / "src" / "OneOcr.Tool"), "-c", "Release", "-r", rid, "-o", str(out), "-v", "quiet", "-clp:NoSummary"]
+    if chosen:
+        cmd.append(f"-p:IlcInstructionSet={chosen}")
+    log = work / "build-tool.log"
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    log.write_text(r.stdout + r.stderr)
+    exe = out / ("OneOcr.Tool.exe" if rid.startswith("win") else "OneOcr.Tool")
+    if r.returncode != 0 or not exe.exists():
+        raise SystemExit(f"publishing src/OneOcr.Tool failed, see {log}\n" + "\n".join((r.stdout + r.stderr).splitlines()[-15:]))
+    return exe, {"process": "oneocr ocr (src/OneOcr.Tool, NativeAOT publish)", "rid": rid, "instruction_set": chosen or "project default", "sha256": _sha(str(exe))}
+
+
+def run_tool(exe: Path, args: argparse.Namespace, set_name: str, out: Path, degree: int) -> tuple[float, dict]:
+    out.mkdir(parents=True, exist_ok=True)
+    cmd = [str(exe), "ocr", "--model", args.model, "--in", str(Path(args.eval) / set_name / "pages"), "--out", str(out), "--degree", str(degree),
+           "--stats", str(out / "timing.json")]
+    if args.detector:
+        cmd += ["--detector", args.detector]
+    t0 = time.perf_counter()
+    r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    wall = time.perf_counter() - t0
+    if r.returncode != 0:
+        raise SystemExit(f"oneocr ocr failed on {set_name} (exit {r.returncode}):\n{r.stderr[-1500:]}")
     return wall, json.loads((out / "timing.json").read_text())
 
 
@@ -416,7 +468,8 @@ def render(out_dir: Path) -> None:
         md += ["## Speed and memory", "",
                f"{tim['env']['cpu']}, {tim['env']['cores']} threads. Load (1 min) before {tim['load']['before']}, during (after each run) "
                f"min {min(tim['load']['during'])} / max {max(tim['load']['during'])}, after {tim['load']['after']}; lock held by the job: {tim['lock']}. "
-               f"Each cell is the mean of {tim['repeats']} runs (one process per run, one pass over the set). Speed: faster than Tesseract fast; "
+               f"Each cell is the mean of {tim['repeats']} runs (one `{(tim.get('engine') or {}).get('process', 'OneOcr.Bench run')}` process per run, {(tim.get('engine') or {}).get('rid', '')} "
+               f"instruction set {(tim.get('engine') or {}).get('instruction_set', 'JIT')}, start and model load included, one pass over the set). Speed: faster than Tesseract fast; "
                "slower than fast but faster than best with the quality row won is an exception, not a pass. "
                f"Memory: peak RSS at the default degree at most {MEM_CAP_MB} MB (degree 1 is shown for information). "
                f"Tesseract timed the same way (stock models, PSM per set as selected by `tess`, one process per page, OMP_THREAD_LIMIT = 1 / {tim['default_degree']}, "
@@ -506,7 +559,11 @@ def main(args) -> None:
         time_tesseract(args, names, tess_results, default_degree, out_dir)
         render(out_dir)
         return
-    dll = Path(args.bench_dll) if args.bench_dll else build_bench(work, args.dotnet)
+    if args.timing:
+        tool, tool_info = build_tool(work, args.dotnet, args.isa)
+        print(f"timing process: {tool_info['process']}, {tool_info['rid']}, instruction set {tool_info['instruction_set']}", flush=True)
+    else:
+        dll = Path(args.bench_dll) if args.bench_dll else build_bench(work, args.dotnet)
     sums = Path(args.eval) / "SHA256SUMS"
 
     if not args.timing:
@@ -551,7 +608,7 @@ def main(args) -> None:
                 why = lock_ok(args)
                 if why:
                     raise SystemExit(f"lost the lock during timing: {why}")
-                wall, t = run_engine(args.dotnet, dll, args, n, work / "timing" / f"{n}-d{tag}-r{i}", deg, False)
+                wall, t = run_tool(tool, args, n, work / "timing" / f"{n}-d{tag}-r{i}", deg)
                 during.append(_load()[0])
                 npages = len(t["pages"])
                 ms.append(t["mean_page_ms"])
@@ -565,6 +622,6 @@ def main(args) -> None:
         sets[n] = entry
     (out_dir / "timing.json").write_text(json.dumps({
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "env": _env_info(), "repeats": args.repeats, "default_degree": default_degree,
-        "lock": LOCK.read_text().strip() if LOCK.exists() else "none (smoke)", "load": {"before": load_before, "during": during, "after": _load()},
+        "engine": tool_info, "lock": LOCK.read_text().strip() if LOCK.exists() else "none (smoke)", "load": {"before": load_before, "during": during, "after": _load()},
         "model_sha256": _sha(args.model), "detector_sha256": _sha(args.detector), "sets": sets}, indent=1) + "\n")
     render(out_dir)

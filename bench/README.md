@@ -270,7 +270,10 @@ appears once a timing run exists. Accuracy is not timing-sensitive and can run u
 - **Speed and memory** (`--timing` only), two parts so each fits a timing window:
   - `--timing --model M [--detector D]` times our engine per set at degree 1 and at the default degree min(4, cores): one process per run,
     three runs, mean of the runs (whole-process ms/page with start and model load included, page-only ms as information, peak RSS).
-    Writes `timing.json`.
+    Writes `timing.json`. The timed process is the shipped command line, `oneocr ocr` (src/OneOcr.Tool), published NativeAOT for the host
+    (`dotnet publish -r <rid>`, no JIT warm-up). x64 is compiled for AVX-512 (`x86-64-v4`) when the host has it, else AVX2 + FMA (`x86-64-v3`);
+    `--isa` overrides, and `timing.json` and `gate.md` record the level and the binary's hash. Accuracy mode still runs `OneOcr.Bench`, which
+    writes the word-box sidecars; its text and page JSON are byte-identical to the tool's.
   - `--timing --tess-timing` (no model needed) times Tesseract the same way: stock `tessdata_best` and `tessdata_fast` at the PSM `tess` selected
     for that set (read from `--tess-results`), one process per page, `OMP_THREAD_LIMIT` 1 and the default degree, three runs, mean ms/page and
     peak RSS from `wait4`. Writes `tess-timing.json`, merged per set (`--sets` runs a few sets per window; `--pages N` takes the first N pages).
