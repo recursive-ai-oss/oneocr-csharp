@@ -301,6 +301,43 @@ def tight_cells(rng: np.random.Generator, s: Sampler, books) -> tuple[list[str],
     return words, [float(np.clip(g + rng.normal(0, 0.03), 0.1, 0.45)) for _ in words[1:]], "tight"
 
 
+_TOTAL_LABELS = [
+    *["Total", "TOTAL", "Subtotal", "SUB TOTAL", "Tax", "TAX", "VAT", "VAT 20%", "Tax 10%", "Service", "Discount", "Change"],
+    *[
+        "Cash",
+        "Card",
+        "Visa",
+        "Amount due",
+        "Balance",
+        "Qty",
+        "Price",
+        "Amount",
+        "No.",
+        "Invoice",
+        "Date",
+        "Tel",
+        "Rp",
+        "IDR",
+        "USD",
+        "EUR",
+    ],
+]
+
+
+def figures_line(rng: np.random.Generator, s: Sampler) -> str:
+    """Digits, prices, totals, tax lines, dates and codes: the text whose misreads change what a document says. One to four tokens;
+    about a third carry a label word (Total, VAT 20%, ...), the rest are the figures alone, as word crops of a receipt are."""
+    toks: list[str] = []
+    if rng.random() < 0.33:
+        toks.append(str(rng.choice(_TOTAL_LABELS)))
+    for _ in range(int(rng.choice([1, 1, 1, 2, 2, 3]))):
+        r = rng.random()
+        toks.append(
+            s.receipt_token() if r < 0.45 else s.number() if r < 0.75 else s.code() if r < 0.9 else s._digits(int(rng.integers(3, 14)))
+        )
+    return " ".join(toks)
+
+
 _VI_KEEP = {0x1A0, 0x1A1, 0x1AF, 0x1B0, 0x102, 0x103, 0xC2, 0xE2, 0xCA, 0xEA, 0xD4, 0xF4}
 
 
@@ -451,7 +488,10 @@ def plan_shard(job) -> list[dict]:
             if file is None:
                 continue
             s = Sampler(charset, cov.of(file), rng)
-            text = {"numbers": s.numbers_line, "codes": s.codes_line, "rare": s.rare, "pseudo": s.pseudo_line}[kind]()
+            if kind == "figures":
+                text = figures_line(rng, s)
+            else:
+                text = {"numbers": s.numbers_line, "codes": s.codes_line, "rare": s.rare, "pseudo": s.pseudo_line}[kind]()
             src = f"synthetic:{kind}"
         text = unicodedata.normalize("NFC", " ".join(text.split()))
         # every character must be a charset class that the chosen font can draw (generated strings use literal symbols like "№")

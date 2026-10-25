@@ -148,9 +148,14 @@ of PDF fragments:
   which is then cut into its columns. A section that would be a table is not merged.
 - Screens and forms (`ReadingOrder.Sections.cs`). When a region has empty vertical stripes and is not a table, three rules
   decide whether the columns are the structure, in this order:
-  1. *Header row*: the topmost band is read first, whole, when it is at most 2 em tall, has at least two fragments, spans at least
-     60% of the region's width and is separated from the rest by at least 3 em (a menu bar whose last item lines up with the
-     body's right column). The label row of a field grid has a smaller gap and is not taken.
+  1. *Header row*: the topmost band is read first, whole, when it is at most 2.5 em tall, has at least two fragments, spans at
+     least 60% of the region's width and is separated from the rest by at least 2.5 em (a menu bar whose last item lines up with
+     the body's right column). The label row of a field grid has a smaller gap and is not taken.
+  1b. *Sidebar*: the first column is read before the rest when it has at least three single-fragment lines at an even pitch (each
+     gap within 30% of the median), is at most 35% of the region's width, the body starts within 25% of the width after it, and
+     at most half of its lines (and half of the body's lines) share a line with the other side. A label column with its values
+     has partners on both sides, or far off, and is not a sidebar. The menu bar, the sidebar and the cells of a row of fields
+     are marked standalone: no detected table region merges them into a table.
   2. *Tied rows*: the region is cut at empty bands of at least 1.5 em, bands being joined across a gap of at most 0.8 of both
      neighbouring gaps (the label above its value inside one cell). If the smaller column is not the first one, has at least
      three items in at least half as many bands, and every band holding one of them also holds other text, the bands are read
@@ -159,9 +164,19 @@ of PDF fragments:
   3. *Embedded column*: if one column lies wholly between two parts of another (text at least 2 em above and below it), the
      columns are not the structure and the bands of rule 2 (or, without them, of half an em) are used (cards between a title
      and a list).
+- Fields. A label above its value is a cell; the cells of a row of fields (equal numbers of fragments in a label line and the
+  line under it, each value starting within 2 em of its label) are read one cell at a time, left to right, not all labels and
+  then all values. This is applied to the last two lines of a region (under at most one single-fragment heading) and to pairs
+  of bands whose gap is at most 0.8 of the gap after the pair (before it for the last pair). Labels that end in a colon
+  ("Total: 45.00") are list rows, not fields.
+- Rows of `label: value`. A column whose fragments mostly (60%) end in a colon is a label column. With one label column and
+  one or more value columns, rows are read across even when there are only two, and uneven spacing does not make them fields.
+  With several label columns (two blocks side by side) each label column and the columns up to the next form a block; the
+  blocks are read one after the other, each across its rows. A run of bands is not merged into a section of columns when one
+  of its columns is made of cells (one or two lines at a time, with gaps of at least 3 em between them).
 - A table needs more than most of its rows having several fragments: its columns must also be filled in 60% of the rows on
   average (short blocks side by side that share a few rows are not columns), no row of fragments may be 1.6 times taller than the
-  median (a card's large number), and the distance between consecutive lines must not alternate short and long by a factor of
+  median, nor set in a text size 1.6 times that of another row (a card's large number), and the distance between consecutive lines must not alternate short and long by a factor of
   1.25 or more (a label above its value). These tests only remove tables that the earlier tests accepted.
 - A run of rows whose cells align in columns is a table block: `table` is true, each line is a row, and a `Table` entry carries
   its cells. Table `confidence` is the share of rows with more than one cell and is not calibrated.
