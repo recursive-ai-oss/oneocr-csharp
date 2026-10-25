@@ -43,8 +43,25 @@ ITEMS = ["packing list", "route map", "receipt book", "signed forms", "spare bat
          "tide tables", "meeting notes", "ink cartridges", "brass keys", "printed tickets", "field guides"]
 
 
+AVOID_TEXT: list[Path] = []  # truth directories whose passages a new set must not reuse (see `avoid_text`)
+
+
+def avoid_text() -> set[str]:
+    """Opening words of every sentence in the truth files under AVOID_TEXT, as a key set; empty when none are set."""
+    seen: set[str] = set()
+    for d in AVOID_TEXT:
+        for f in sorted(d.glob("*/truth/*.txt")):
+            for line in f.read_text(encoding="utf-8").splitlines():
+                words = line.split()
+                for i in range(max(1, len(words) - 7)):
+                    seen.add(" ".join(words[i : i + 8]))
+    return seen
+
+
 def load_paragraphs() -> list[list[str]]:
-    """Public-domain paragraphs split into sentences; deterministic order."""
+    """Public-domain paragraphs split into sentences; deterministic order. Paragraphs that share an eight-word run
+    with a truth under AVOID_TEXT are left out, so a new set can use fresh passages."""
+    avoid = avoid_text() if AVOID_TEXT else set()
     paras: list[list[str]] = []
     for n in sorted(WORKS):
         body = gutenberg_body((data_dir() / "text" / f"pg{n}.txt").read_bytes())
@@ -55,6 +72,10 @@ def load_paragraphs() -> list[list[str]]:
             if len(t) < 160 or not ALLOWED.match(t):
                 continue
             sents = SENT_SPLIT.split(t)
+            if avoid:
+                w = t.split()
+                if any(" ".join(w[i : i + 8]) in avoid for i in range(max(1, len(w) - 7))):
+                    continue
             if len(sents) >= 2:
                 paras.append(sents)
     return paras

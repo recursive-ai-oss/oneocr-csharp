@@ -418,7 +418,10 @@ def render(out_dir: Path) -> None:
     tt_p = out_dir / "tess-timing.json"
     tt = json.loads(tt_p.read_text()) if tt_p.exists() else None
     report: dict = {"accuracy": None, "timing": None}
-    md = ["# Gate table", ""]
+    md = ["# Gate table" + (" (SEALED set)" if acc and acc.get("sealed") else ""), ""]
+    if acc and acc.get("sealed"):
+        md += ["Sealed evaluation set: pages and seeds are not public; the SHA256SUMS digest below identifies the exact pages. "
+               "A run on it counts once per milestone and nothing is tuned against it.", ""]
     if acc:
         md += [f"Accuracy: model `{acc['model_sha256'][:12]}…`" + (f", detector `{acc['detector_sha256'][:12]}…`" if acc["detector_sha256"] else ", no detector (classical finder)"),
                f"engine {acc['runtime']}; eval sets `{acc['eval']}` (SHA256SUMS `{(acc['eval_sums_sha256'] or 'n/a')[:12]}…`); scorer boxes: ink.",
@@ -529,7 +532,20 @@ def lock_ok(args) -> str | None:
     return why
 
 
+def dry_run(args, names: list[str]) -> None:
+    """List what a run would read; opens no page and runs no engine."""
+    root = Path(args.eval)
+    sums = root / "SHA256SUMS"
+    print(f"eval root {root}{' (SEALED)' if args.sealed else ''}; SHA256SUMS {_sha(str(sums))[:12] + '…' if sums.exists() else 'absent'}")
+    for n in names:
+        pages = sorted(p for p in (root / n / "pages").iterdir() if p.suffix in (".png", ".jpg"))
+        truth = sorted((root / n / "truth").glob("*.txt"))
+        print(f"{n}: {len(pages)} pages, {len(truth)} truth files" + ("" if len(pages) == len(truth) else "  MISMATCH"))
+
+
 def main(args) -> None:
+    if args.sealed:
+        args.eval = args.sealed
     work = Path(args.work).expanduser()
     out_dir = Path(args.out).expanduser() if args.out else work / "gate"
     args.work = str(work)
@@ -538,7 +554,7 @@ def main(args) -> None:
     tess_only = args.timing and args.tess_timing
     if args.tess_timing and not args.timing:
         raise SystemExit("--tess-timing is a timing mode: use it with --timing")
-    if not tess_only and not args.model:
+    if not tess_only and not args.model and not args.dry_run:
         raise SystemExit("--model is required")
     if args.timing:
         why = lock_ok(args)
@@ -546,6 +562,9 @@ def main(args) -> None:
             print(f"gate --timing refused: {why}.\nClaim the lock inside the job (see `python -m oneocr_bench gate --help`) and retry.", file=sys.stderr)
             raise SystemExit(75)
     names = _eval_sets(args)
+    if args.dry_run:
+        dry_run(args, names)
+        return
     work.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     args.model = str(Path(args.model).expanduser()) if args.model else None
@@ -593,7 +612,7 @@ def main(args) -> None:
             "started": started, "env": env, "load_before": load_before, "load_after": _load(), "runtime": runtime,
             "model": args.model, "model_sha256": _sha(args.model), "detector": args.detector, "detector_sha256": _sha(args.detector),
             "competitors": args.competitors, "competitors_sha256": _sha(str(Path(args.competitors).expanduser() / "scores.json")) if args.competitors else None,
-            "eval": args.eval, "eval_sums_sha256": _sha(str(sums)) if sums.exists() else None, "scorer_sha256": _sha(str(Path(__file__).with_name("score.py"))),
+            "eval": args.eval, "sealed": bool(args.sealed), "eval_sums_sha256": _sha(str(sums)) if sums.exists() else None, "scorer_sha256": _sha(str(Path(__file__).with_name("score.py"))),
             "sets": sets}, indent=1) + "\n")
         render(out_dir)
         return
