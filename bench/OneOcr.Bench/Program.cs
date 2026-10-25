@@ -273,6 +273,14 @@ internal static class Program
         return 0;
     }
 
+    private static OneOcr.Layout.JunkParameters ParseJunk(string spec)
+    {
+        string[] p = spec.Split(':');
+        return new OneOcr.Layout.JunkParameters(
+            float.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture), int.Parse(p[2], CultureInfo.InvariantCulture), 0.9f, 3,
+            p.Length > 3 ? int.Parse(p[3], CultureInfo.InvariantCulture) : 8, p.Length > 4 ? float.Parse(p[4], CultureInfo.InvariantCulture) : 0.99f);
+    }
+
     private static int Run(Dictionary<string, string> o)
     {
         string pages = Need(o, "pages"), outDir = Need(o, "out");
@@ -321,6 +329,12 @@ internal static class Program
         }
 
 
+        // --junk off | MAXCONF:REL:MAXH: the noise filter off, or with other thresholds than the defaults (for tuning them).
+        OcrOptions Page() => !o.TryGetValue("junk", out string? junkSpec)
+            ? new OcrOptions { MaxDegreeOfParallelism = degree }
+            : junkSpec == "off"
+                ? new OcrOptions { MaxDegreeOfParallelism = degree, DropNoise = false }
+                : new OcrOptions { MaxDegreeOfParallelism = degree, JunkTuning = ParseJunk(junkSpec) };
         bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
         var errors = new List<(string Id, string Message)>();
@@ -341,7 +355,7 @@ internal static class Program
                     clock.Restart();
                     text = noOrient
                         ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, IncludeChars = false }).ToText()
-                        : engine.ToText(image, degree);
+                        : o.ContainsKey("junk") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
                     times.Add(clock.Elapsed.TotalMilliseconds);
                 }
 
@@ -356,7 +370,7 @@ internal static class Program
 
                 if (writeWords || writePageJson)
                 {
-                    OcrPage page = engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
+                    OcrPage page = engine.Ocr(image, Page());
                     WriteWordSidecar(Path.Combine(outDir, id + ".json"), page);
                     if (writePageJson)
                     {

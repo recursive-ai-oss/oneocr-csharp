@@ -4,6 +4,7 @@ Sources (label provenance is recorded per record in the manifest):
   doclaynet  layout boxes and text cells shipped with DocLayNet 1.0.0 (CDLA-Permissive-1.0)
   publaynet  layout boxes shipped with PubLayNet 1.0.0, CC0 / CC BY articles only
   pages      exact-truth synthetic pages (line boxes and region boxes from the renderer)
+  cord       CORD v2 receipts (CC BY 4.0): word quads shipped with the dataset, grouped into lines; no layout labels
 
 A record is a dict:
   path    image file
@@ -53,6 +54,7 @@ CMASK = {
     # PubLayNet boxes a whole list, DocLayNet one item at a time: its list channel is left unlabelled so the class keeps one meaning
     "publaynet": [1, 1, 0, 1, 1, 0, 0, 0],
     "pages": [1, 1, 1, 1, 1, 1, 1, 1],
+    "cord": [0, 0, 0, 0, 0, 0, 0, 0],
 }
 
 TEXT_SHRINK = 0.3  # of the short side, per side
@@ -200,9 +202,17 @@ class DetDataset(Dataset):
         wq = None if rec["lines"] is None else as_quads(rec["lines"]) * np.array([sx, sy], np.float32)
         arr = np.asarray(img)
         k = 0
-        if self.train and rng.random() < self.rot_p:
+        # pixels of the text maps that carry a label: CORD annotates only the item/total rows of a receipt, so text above and
+        # below that band (store header, payment block) must not be trained as background
+        ok = np.ones((nh, nw), np.uint8)
+        if rec.get("text_band"):
+            b0, b1 = rec["text_band"]
+            ok[: max(0, int(b0 * sy))] = 0
+            ok[max(0, int(b1 * sy)) :] = 0
+        if self.train and rng.random() < rec.get("rot_p", self.rot_p):
             k = rng.choice([1, 2, 3])
             arr = np.rot90(arr, k)
+            ok = np.rot90(ok, k)
             lq, _, _ = rot90_points(lq, k, nw, nh)
             if wq is not None:
                 wq, _, _ = rot90_points(wq, k, nw, nh)
@@ -218,6 +228,8 @@ class DetDataset(Dataset):
             py = rng.randint(0, max(0, S - min(ah, S)))
         cw, ch = min(aw, S), min(ah, S)
         canvas[py : py + ch, px : px + cw] = arr[oy : oy + ch, ox : ox + cw]
+        okc = np.ones((S, S), np.uint8)
+        okc[py : py + ch, px : px + cw] = ok[oy : oy + ch, ox : ox + cw]
         shift = np.array([px - ox, py - oy], np.float32)
 
         def clip(q, keep_frac):
@@ -243,6 +255,10 @@ class DetDataset(Dataset):
             "cmask": torch.tensor(rec["cmask"], dtype=torch.float32),
             "orient": torch.tensor(k),
             "text_valid": torch.tensor(float(wq is not None)),
+            # a stride-2 cell is supervised only when all its pixels are
+            "text_ok": torch.from_numpy(
+                okc.reshape(S // TEXT_STRIDE, TEXT_STRIDE, S // TEXT_STRIDE, TEXT_STRIDE).min((1, 3)).astype(np.float32)
+            )[None],
         }
         if wq is not None:
             wq, ok = clip(wq, 0.6)
@@ -340,6 +356,8 @@ def load_records(name: str, root: Path, split: str, src: dict | None = None) -> 
         return [r for r in recs if r["lines"] is not None]  # pages without cells would train "no text" by mistake
     if name == "publaynet":
         return load_publaynet_records(root, split)
+    if name == "cord":
+        return load_cord_records(root, split)
     if name == "pages":
         cache = Path(src["cache"].format(split=split)) if src.get("cache") else None
         if src.get("holdout_every"):
@@ -350,6 +368,77 @@ def load_records(name: str, root: Path, split: str, src: dict | None = None) -> 
             return [r for i, r in enumerate(recs) if (i % k == 0) == (split != "train")]
         return load_page_records(Path(src["dir"]), src.get("splits", {}).get(split, split), cache)
     raise ValueError(name)
+
+
+def cord_lines(gt: dict, gap: float = 1.2) -> list[list[float]]:
+    """Line quads from CORD's own word quads: words of one CORD row, in x order, joined while the gap is <= `gap` line heights.
+
+    Points are the quad order CORD ships (top-left, top-right, bottom-right, bottom-left); a joined line takes the first word's left
+    edge and the last word's right edge, so a tilted receipt keeps a tilted line.
+    """
+    rows: dict[int, list[np.ndarray]] = {}
+    for line in gt["valid_line"]:
+        for w in line["words"]:
+            if not w["text"].strip():
+                continue
+            q = w["quad"]
+            rows.setdefault(w["row_id"], []).append(
+                np.array([[q["x1"], q["y1"]], [q["x2"], q["y2"]], [q["x3"], q["y3"]], [q["x4"], q["y4"]]], np.float32)
+            )
+    out = []
+    for words in rows.values():
+        words.sort(key=lambda p: float(p[:, 0].mean()))
+        cur = [words[0]]
+        for p in words[1:]:
+            h = float(np.linalg.norm(cur[-1][3] - cur[-1][0]))
+            if float(p[:, 0].min() - cur[-1][:, 0].max()) > gap * max(h, 1.0):
+                out.append(cur)
+                cur = []
+            cur.append(p)
+        out.append(cur)
+    res = []
+    for grp in out:
+        a, b = grp[0], grp[-1]
+        q = np.stack([a[0], b[1], b[2], a[3]])
+        if float(np.linalg.norm(q[1] - q[0])) > 1 and float(np.linalg.norm(q[3] - q[0])) > 1:
+            res.append([round(float(v), 1) for v in q.reshape(-1)])
+    return res
+
+
+def load_cord_records(root: Path, split: str) -> list[dict]:
+    """CORD v2 receipts, official train (minus the calibration images, every 10th in SHA-256 order) and dev as `val`.
+
+    The official test split is the receipts evaluation set and is never read. Images in `dedup.json`'s drop lists or whose bytes equal
+    a test image are left out, as in `datasets/cord_crops.py`.
+    """
+    ds = root / "cord" / "v2"
+    rd = lambda n: [json.loads(x) for x in (ds / n).read_text().splitlines()]  # noqa: E731
+    dropped = json.loads((ds / "dedup.json").read_text()).get("drop", {})
+    drop = set(dropped)
+    test_hashes = {r["sha256"] for r in rd("index/test.jsonl")}
+    src = "dev" if split == "val" else "train"
+    seen, rows = set(), []
+    for r in rd(f"index/{src}.jsonl"):
+        if r["id"] in drop or r["sha256"] in test_hashes or r["sha256"] in seen:
+            continue
+        seen.add(r["sha256"])
+        rows.append(r)
+    if split == "train":
+        calib = {r["id"] for r in sorted(rows, key=lambda r: r["sha256"])[::10]}
+        rows = [r for r in rows if r["id"] not in calib]
+    ann = {r["id"]: r for r in rd(f"annotations/{src}.jsonl")}
+    recs = []
+    for r in rows:
+        lines = cord_lines(json.loads(ann[r["id"]]["ground_truth"]))
+        if not lines:
+            continue
+        ys = np.array(lines, np.float32).reshape(-1, 4, 2)[:, :, 1]
+        pad = 1.5 * float(np.median(ys.max(1) - ys.min(1)))
+        recs.append(
+            {"path": str(ds / r["file"]), "kind": "cord", "id": r["id"], "layout": [], "lines": lines, "cmask": CMASK["cord"],
+             "text_band": [float(ys.min() - pad), float(ys.max() + pad)], "rot_p": 0.5}
+        )  # fmt: skip
+    return recs
 
 
 PAGE_ROLES = {
