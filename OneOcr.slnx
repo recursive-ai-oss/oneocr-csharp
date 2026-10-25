@@ -11,6 +11,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/OneOcr.Tests/OneOcr.Tests.csproj" />
     <Project Path="tests/OneOcr.AotSmoke/OneOcr.AotSmoke.csproj" />
+    <Project Path="tests/OneOcr.Samples/OneOcr.Samples.csproj" />
   </Folder>
   <Folder Name="/bench/">
     <Project Path="bench/OneOcr.Bench/OneOcr.Bench.csproj" />
