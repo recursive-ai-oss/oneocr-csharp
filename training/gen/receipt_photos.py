@@ -6,7 +6,8 @@ printed line top to bottom; unreadable photos have no lines) and, for `align`, t
 (`OneOcr.Bench run --pagejson 1`). The photos and labels are generated and transcribed outside this repository and are not
 redistributed; see `datasets/LICENCES.md`.
 
-    uv run python -m gen.receipt_photos split    --images DIR --labels DIR --out DIR [--dev 150 --calib 100 --seed S]
+    uv run python -m gen.receipt_photos qa       --labels DIR --engine DIR --out DIR/qa.json
+    uv run python -m gen.receipt_photos split    --qa DIR/qa.json --images DIR --labels DIR --out DIR [--dev 150 --calib 100 --seed S]
     uv run python -m gen.receipt_photos pageset  --images DIR --labels DIR --split DIR/split.json --part dev --out DIR/receipts-gen-dev
     uv run python -m gen.receipt_photos align    --images DIR --labels DIR --split DIR/split.json --engine DIR --part train --out DIR/lines
 
@@ -57,10 +58,28 @@ def sha256(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
+def cmd_qa(a: argparse.Namespace) -> None:
+    """Per photo, the share of confidently transcribed lines (3+ characters) that some engine line reads at similarity >= 0.7. A label
+    file written for another photo, or a transcription the engine finds nothing of, scores near zero."""
+    labels = load_labels(Path(a.labels))
+    out = {}
+    for pid, v in labels.items():
+        ep = Path(a.engine) / f"{pid}.page.json"
+        sure = [ln for ln in v["lines"] if ln["sure"] and len(ln["text"]) >= 3]
+        if not v["readable"] or not sure or not ep.exists():
+            continue
+        eng = [{"text": e["text"]} for e in engine_lines(ep)]
+        out[pid] = round(sum(bool(candidates(ln["text"], eng, 0.7)) for ln in sure) / len(sure), 3)
+    Path(a.out).write_text(json.dumps(out, indent=0) + "\n")
+    low = sorted(v for v in out.values())
+    print(f"{len(out)} photos; coverage quartiles {low[len(low) // 4]} {low[len(low) // 2]} {low[3 * len(low) // 4]}; below {a.min_coverage}: {sum(v < a.min_coverage for v in low)}")
+
+
 def cmd_split(a: argparse.Namespace) -> None:
     labels = load_labels(Path(a.labels))
     images = Path(a.images)
-    ok = [k for k, v in labels.items() if v["readable"] and any(ln["sure"] for ln in v["lines"])]
+    qa = json.loads(Path(a.qa).read_text()) if a.qa else None
+    ok = [k for k, v in labels.items() if v["readable"] and any(ln["sure"] for ln in v["lines"]) and (qa is None or qa.get(k, 0) >= a.min_coverage)]
     order = sorted(ok, key=lambda k: hashlib.sha256(f"{a.seed}:{k}".encode()).hexdigest())
     parts = {"dev": order[: a.dev], "calib": order[a.dev : a.dev + a.calib], "train": order[a.dev + a.calib :]}
     out = {"seed": a.seed, "dropped_unreadable": len(labels) - len(ok), "parts": {p: [{"id": k, "sha256": sha256(find_image(images, k))} for k in sorted(v)] for p, v in parts.items()}}
@@ -158,6 +177,7 @@ def cmd_align(a: argparse.Namespace) -> None:
 
     labels = load_labels(Path(a.labels))
     out = Path(a.out)
+    charset = set(Path(a.charset).read_text(encoding="utf-8").split("\n")[1:]) if a.charset else set()
     (out / "patches").mkdir(parents=True, exist_ok=True)
     rows = []
     total: dict[str, int] = {}
@@ -167,12 +187,18 @@ def cmd_align(a: argparse.Namespace) -> None:
             continue
         eng = engine_lines(ep)
         chosen, n = match_page(eng, labels[pid]["lines"], a.min_sim, a.min_chars)
+        n["label_chars"] = sum(len(ln["text"]) for ln in labels[pid]["lines"] if ln["sure"])
+        n["label_chars_found"] = sum(len(t) for _, t in chosen)
+        n["found_edits"] = sum(Levenshtein.distance(eng[i]["text"], t) for i, t in chosen)
         for k, v in n.items():
             total[k] = total.get(k, 0) + v
         src = find_image(Path(a.images), pid)
         g = None
         for i, text in chosen:
             e = eng[i]
+            if charset and any(c not in charset for c in text):
+                total["outside_charset"] = total.get("outside_charset", 0) + 1
+                continue
             if e["quad"]:
                 if g is None:
                     with Image.open(src) as im:
@@ -192,24 +218,31 @@ def cmd_align(a: argparse.Namespace) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("split", "pageset", "align"):
+    for name in ("qa", "split", "pageset", "align"):
         p = sub.add_parser(name)
-        p.add_argument("--images", required=True)
         p.add_argument("--labels", required=True)
         p.add_argument("--out", required=True)
+        if name != "qa":
+            p.add_argument("--images", required=True)
+        if name == "qa":
+            p.add_argument("--engine", required=True)
+            p.add_argument("--min-coverage", type=float, default=0.25)
         if name == "split":
+            p.add_argument("--qa", help="qa.json from `qa`: photos below --min-coverage are left out")
+            p.add_argument("--min-coverage", type=float, default=0.25)
             p.add_argument("--dev", type=int, default=150)
             p.add_argument("--calib", type=int, default=100)
             p.add_argument("--seed", default="receipts-gen-1")
-        else:
+        if name in ("pageset", "align"):
             p.add_argument("--split", required=True)
             p.add_argument("--part", choices=PARTS, required=True)
         if name == "align":
             p.add_argument("--engine", required=True)
             p.add_argument("--min-sim", type=float, default=0.8)
+            p.add_argument("--charset", default="data/charset-v1.txt", help="lines with a character outside it are left out (empty: keep all)")
             p.add_argument("--min-chars", type=int, default=3)
     a = ap.parse_args()
-    {"split": cmd_split, "pageset": cmd_pageset, "align": cmd_align}[a.cmd](a)
+    {"qa": cmd_qa, "split": cmd_split, "pageset": cmd_pageset, "align": cmd_align}[a.cmd](a)
 
 
 if __name__ == "__main__":
