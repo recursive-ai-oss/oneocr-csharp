@@ -10,6 +10,7 @@ namespace OneOcr.Layout;
 /// <param name="MinAnchorLines">Pages with fewer reference lines are left alone: there is no text to be small against.</param>
 /// <param name="SpeckPageMin">Dots and ticks are only dropped on a page with at least this many of them: a dusty page has many, a clean page has none or a stray one.</param>
 /// <param name="SpeckConfidence">A word made only of dots, commas, quotes, colons and similar marks is a speck read as text when its confidence is below this. 0 turns the rule off.</param>
+/// <param name="ControlConfidence">A line that is one short letter-and-bracket word such as <c>O</c>, <c>L]</c> or <c>D</c> is a radio button or checkbox read as text when its confidence is below this. 0 turns the rule off.</param>
 internal sealed record JunkParameters(
     float MaxConfidence = 0.5f,
     double RelativeHeight = 0.6,
@@ -19,7 +20,8 @@ internal sealed record JunkParameters(
     int TinyHeight = 8,
     float TinyConfidence = 0.99f,
     float SpeckConfidence = 0.9f,
-    int SpeckPageMin = 3);
+    int SpeckPageMin = 3,
+    float ControlConfidence = 0.9f);
 
 /// <summary>
 /// Removes detections that are noise read as text: specks, scan grain and edges that the detector cut as tiny lines and the
@@ -38,6 +40,11 @@ internal static class JunkFilter
         if (p.SpeckConfidence > 0)
         {
             dropped += DropSpecks(strips, p.SpeckConfidence, p.SpeckPageMin);
+        }
+
+        if (p.ControlConfidence > 0)
+        {
+            dropped += DropControls(strips, p.ControlConfidence);
         }
 
         return dropped;
@@ -97,6 +104,73 @@ internal static class JunkFilter
 
         return dropped;
     }
+
+    // Radio buttons and checkboxes are drawn rings and squares. The detector finds them as lines of their own and the recognizer
+    // reads a ring as O, a box as L], D or [], with little confidence. They are controls, not text: a line that is only such a
+    // glyph read without confidence goes. Real single letters on a line of their own (a grade, a column label) are read with
+    // confidence, and a word such as "Do" has a letter outside the set.
+    private const string ControlFirst = "OQLDC[";
+    private const string ControlSecond = "])[lI|";
+
+    private static int DropControls(OrderStrip?[] strips, float below)
+    {
+        int dropped = 0;
+        for (int i = 0; i < strips.Length; i++)
+        {
+            if (strips[i] is not { } s || s.Words.Count == 0)
+            {
+                continue;
+            }
+
+            List<OcrWord>? kept = null;
+            for (int k = 0; k < s.Words.Count; k++)
+            {
+                if (IsControlWord(s.Words, k, below))
+                {
+                    kept ??= new List<OcrWord>(s.Words.Take(k));
+                    dropped++;
+                }
+                else
+                {
+                    kept?.Add(s.Words[k]);
+                }
+            }
+
+            if (kept is not null)
+            {
+                strips[i] = kept.Count == 0 ? null : new OrderStrip { Leaf = s.Leaf, Box = s.Box, Size = s.Size, Words = kept };
+            }
+        }
+
+        return dropped;
+    }
+
+    // The glyph is alone on its line, or it stands at one end of the line with a gap to its neighbour of at least half its own
+    // height (a form's control sits apart from its label; a real letter in running text is a word space away).
+    private static bool IsControlWord(IReadOnlyList<OcrWord> words, int k, float below)
+    {
+        OcrWord w = words[k];
+        if (!(w.Confidence < below) || !IsControl(w.Text))
+        {
+            return false;
+        }
+
+        if (words.Count == 1)
+        {
+            return true;
+        }
+
+        double height = w.Box.Bottom - w.Box.Top;
+        if (k == 0)
+        {
+            return words[1].Box.Left - w.Box.Right >= 0.5 * height;
+        }
+
+        return k == words.Count - 1 && w.Box.Left - words[k - 1].Box.Right >= 0.5 * height;
+    }
+
+    private static bool IsControl(string text) =>
+        text.Length is 1 or 2 && ControlFirst.Contains(text[0]) && (text.Length == 1 || ControlSecond.Contains(text[1]));
 
     private const string SpeckMarks = ".,:;'\"`\u00B4\u2018\u2019\u201C\u201D";
 

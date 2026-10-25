@@ -391,8 +391,10 @@ internal static class Program
         // --junk off | MAXCONF:REL:MAXH: the noise filter off, or with other thresholds than the defaults (for tuning them).
         // --respace off: no pixel check of word spaces (the page path before it existed).
         bool respace = !(o.TryGetValue("respace", out string? respaceSpec) && respaceSpec == "off");
+        // --controls off: keep radio buttons and checkboxes read as letters (the filter's control rule off).
+        bool controlsOff = o.TryGetValue("controls", out string? controlsSpec) && controlsSpec == "off";
         OcrOptions Page() => !o.TryGetValue("junk", out string? junkSpec)
-            ? new OcrOptions { MaxDegreeOfParallelism = degree, FixWordSpacing = respace }
+            ? new OcrOptions { MaxDegreeOfParallelism = degree, FixWordSpacing = respace, JunkTuning = controlsOff ? new OneOcr.Layout.JunkParameters(ControlConfidence: 0) : null }
             : junkSpec == "off"
                 ? new OcrOptions { MaxDegreeOfParallelism = degree, DropNoise = false, FixWordSpacing = respace }
                 : new OcrOptions { MaxDegreeOfParallelism = degree, JunkTuning = ParseJunk(junkSpec), FixWordSpacing = respace };
@@ -416,7 +418,7 @@ internal static class Program
                     clock.Restart();
                     text = noOrient
                         ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, IncludeChars = false }).ToText()
-                        : o.ContainsKey("junk") || !respace ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
+                        : o.ContainsKey("junk") || !respace || controlsOff ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
                     times.Add(clock.Elapsed.TotalMilliseconds);
                 }
 
