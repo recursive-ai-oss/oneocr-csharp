@@ -7,6 +7,10 @@
     <ToolCommandName>oneocr</ToolCommandName>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PublishAot>true</PublishAot>
+    <!-- A NativeAOT build is compiled for one instruction-set level and cannot pick a kernel path at run time: without AVX2 and FMA in the
+         target the reader falls back to the exact scalar path, about a hundred times slower. x64 therefore targets AVX2 + FMA (any x86-64 CPU
+         since about 2015; an older CPU refuses to start the binary). Pass -p:IlcInstructionSet=x86-64-v4 for AVX-512 machines. Arm needs nothing. -->
+    <IlcInstructionSet Condition="'$(IlcInstructionSet)' == '' And $(RuntimeIdentifier.EndsWith('-x64'))">x86-64-v3</IlcInstructionSet>
   </PropertyGroup>
 
   <ItemGroup>
