@@ -24,7 +24,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bench"))
 from oneocr_bench.score import Levenshtein, normalize  # noqa: E402
 
-from eval.recall_attribution import attribute_page, box  # noqa: E402
+from eval.recall_attribution import attribute_page, box, touches  # noqa: E402
 
 CURRENCY = set("Rp$€₽¥£₩₫₹฿")
 SEPS = set(".,:;'")
@@ -138,7 +138,8 @@ def main() -> None:
                     ops[kind(tc, hc)] += 1
             if mixed:
                 ops["(words with mixed-script reading)"] += 1
-            rows.append({"page": tf.stem, "truth": t, "read": read, "miss": miss, "h": round(b[3] - b[1], 1)})
+            hb = next((box(h) for h in hw if normalize(h["text"]) and read in normalize(h["text"]) and touches(b, box(h))), None)
+            rows.append({"page": tf.stem, "truth": t, "read": read, "miss": miss, "h": round(b[3] - b[1], 1), "box": b, "hbox": hb})
     total_lost = sum(r["miss"] for r in rows)
     print(f"wrong words: {len(rows)}, chars lost {total_lost}")
     print("edit kinds (operations):", ", ".join(f"{k} {v}" for k, v in ops.most_common()))
