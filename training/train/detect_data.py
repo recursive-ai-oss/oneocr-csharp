@@ -375,7 +375,7 @@ def load_records(name: str, root: Path, split: str, src: dict | None = None) -> 
     if name == "publaynet":
         return load_publaynet_records(root, split)
     if name == "cord":
-        return load_cord_records(root, split, tuple(src["scale"]) if src.get("scale") else None)
+        return load_cord_records(root, split, tuple(src["scale"]) if src.get("scale") else None, bool(src.get("split_ends")))
     if name == "pages":
         cache = Path(src["cache"].format(split=split)) if src.get("cache") else None
         if src.get("holdout_every"):
@@ -388,42 +388,55 @@ def load_records(name: str, root: Path, split: str, src: dict | None = None) -> 
     raise ValueError(name)
 
 
-def cord_lines(gt: dict, gap: float = 1.2) -> list[list[float]]:
+def cord_lines(gt: dict, gap: float = 1.2, split_ends: bool = False) -> list[list[float]]:
     """Line quads from CORD's own word quads: words of one CORD row, in x order, joined while the gap is <= `gap` line heights.
 
     Points are the quad order CORD ships (top-left, top-right, bottom-right, bottom-left); a joined line takes the first word's left
     edge and the last word's right edge, so a tilted receipt keeps a tilted line.
+
+    `split_ends` cuts a one-character word at either end of a longer line (an item count, a currency sign) into a line of its own: the
+    shrunk core of the longer line would otherwise start inside that character, and it was never labelled as text.
     """
-    rows: dict[int, list[np.ndarray]] = {}
+    rows: dict[int, list[tuple[np.ndarray, str]]] = {}
     for line in gt["valid_line"]:
         for w in line["words"]:
             if not w["text"].strip():
                 continue
             q = w["quad"]
             rows.setdefault(w["row_id"], []).append(
-                np.array([[q["x1"], q["y1"]], [q["x2"], q["y2"]], [q["x3"], q["y3"]], [q["x4"], q["y4"]]], np.float32)
+                (np.array([[q["x1"], q["y1"]], [q["x2"], q["y2"]], [q["x3"], q["y3"]], [q["x4"], q["y4"]]], np.float32), w["text"].strip())
             )
     out = []
     for words in rows.values():
-        words.sort(key=lambda p: float(p[:, 0].mean()))
+        words.sort(key=lambda t: float(t[0][:, 0].mean()))
         cur = [words[0]]
-        for p in words[1:]:
-            h = float(np.linalg.norm(cur[-1][3] - cur[-1][0]))
-            if float(p[:, 0].min() - cur[-1][:, 0].max()) > gap * max(h, 1.0):
-                out.append(cur)
+        groups = []
+        for t in words[1:]:
+            h = float(np.linalg.norm(cur[-1][0][3] - cur[-1][0][0]))
+            if float(t[0][:, 0].min() - cur[-1][0][:, 0].max()) > gap * max(h, 1.0):
+                groups.append(cur)
                 cur = []
-            cur.append(p)
-        out.append(cur)
+            cur.append(t)
+        groups.append(cur)
+        for g in groups:
+            if split_ends and len(g) > 1:
+                if len(g[0][1]) == 1:
+                    out.append(g[:1])
+                    g = g[1:]
+                if len(g) > 1 and len(g[-1][1]) == 1:
+                    out.append(g[-1:])
+                    g = g[:-1]
+            out.append(g)
     res = []
     for grp in out:
-        a, b = grp[0], grp[-1]
+        a, b = grp[0][0], grp[-1][0]
         q = np.stack([a[0], b[1], b[2], a[3]])
         if float(np.linalg.norm(q[1] - q[0])) > 1 and float(np.linalg.norm(q[3] - q[0])) > 1:
             res.append([round(float(v), 1) for v in q.reshape(-1)])
     return res
 
 
-def load_cord_records(root: Path, split: str, scale: tuple[float, float] | None = None) -> list[dict]:
+def load_cord_records(root: Path, split: str, scale: tuple[float, float] | None = None, split_ends: bool = False) -> list[dict]:
     """CORD v2 receipts, official train (minus the calibration images, every 10th in SHA-256 order) and dev as `val`.
 
     The official test split is the receipts evaluation set and is never read. Images in `dedup.json`'s drop lists or whose bytes equal
@@ -447,7 +460,7 @@ def load_cord_records(root: Path, split: str, scale: tuple[float, float] | None 
     ann = {r["id"]: r for r in rd(f"annotations/{src}.jsonl")}
     recs = []
     for r in rows:
-        lines = cord_lines(json.loads(ann[r["id"]]["ground_truth"]))
+        lines = cord_lines(json.loads(ann[r["id"]]["ground_truth"]), split_ends=split_ends)
         if not lines:
             continue
         ys = np.array(lines, np.float32).reshape(-1, 4, 2)[:, :, 1]
