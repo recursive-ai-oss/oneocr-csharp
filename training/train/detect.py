@@ -81,7 +81,7 @@ def det_loss(out: dict, b: dict, lc: dict) -> dict:
         top = nl.topk(nneg).values.sum()
     else:
         top = bce.sum() * 0
-    l_s = ((bce * pos).sum() + top) / max(npos + nneg, 1)
+    l_s = ((bce * pos * b["pos_w"]).sum() + top) / max(npos + nneg, 1)
     t = out["thresh"].float().sigmoid()
     l_b = dice(torch.sigmoid(50 * (p - t)), gt, valid.expand_as(gt))
     mm = thr_m * valid
@@ -140,7 +140,9 @@ def main() -> None:
     for src in cfg["sources"]:
         v = load_records(src["name"], root, "val", src)
         val_sets[src["name"]] = v[:: max(1, len(v) // tc["val_pages"])][: tc["val_pages"]]
-    ds = DetDataset(train_recs, cfg["size"], True, seed, tuple(cfg["scale"]), cfg["rot_p"])
+    ds = DetDataset(
+        train_recs, cfg["size"], True, seed, tuple(cfg["scale"]), cfg["rot_p"], cfg.get("min_core", 0.0), cfg.get("small_weight", 1.0)
+    )
 
     macs = count_macs(model, 1024, 736)["total"]
     manifest = {

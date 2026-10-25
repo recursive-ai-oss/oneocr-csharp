@@ -21,8 +21,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--crops", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--split", default="calib", help="calib (default) or val")
     a = ap.parse_args()
-    src, out = Path(a.crops) / "calib", Path(a.out)
+    src, out = Path(a.crops) / a.split, Path(a.out)
     (out / "pages").mkdir(parents=True, exist_ok=True)
     (out / "truth").mkdir(parents=True, exist_ok=True)
     n = 0
