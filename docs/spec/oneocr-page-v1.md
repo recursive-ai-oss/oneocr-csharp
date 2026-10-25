@@ -244,6 +244,26 @@ confirms against joins of two real words over every candidate space the engine m
 the same tables as information and agree. `OcrOptions.FixWordSpacing = false` turns the whole step off. Pages from a PDF text layer or an LLM are not
 re-segmented.
 
+## Digits and the letter O
+
+After word breaks are settled, the one step that changes a character: the recognizer reads `0` as `O` in identifiers and dates
+(`ACC-71O3O5`, `2020-04-O7`), and the neighbours of the letter settle which it is. For each word:
+
+1. A word with fewer than `MinDigits` (3) ASCII digits is left as read (`O2`, `No.7`, `COVID`).
+2. The word is cut into runs of ASCII letters and digits (the pieces between punctuation). A run that holds only digits and the
+   capital letter `O`, with at least one digit and at least one `O`, has each `O` replaced by `0`. A run with any other letter
+   (`ACC`, `CO2`, `COVID19`) or without a digit (`OO`) is left alone, and so is a run that is not separated from letters by
+   punctuation (`ACC71O3O5`).
+
+Characters keep their extents and probabilities; the word keeps its confidence and box. Only the text of the word and of the
+changed characters differ. The rule is deliberately narrow: over about 100,000 truth words of the benchmark and tune sets
+(receipts included, with their many `0`s) it changes none, and on the engine's output it changes five words, all
+corrections. It was written from the three `O`-for-`0` errors of two benchmark pages and checked on the held-out tune sets, which hold two more.
+`OcrOptions.FixDigitLookalikes = false` turns it off. Beam decoding with the character model keeps words that contain digits
+exactly as greedy decoding reads them (`decoding.md`, "code-word rule"); this step runs afterwards on either result, so the two
+do not conflict: the code-word rule decides what the decoder may change, this step is a separate post-recognition fix. The reverse
+(`l` or `I` for `1`) is not handled: the sets hold no such error.
+
 ## Noise filter
 
 Before lines are arranged, the reader drops detections that are noise read as text: specks, scan grain and edges that were cut as

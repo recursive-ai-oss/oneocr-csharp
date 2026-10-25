@@ -393,11 +393,13 @@ internal static class Program
         bool respace = !(o.TryGetValue("respace", out string? respaceSpec) && respaceSpec == "off");
         // --controls off: keep radio buttons and checkboxes read as letters (the filter's control rule off).
         bool controlsOff = o.TryGetValue("controls", out string? controlsSpec) && controlsSpec == "off";
+        // --digits off: keep an O read inside a number as the letter (OcrOptions.FixDigitLookalikes off).
+        bool digitsOff = o.TryGetValue("digits", out string? digitsSpec) && digitsSpec == "off";
         OcrOptions Page() => !o.TryGetValue("junk", out string? junkSpec)
-            ? new OcrOptions { MaxDegreeOfParallelism = degree, FixWordSpacing = respace, JunkTuning = controlsOff ? new OneOcr.Layout.JunkParameters(ControlConfidence: 0) : null }
+            ? new OcrOptions { MaxDegreeOfParallelism = degree, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, JunkTuning = controlsOff ? new OneOcr.Layout.JunkParameters(ControlConfidence: 0) : null }
             : junkSpec == "off"
-                ? new OcrOptions { MaxDegreeOfParallelism = degree, DropNoise = false, FixWordSpacing = respace }
-                : new OcrOptions { MaxDegreeOfParallelism = degree, JunkTuning = ParseJunk(junkSpec), FixWordSpacing = respace };
+                ? new OcrOptions { MaxDegreeOfParallelism = degree, DropNoise = false, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff }
+                : new OcrOptions { MaxDegreeOfParallelism = degree, JunkTuning = ParseJunk(junkSpec), FixWordSpacing = respace, FixDigitLookalikes = !digitsOff };
         bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
         var errors = new List<(string Id, string Message)>();
@@ -418,7 +420,7 @@ internal static class Program
                     clock.Restart();
                     text = noOrient
                         ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, IncludeChars = false }).ToText()
-                        : o.ContainsKey("junk") || !respace || controlsOff ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
+                        : o.ContainsKey("junk") || !respace || controlsOff || digitsOff ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
                     times.Add(clock.Elapsed.TotalMilliseconds);
                 }
 
