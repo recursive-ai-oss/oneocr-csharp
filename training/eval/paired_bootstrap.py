@@ -69,8 +69,8 @@ def main() -> None:
         for k in (0, 2):
             v = sorted(d[k])
             ci[k] = (v[int(0.025 * a.draws)], v[int(0.975 * a.draws)], rate(rn, full, k) - rate(ro, full, k))
-        f = lambda r, k: f"{rate(r, full, k):.2f}"  # noqa: E731
-        c = lambda k: f"{ci[k][2]:+.2f} [{ci[k][0]:+.2f}, {ci[k][1]:+.2f}]"  # noqa: E731
+        f = lambda r, k: f"{rate(r, full, k):.2f}"  # noqa: E731, B023
+        c = lambda k: f"{ci[k][2]:+.2f} [{ci[k][0]:+.2f}, {ci[k][1]:+.2f}]"  # noqa: E731, B023
         lines.append(f"| {s} | {len(ids)} | {f(ro, 0)} / {f(ro, 2)} | {f(rn, 0)} / {f(rn, 2)} | {c(0)} | {c(2)} |")
     text = "\n".join(lines)
     print(text)
