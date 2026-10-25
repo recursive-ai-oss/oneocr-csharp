@@ -445,6 +445,26 @@ internal static class WordSegmenter
     // strongest contrast. Null when the line is too faint to tell.
     private static bool[]? InkColumns(ReadOnlySpan<byte> gray, int width, int height)
     {
+        if (InkPixels(gray, width, height) is not { } pixels)
+        {
+            return null;
+        }
+
+        var columns = new bool[width];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                columns[x] |= pixels[(y * width) + x];
+            }
+        }
+
+        return columns;
+    }
+
+    // The pixels of the line image that hold ink (the rule above), row-major; null when the line is too faint to tell.
+    internal static bool[]? InkPixels(ReadOnlySpan<byte> gray, int width, int height)
+    {
         Span<int> histogram = stackalloc int[256];
         histogram.Clear();
         int total = width * height;
@@ -488,19 +508,12 @@ internal static class WordSegmenter
         }
 
         int limit = (top + 1) / 2;
-        var columns = new bool[width];
-        for (int y = 0; y < height; y++)
+        var pixels = new bool[width * height];
+        for (int i = 0; i < pixels.Length; i++)
         {
-            ReadOnlySpan<byte> row = gray.Slice(y * width, width);
-            for (int x = 0; x < width; x++)
-            {
-                if (Math.Abs(row[x] - median) > limit)
-                {
-                    columns[x] = true;
-                }
-            }
+            pixels[i] = Math.Abs(gray[i] - median) > limit;
         }
 
-        return columns;
+        return pixels;
     }
 }

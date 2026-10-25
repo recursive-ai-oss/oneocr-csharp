@@ -54,10 +54,20 @@ public sealed class OcrOptions
     /// three digits, a run of letters and digits (the pieces between punctuation) that holds only digits and capital <c>O</c>s,
     /// with at least one of each, has its <c>O</c>s read as <c>0</c>: <c>ACC-71O3O5</c> becomes <c>ACC-710305</c> and
     /// <c>2020-04-O7</c> becomes <c>2020-04-07</c>. Words with other letters inside the run (<c>CO2</c>, <c>COVID19</c>) and
-    /// short strings (<c>O2</c>) are left as read. This is the only step after recognition that changes a character; set it to
+    /// short strings (<c>O2</c>) are left as read. Together with <see cref="FixSeparators"/> it is the only step after recognition that changes a character; set it to
     /// false to keep exactly what the network read.
     /// </summary>
     public bool FixDigitLookalikes { get; init; } = true;
+
+    /// <summary>
+    /// Whether to read the middle dot, the bullet and the vertical bar between words from their pixels. Default true. A
+    /// one-character word between two words that the network read as a hyphen or another small mark, and whose ink is a small round
+    /// blob at the middle height of the line's letters, becomes <c>·</c> (small) or <c>•</c> (large); one read as
+    /// <c>I</c>, <c>l</c>, <c>1</c> or <c>!</c> whose ink is a thin bar taller than every other mark of the line becomes <c>|</c>.
+    /// Box and confidence are kept, and words with more than one character, words at the ends of a line and hyphens or dashes
+    /// inside words are never touched. Set it to false to keep exactly what the network read.
+    /// </summary>
+    public bool FixSeparators { get; init; } = true;
 
     /// <summary>Replaces the noise filter's thresholds; used to tune them. Null uses the defaults.</summary>
     internal global::OneOcr.Layout.JunkParameters? JunkTuning { get; init; }

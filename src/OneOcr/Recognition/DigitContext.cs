@@ -3,7 +3,7 @@ namespace OneOcr.Recognition;
 /// <summary>
 /// Reads the letter <c>O</c> as the digit <c>0</c> where the characters around it are digits (<c>docs/spec/oneocr-page-v1.md</c>,
 /// "Digits and the letter O"). The recognizer confuses the two in identifiers, order numbers and dates (<c>ACC-71O3O5</c>,
-/// <c>2020-04-O7</c>), and the word's neighbours settle which it is. This is the one place after recognition that changes a
+/// <c>2020-04-O7</c>), and the word's neighbours settle which it is. This is one of two places (with <see cref="SeparatorGlyphs"/>) after recognition that change a
 /// character; it never adds or removes one, and it leaves every word that is not mostly a number alone.
 /// </summary>
 internal static class DigitContext

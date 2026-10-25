@@ -264,6 +264,46 @@ exactly as greedy decoding reads them (`decoding.md`, "code-word rule"); this st
 do not conflict: the code-word rule decides what the decoder may change, this step is a separate post-recognition fix. The reverse
 (`l` or `I` for `1`) is not handled: the sets hold no such error.
 
+## Separators
+
+The recognizer often reads the middle dot, the bullet and the vertical bar between menu items, breadcrumbs and bylines as a hyphen
+or another small mark (`By Ana Costa - 3/2/2021 - 4 min read`). After word breaks are settled, each one-character word between two
+other words of a line is judged again from the pixels of the scaled line image. Like the digit step, this changes characters only;
+the word keeps its box, confidence and per-character extents, and nothing is added or removed. All arithmetic is on integers, so the
+result is the same on every path and at every degree.
+
+**Candidates.** A word of exactly one character, neither first nor last in its line, read as one of
+`- – — . , ' * ° ~ _ : ; ^ + = ¨ ˙ ‧ ∙ ⋅ ● ○ ▪ ◦ ¤ º ª` or the grave accent (a dot),
+`·` or `•` (a dot the network already decided), or `I l 1 ! ¦ / \ ( ) [ ]` (a bar). Other letters and digits are never candidates for a
+dot, and a word of two or more characters (`-x`, `--`, `a-b`) is never touched, so hyphens and dashes inside words stay.
+
+**The glyph.** Ink pixels are those the word segmenter uses (distance from the line's median grey above half the line's strongest
+contrast; lines fainter than `MinContrast` are left as read). The glyph is the run of ink columns that contains the first ink column
+of the word's extent, grown over every adjacent ink column, so an extent that cuts the glyph short does not matter. A run wider than
+the line image is high is not a separator. In it, the largest 8-connected piece must hold at least 80% of the ink; its bounding box
+is `w` by `h` with `area` ink pixels. The reference is the line's other ink columns, leaving out the columns of all candidates (a row
+of bars is no reference for itself); at least 8 are needed. `L` is the median over them of the column's ink height (top to bottom
+ink row), `mid2` the median of top + bottom, and `tallest` the largest ink height.
+
+**A dot or bullet** (the candidate is not a bar mark) when all hold:
+
+- `w` and `h` are at least 1; `45 <= 100 w / h <= 160`; or, for a blob at most 25% of `L` wide, `w <= 2 h`. A hyphen or dash the network read
+  with confidence 0.8 or more needs `100 w / h <= 130`: a short hyphen and a dot look alike, and the network is usually right
+  about a hyphen it is sure of.
+- `area >= 0.55 w h`.
+- The blob's centre (`2 * top + h - 1`, twice the row) is within 25% of `L` of `mid2`.
+- The diameter `(w + h) / 2` is between 10% and 90% of `L`.
+
+The result is `•` when the diameter is at least 38% of `L`, else `·`. A word the network read as `·` becomes `•` only from
+45%; one read as `•` becomes `·` only up to 28%; otherwise the network's own mark stays.
+
+**A bar** (`|`) when `w <= max(2, 0.15 h)`, `area >= 0.8 w h`, `h >= 1.12 *` the tallest other ink column and `h` is at least half the
+line image's height. A capital `I` or a `1` is not as tall as a vertical bar, which reaches from above the ascenders to below the
+baseline, and is thicker.
+
+The constants are in `SeparatorGlyphs` and were set on held-out screenshot, layout and generated interface-text pages; they are
+not tuned on the benchmark. `OcrOptions.FixSeparators = false` turns the step off.
+
 ## Noise filter
 
 Before lines are arranged, the reader drops detections that are noise read as text: specks, scan grain and edges that were cut as
