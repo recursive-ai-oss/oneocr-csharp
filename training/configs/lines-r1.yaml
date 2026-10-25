@@ -1,0 +1,70 @@
+# Receipt-text lines for the recognizer fine-tune that follows the separator/interface stage. Exact-truth synthetic. Targets what the
+# wrong readings of CORD dev and calibration receipts looked like: faint thermal and dot-matrix print (the loss rate of crops whose
+# 5-95 percentile span is under 60 grey levels is 15% against 2-5% for brighter ones), runs of zeros and round amounts in both
+# separator conventions (`.` and `,`), item counts, label words with their colon, item words in capitals. Training sets use the
+# training-split fonts; validation sets use held-out font families and books. Render with gen/make_lines_r1.sh.
+name: lines-r1
+seed: 20261301
+charset: data/charset-v1.txt
+fonts: data/fonts.yaml
+sets:
+  recv_train: { n: 800000, fonts: train, books: train, degrade: rcpt, families: &rfam [courierprime, cutivemono, sharetechmono, anonymouspro, firamono, inconsolata, notosansmono, ptmono, sourcecodepro, spacemono, cousine, specialelite, robotocondensed, ubuntucondensed, oswald, arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans], mix: &rmix { receipt2: 0.80, figures: 0.10, receipt: 0.10 } }
+  # held-out families (three of them monospace) and books, the training degradation
+  recv_val: { n: 3000, fonts: heldout, books: heldout, degrade: rcpt, families: &hfam [jetbrainsmono, robotomono, ubuntumono, karla, cabin, alegreyasans, ptsansnarrow], mix: *rmix }
+  # the faint end alone, for the selection guard and for reading per-contrast results
+  faint_val: { n: 3000, fonts: heldout, books: heldout, degrade: faint, families: *hfam, mix: *rmix }
+  dots_val: { n: 3000, fonts: heldout, books: heldout, degrade: dots, families: *hfam, mix: *rmix }
+mix: *rmix
+gpu_degrade:
+  # apparent crop heights of 16-65 px (CORD words), contrast over the whole range with 40% of the draws below 60 grey levels,
+  # thermal dropout and streaks on a third, a dot lattice on a quarter
+  rcpt:
+    ranges:
+      em: [[8, 12], [10, 16], [14, 20], [18, 26], [24, 36]]
+      blur_rel: [[0.02, 0.12], [0.06, 0.14]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 6.0], [2.0, 8.0]]
+      shot: [0.0, 0.04]
+      jpeg_q: [30, 90]
+      contrast: [[20, 45], [25, 60], [40, 90], [55, 140], [55, 255]]
+      persp: [0.0, 0.15]
+      light: [0.0, 0.4]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.01, 0.05]
+      streak: [0.02, 0.1]
+      dots_per_em: [8.0, 13.0]
+    p: { blur: 0.9, motion: 0.15, jpeg: 0.6, persp: 0.3, light: 0.4, subpixel: 0.05, dark: 0.04, tint: 0.3, sliver_v: 0.3, sliver_h: 0.2, rule: 0.2, resample: 0.6, resample2: 0.3, thermal: 0.33, dotmatrix: 0.25 }
+  # held-out ranges: the faint end only (contrast 20-55), otherwise as rcpt
+  faint:
+    ranges:
+      em: [[8, 12], [10, 16], [14, 20], [18, 26], [24, 36]]
+      blur_rel: [[0.02, 0.12], [0.06, 0.14]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 5.0], [2.0, 6.0]]
+      shot: [0.0, 0.04]
+      jpeg_q: [30, 90]
+      contrast: [[20, 55]]
+      persp: [0.0, 0.15]
+      light: [0.0, 0.4]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.01, 0.05]
+      streak: [0.02, 0.1]
+      dots_per_em: [8.0, 13.0]
+    p: { blur: 0.9, motion: 0.15, jpeg: 0.6, persp: 0.3, light: 0.4, subpixel: 0.05, dark: 0.04, tint: 0.3, sliver_v: 0.3, sliver_h: 0.2, rule: 0.2, resample: 0.6, resample2: 0.3, thermal: 0.33, dotmatrix: 0.1 }
+  # dot-matrix and impact print at moderate contrast
+  dots:
+    ranges:
+      em: [[10, 14], [14, 20], [18, 26], [24, 36]]
+      blur_rel: [[0.02, 0.10]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 6.0]]
+      shot: [0.0, 0.04]
+      jpeg_q: [40, 90]
+      contrast: [[45, 140], [60, 255]]
+      persp: [0.0, 0.1]
+      light: [0.0, 0.3]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.0, 0.02]
+      streak: [0.0, 0.05]
+      dots_per_em: [8.0, 13.0]
+    p: { blur: 0.8, motion: 0.1, jpeg: 0.5, persp: 0.2, light: 0.3, subpixel: 0.0, dark: 0.0, tint: 0.3, sliver_v: 0.2, sliver_h: 0.1, rule: 0.2, resample: 0.6, resample2: 0.3, thermal: 0.2, dotmatrix: 1.0 }
