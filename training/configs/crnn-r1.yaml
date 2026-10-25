@@ -1,6 +1,6 @@
 # Receipt-text fine-tune of the production recognizer: chains from ${ONEOCR_BASE} (the accepted checkpoint of the separator/interface stage)
 # and keeps every source and per-batch share of that stage's mix unchanged (adaptive 12, receipt-style 4, wide gaps 4, interface 20, narrow
-# gaps 20, CORD crops 12, the production mix fills the rest); on top it adds 24 lines per batch of lines-r1 (faint thermal and dot-matrix
+# gaps 20, CORD crops 12, the production mix fills the rest); on top it adds 24 lines per batch of lines-r1 and 4 of CORD word crops at the word box (batch 156, the rest unchanged) (faint thermal and dot-matrix
 # print, runs of zeros, round amounts in both separator conventions, counts, label words). Selection on validation only, relative to the
 # starting model: the sets of that stage plus the CORD dev crops and three held-out receipt sets (all, faint, dot-matrix); the same
 # character and word guards. ${ONEOCR_HOME} is this stage's state directory, ${ONEOCR_PREV} the production run, ${ONEOCR_FT} the receipt
@@ -42,6 +42,8 @@ sources:
   - { name: tight-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/tight_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
   - { name: receipt-text, kind: pack, dir: "${ONEOCR_HOME}/data/lines-r1/clean/recv_train", line_set: configs/lines-r1.yaml, side: rcpt, per_batch: 24, provenance: "exact-truth synthetic (configs/lines-r1.yaml)" }
   - { name: cord-train, kind: crops, dir: "${ONEOCR_FT}/data/cord-lines/train/finder", per_batch: 12, provenance: "CORD v2 train annotations, CC BY 4.0" }
+  # the same CORD words cut at CORD's own word box (tight padding, no finder margin): the end letters sit at the crop edge
+  - { name: cord-train-box, kind: crops, dir: "${ONEOCR_FT}/data/cord-lines/train/box", per_batch: 4, provenance: "CORD v2 train annotations, CC BY 4.0" }
 extra_val:
   receipt_synth: ${ONEOCR_FT}/data/lines-v5/val
   gaps: ${ONEOCR_FT}/data/lines-v5/gaps_val
@@ -51,13 +53,15 @@ extra_val:
   recv: ${ONEOCR_HOME}/data/lines-r1/recv_val
   faint: ${ONEOCR_HOME}/data/lines-r1/faint_val
   dots: ${ONEOCR_HOME}/data/lines-r1/dots_val
+  ends: ${ONEOCR_HOME}/data/lines-r1/ends_val
+  cord_dev_box: ${ONEOCR_FT}/data/cord-lines/val/box
   figures: ${ONEOCR_V6}/data/lines-v6/figures_val
   small: ${ONEOCR_V6}/data/lines-v6/small_val
   reader: ${ONEOCR_V6}/data/lines-v6/reader_val
   shot: ${ONEOCR_V6}/data/lines-v6/shot_val
 train:
   steps: 16000
-  batch: 152
+  batch: 156
   lr: 0.00006
   warmup: 200
   weight_decay: 0.01
@@ -65,5 +69,5 @@ train:
   eval_every: 2000
   ckpt_every: 2000
   val_penalty: 3.0
-  guard: { val: 0.02, ui: 0.02, tight: 0.02, shot: 0.02 }
+  guard: { val: 0.02, ui: 0.02, tight: 0.02, shot: 0.02, ends: 0.02 }
   guard_wer: { shot: 0.0, ui: 0.02, tight: 0.02 }

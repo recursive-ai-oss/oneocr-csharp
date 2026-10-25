@@ -22,5 +22,5 @@ if [ "$stage" != materialize ]; then
   done
 fi
 if [ "$stage" != render ]; then
-  uv run python -m degrade.materialize "$cfg" "$out" ${SETS:-recv_val faint_val dots_val}
+  uv run python -m degrade.materialize "$cfg" "$out" ${SETS:-recv_val faint_val ends_val dots_val}
 fi

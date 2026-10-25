@@ -563,6 +563,10 @@ def plan_shard(job) -> list[dict]:
         broad = rng.random() < 0.15  # a minority of crops with margins far from the finder's convention
         vm = [rng.uniform(0.0, 0.45) if broad else rng.uniform(0.18, 0.32) for _ in range(2)]
         hm = [rng.uniform(0.05, 1.0) if broad else rng.uniform(0.35, 0.65) for _ in range(2)]
+        # `tight_ends`: the share of crops whose side margins are each 0-0.2 (of the finder's 0.5), so the first and last letters sit
+        # almost at the crop edge, as they do when the detector's box is ink-narrowed; keeps readers from dropping an end letter
+        if rng.random() < spec.get("tight_ends", 0.0):
+            hm = [rng.uniform(0.0, 0.2) for _ in range(2)]
         extra = (
             {"cells": [c.strip() for c in cells], "gaps": [round(g, 2) for g in gaps]} if kind in ("gap", "ui", "tight") and gaps else {}
         )
