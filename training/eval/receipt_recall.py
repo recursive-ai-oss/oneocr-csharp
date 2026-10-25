@@ -44,6 +44,7 @@ def main() -> None:
     ap.add_argument("--expand", type=float, nargs="+", default=[0.4])
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--dump", help="write the missed words of the first threshold/expand setting here, with the map's peak inside each")
     ap.add_argument("--out")
     a = ap.parse_args()
     ck = torch.load(a.checkpoint, map_location="cpu", weights_only=False)
@@ -69,6 +70,23 @@ def main() -> None:
                 single += [len(w["text"].strip()) == 1 for w in words]
                 digit += [any(c.isdigit() for c in w["text"]) for w in words]
                 hgt += (wb[:, 3] - wb[:, 1]).tolist()
+            if a.dump and (thr, exp) == (a.text_thr[0], a.expand[0]):
+                miss = []
+                for pi, (m, words) in enumerate(pages):
+                    boxes = decode(m, text_thr=thr, expand_text=exp)["text"]
+                    wb = np.array([w["box"] for w in words], np.float32).reshape(-1, 4)
+                    cov = covered(wb, boxes)
+                    for w, b, c in zip(words, wb, cov, strict=True):
+                        if c < 0.5:
+                            # peak probability inside the word, on the stride-2 map (the decoder's input)
+                            k = m["scale"] / 2
+                            x0, y0, x1, y1 = (int(b[0] * k), int(b[1] * k), int(np.ceil(b[2] * k)), int(np.ceil(b[3] * k)))
+                            reg = m["prob"][y0 : max(y1, y0 + 1), x0 : max(x1, x0 + 1)]
+                            miss.append({"page": pi, "text": w["text"], "w": round(float(b[2] - b[0]), 1),
+                                         "h": round(float(b[3] - b[1]), 1),
+                                         "cover": round(float(c), 2), "peak": round(float(reg.max()) if reg.size else 0.0, 3),
+                                         "cells_over_thr": int((reg > thr).sum()) if reg.size else 0})  # fmt: skip
+                Path(a.dump).with_suffix(f".{split}.json").write_text(json.dumps(miss, ensure_ascii=False, indent=0))
             found, single, digit, hgt = (np.array(v) for v in (found, single, digit, hgt))
             rec = lambda mask: round(float(found[mask].mean()), 4) if mask.any() else None  # noqa: E731, B023
             r = {
