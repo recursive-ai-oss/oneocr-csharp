@@ -31,6 +31,17 @@ public sealed class OcrOptions
     /// </summary>
     public bool Deskew { get; init; } = true;
 
+    /// <summary>
+    /// Whether to drop unsure words that sit in lines much smaller than the page's own text (specks, scan grain and edges read as a
+    /// few characters). Default true. A word goes only when its calibrated confidence is low and its line is both under 60% of the
+    /// height of the page's confidently read lines and under 12 pixels; the number dropped is reported in the page's diagnostics.
+    /// Pages with fewer than three confidently read lines are left alone.
+    /// </summary>
+    public bool DropNoise { get; init; } = true;
+
+    /// <summary>Replaces the noise filter's thresholds; used to tune them. Null uses the defaults.</summary>
+    internal global::OneOcr.Layout.JunkParameters? JunkTuning { get; init; }
+
     internal void Validate()
     {
         if (Dpi is double d && (!double.IsFinite(d) || d <= 0))

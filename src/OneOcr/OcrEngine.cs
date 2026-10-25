@@ -192,7 +192,7 @@ public sealed class OcrEngine
         decoding.Validate(_limits);
         if (decoding.Mode != CtcDecoding.Beam)
         {
-            return BuildPage(image, 0, null, maxDegreeOfParallelism, includeChars: false, orient: true, deskew: true, cancellationToken).ToText();
+            return BuildPage(image, 0, null, maxDegreeOfParallelism, includeChars: false, orient: true, deskew: true, new JunkParameters(), cancellationToken).ToText();
         }
 
         string[] texts = [];
@@ -242,10 +242,10 @@ public sealed class OcrEngine
         ArgumentNullException.ThrowIfNull(image);
         options ??= new OcrOptions();
         options.Validate();
-        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, cancellationToken);
+        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, cancellationToken);
     }
 
-    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, CancellationToken cancellationToken)
+    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, CancellationToken cancellationToken)
     {
         long pixels = (long)image.Width * image.Height;
         if (pixels > _limits.MaxImagePixels)
@@ -262,7 +262,7 @@ public sealed class OcrEngine
             long t = StageClock.Start();
             image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
             StageClock.Stop("1 decode+gray copy", t);
-            return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, cancellationToken);
+            return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, junk, cancellationToken);
         }
         finally
         {
@@ -276,7 +276,7 @@ public sealed class OcrEngine
 
     // Turns and straightens the page (see PagePreparation), reads it, and puts the result in the frame the caller asked about.
     private OcrPage ReadPrepared(
-        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, bool orient, bool deskew, CancellationToken cancellationToken)
+        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, bool orient, bool deskew, JunkParameters? junk, CancellationToken cancellationToken)
     {
         var evidence = new OrientationEvidence();
         PreparedPage prepared = PagePreparation.Prepare(
@@ -287,7 +287,7 @@ public sealed class OcrEngine
             PageDetection? first = prepared.Detection ?? (ReferenceEquals(prepared.Pixels, gray) ? evidence.Detection : null);
             OcrPage page = PageReader.Read(
                 _recognizer, _limits, _pixels, _masks, _resizers, _detector, prepared.Pixels, prepared.Width, prepared.Height, pageIndex, dpi, degree, includeChars,
-                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken, prepared.Level);
+                first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken, prepared.Level, junk);
             long t = StageClock.Start();
             OcrPage finished = prepared.Finish(page);
             StageClock.Stop("9 frame map", t);

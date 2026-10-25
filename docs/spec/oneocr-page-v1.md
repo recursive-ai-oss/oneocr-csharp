@@ -146,6 +146,26 @@ of PDF fragments:
 Word boxes are the ink extent inside the horizontal range the recognizer aligned the word to. Character boxes tile that
 range by the alignment of the network's output and carry `approximate: true`.
 
+## Noise filter
+
+Before lines are arranged, the reader drops detections that are noise read as text: specks, scan grain and edges that were cut as
+tiny lines and read as a few unsure characters. The rule works on the recognized strips (one strip is one detected line, its
+height is the height of its ink box):
+
+1. A strip is a reference line when the mean calibrated confidence of its words is at least `AnchorConfidence`. The reference
+   height is the median ink height of the reference lines. With fewer than `MinAnchorLines` reference lines the page is left
+   alone: there is no text to be small against.
+2. A strip is small when its height is under `min(RelativeHeight × reference, MaxHeight)` pixels. Small is relative to the
+   page's own text, so a page set entirely in small type keeps everything; the pixel limit keeps proportionally small text on
+   high-resolution pages.
+3. In a small strip every word whose calibrated confidence is under `MaxConfidence` is dropped; a strip left with no words is
+   dropped. Words in other strips are never touched, whatever their confidence.
+
+The parameters are `MaxConfidence` = FILTER_CONF, `RelativeHeight` = FILTER_REL, `MaxHeight` = FILTER_MAXH, `AnchorConfidence` = 0.9,
+`MinAnchorLines` = 3. The dropped words never reach reading order, tables, `text` or the JSON; the page gets one diagnostic
+stating how many words were dropped. `OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM
+are not filtered.
+
 ## Compatibility
 
 A reader of version 1 accepts documents with additional members. Documents written by a future version 2 are rejected with
