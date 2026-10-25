@@ -37,6 +37,7 @@ import random
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import unicodedata
 import urllib.request
@@ -52,7 +53,7 @@ from .render import add_ink, sha256, text_of, write_page
 DPI = 300
 PT = DPI / 72.0
 CHAR_RATIO = 0.998
-WORD_RATIO = 0.985
+WORD_RATIO = 0.90  # the readers cut words differently; the character stream and the box match carry the check
 BOX_SHARE = 0.985
 ORDER_RATIO = 0.99
 ORDER_RATIO_LAYOUT = 0.97
@@ -134,13 +135,26 @@ def font_problem(path: Path, page: int) -> str | None:
 
 
 def has_images(path: Path, page: int) -> bool:
-    return len(run(["pdfimages", "-list", "-f", str(page), "-l", str(page), str(path)]).splitlines()) > 2
+    """True when the page holds an image that could carry text: more than 2 KB of data (flat rules and colour bars are a few
+    hundred bytes). The ink-outside-the-words check backs this up on the rendered page."""
+    for line in run(["pdfimages", "-list", "-f", str(page), "-l", str(page), str(path)]).splitlines()[2:]:
+        cells = line.split()
+        if len(cells) < 15 or cells[2] == "smask":
+            continue
+        size = cells[-2]
+        mult = {"B": 1, "K": 1024, "M": 1 << 20, "G": 1 << 30}.get(size[-1], 1)
+        if float(size[:-1] or 0) * mult > 2048:
+            return True
+    return False
 
 
 def render_page(path: Path, page: int) -> Image.Image:
-    proc = subprocess.run(["pdftoppm", "-r", str(DPI), "-gray", "-png", "-f", str(page), "-l", str(page), "-singlefile",
-                           str(path), "-"], capture_output=True, timeout=180, check=True)
-    return Image.open(io.BytesIO(proc.stdout)).convert("L")
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "p"
+        subprocess.run(["pdftoppm", "-r", str(DPI), "-gray", "-png", "-f", str(page), "-l", str(page), "-singlefile",
+                        str(path), str(root)], capture_output=True, timeout=180, check=True)
+        with Image.open(root.with_suffix(".png")) as im:
+            return im.convert("L")
 
 
 def ratio(a: list, b: list) -> float:
@@ -225,21 +239,30 @@ def judge(path: Path, page: int, truth_page: dict) -> tuple[dict | None, str, di
     if info["char_ratio"] < CHAR_RATIO or info["word_ratio"] < WORD_RATIO:
         return None, f"readers differ (chars {info['char_ratio']}, words {info['word_ratio']})", info
 
-    by_text: dict[str, list[tuple[float, float]]] = {}
+    # Boxes: each poppler word must be matched by the other reader's words at the same place. The readers cut words differently
+    # at hyphens and wide gaps, so a match is either the concatenation of the OnePdf words centred inside the poppler box, or a
+    # single OnePdf word that contains the poppler word's text and whose box holds the poppler word's centre.
+    ones = []
     for w in truth_page["words"]:
         l, b, r, t = w["b"]
-        by_text.setdefault(norm(w["t"]), []).append(((l + r) / 2, size[1] - (b + t) / 2))
+        ones.append((norm(w["t"]), l, size[1] - t, r, size[1] - b))
     hit = 0
     for w in raw:
-        cx, cy = (w["b"][0] + w["b"][2]) / 2, (w["b"][1] + w["b"][3]) / 2
-        if any(abs(cx - x) <= 3 and abs(cy - y) <= 3 for x, y in by_text.get(w["t"], [])):
+        x0, y0, x1, y1 = w["b"]
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        inside = sorted((o for o in ones if x0 - 2 <= (o[1] + o[3]) / 2 <= x1 + 2 and y0 - 2 <= (o[2] + o[4]) / 2 <= y1 + 2),
+                        key=lambda o: o[1])
+        if "".join(o[0] for o in inside) == w["t"] or any(
+                w["t"] in o[0] and o[1] - 1 <= cx <= o[3] + 1 and o[2] - 1 <= cy <= o[4] + 1 for o in ones if abs((o[2] + o[4]) / 2 - cy) < 6):
             hit += 1
     info["box_share"] = round(hit / len(raw), 4)
     if info["box_share"] < BOX_SHARE:
         return None, f"boxes differ ({info['box_share']})", info
 
-    info["order_poppler_layout"] = round(ratio(a_tok, p_tok), 4)
-    info["order_onepdf_reading"] = round(ratio(a_tok, r_tok), 4)
+    # Order is compared on the character stream (spaces removed), so that a different word cut does not read as a different order.
+    a_chars = list("".join(a_tok))
+    info["order_poppler_layout"] = round(ratio(a_chars, list("".join(p_tok))), 4)
+    info["order_onepdf_reading"] = round(ratio(a_chars, list("".join(r_tok))), 4)
 
     img = render_page(path, page)
     scale = img.size[0] / size[0]
