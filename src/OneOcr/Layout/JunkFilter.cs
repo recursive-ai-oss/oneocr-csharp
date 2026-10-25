@@ -5,13 +5,17 @@ namespace OneOcr.Layout;
 /// <param name="RelativeHeight">... and its line's ink is shorter than this fraction of the page's reference line height.</param>
 /// <param name="MaxHeight">... and shorter than this many pixels (text taller than this is never removed for being small).</param>
 /// <param name="AnchorConfidence">A line is a reference line when its mean word confidence is at least this.</param>
+/// <param name="TinyHeight">Lines under this many pixels (and under the relative limit) are specks, not text: their words need <paramref name="TinyConfidence"/> to stay.</param>
+/// <param name="TinyConfidence">The confidence a word in a tiny line needs to be kept.</param>
 /// <param name="MinAnchorLines">Pages with fewer reference lines are left alone: there is no text to be small against.</param>
 internal sealed record JunkParameters(
     float MaxConfidence = 0.5f,
     double RelativeHeight = 0.6,
     int MaxHeight = 12,
     float AnchorConfidence = 0.9f,
-    int MinAnchorLines = 3);
+    int MinAnchorLines = 3,
+    int TinyHeight = 8,
+    float TinyConfidence = 0.99f);
 
 /// <summary>
 /// Removes detections that are noise read as text: specks, scan grain and edges that the detector cut as tiny lines and the
@@ -42,7 +46,9 @@ internal static class JunkFilter
 
         anchors.Sort();
         double reference = anchors[anchors.Count / 2];
-        double limit = Math.Min(p.RelativeHeight * reference, p.MaxHeight);
+        double relative = p.RelativeHeight * reference;
+        double limit = Math.Min(relative, p.MaxHeight);
+        double tiny = Math.Min(relative, p.TinyHeight);
         int dropped = 0;
         for (int i = 0; i < strips.Length; i++)
         {
@@ -53,9 +59,10 @@ internal static class JunkFilter
             }
 
             var kept = new List<OcrWord>(s.Words.Count);
+            float bar = s.Box.Bottom - s.Box.Top < tiny ? Math.Max(p.MaxConfidence, p.TinyConfidence) : p.MaxConfidence;
             foreach (OcrWord w in s.Words)
             {
-                if (w.Confidence >= p.MaxConfidence)
+                if (w.Confidence >= bar)
                 {
                     kept.Add(w);
                 }

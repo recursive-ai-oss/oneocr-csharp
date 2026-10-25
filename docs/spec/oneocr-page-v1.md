@@ -158,13 +158,16 @@ height is the height of its ink box):
 2. A strip is small when its height is under `min(RelativeHeight × reference, MaxHeight)` pixels. Small is relative to the
    page's own text, so a page set entirely in small type keeps everything; the pixel limit keeps proportionally small text on
    high-resolution pages.
-3. In a small strip every word whose calibrated confidence is under `MaxConfidence` is dropped; a strip left with no words is
-   dropped. Words in other strips are never touched, whatever their confidence.
+3. In a small strip every word whose calibrated confidence is under `MaxConfidence` is dropped. In a tiny strip (height under
+   `min(RelativeHeight × reference, TinyHeight)`: specks and grain a few pixels high) the bar is `TinyConfidence` instead,
+   because such strips hold no real text but the recognizer reads a lone punctuation mark in them with middling confidence. A strip
+   left with no words is dropped. Words in other strips are never touched, whatever their confidence.
 
-The parameters are `MaxConfidence` = FILTER_CONF, `RelativeHeight` = FILTER_REL, `MaxHeight` = FILTER_MAXH, `AnchorConfidence` = 0.9,
-`MinAnchorLines` = 3. The dropped words never reach reading order, tables, `text` or the JSON; the page gets one diagnostic
-stating how many words were dropped. `OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM
-are not filtered.
+The parameters are `MaxConfidence` = 0.5, `RelativeHeight` = 0.6, `MaxHeight` = 12 px, `TinyHeight` = 8 px, `TinyConfidence` = 0.99,
+`AnchorConfidence` = 0.9, `MinAnchorLines` = 3. They were chosen on pages that are not part of the benchmark sets: a degraded-scan
+set and a screenshot set rendered with new seeds, and the validation split of the generated page set. The dropped words never
+reach reading order, tables, `text` or the JSON; the page gets one diagnostic stating how many words were dropped.
+`OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM are not filtered.
 
 ## Compatibility
 

@@ -277,7 +277,8 @@ internal static class Program
     {
         string[] p = spec.Split(':');
         return new OneOcr.Layout.JunkParameters(
-            float.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture), int.Parse(p[2], CultureInfo.InvariantCulture));
+            float.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture), int.Parse(p[2], CultureInfo.InvariantCulture), 0.9f, 3,
+            p.Length > 3 ? int.Parse(p[3], CultureInfo.InvariantCulture) : 8, p.Length > 4 ? float.Parse(p[4], CultureInfo.InvariantCulture) : 0.99f);
     }
 
     private static int Run(Dictionary<string, string> o)

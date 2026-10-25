@@ -22,7 +22,7 @@ public class JunkFilterTests
     public void UnsureWordsOfSmallLinesAreDropped()
     {
         List<OrderStrip?> list = Body();
-        list.Add(Strip(200, 6, ("x.", 0.2f), ("ab", 0.9f)));
+        list.Add(Strip(200, 10, ("x.", 0.2f), ("ab", 0.9f)));
         list.Add(Strip(220, 5, ("..", 0.1f)));
         OrderStrip?[] strips = [.. list];
 
@@ -79,5 +79,19 @@ public class JunkFilterTests
         OrderStrip?[] strips = [.. Enumerable.Range(0, 5).Select(i => (OrderStrip?)Strip(i * 12, 7, ("tiny", i == 4 ? 0.2f : 0.99f)))];
 
         Assert.Equal(0, JunkFilter.Apply(strips, new JunkParameters()));
+    }
+
+    [Fact]
+    public void TinyLinesNeedAlmostCertainReading()
+    {
+        List<OrderStrip?> list = Body();
+        list.Add(Strip(200, 3, (".", 0.8f), ("-", 0.995f)));
+        list.Add(Strip(220, 10, ("ok", 0.8f)));
+        OrderStrip?[] strips = [.. list];
+
+        // The speck's 0.8 word goes, its 0.995 word stays; the 10-pixel line is small but not tiny, so 0.8 is enough there.
+        Assert.Equal(1, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Equal(["-"], strips[4]!.Words.Select(w => w.Text));
+        Assert.Equal(["ok"], strips[5]!.Words.Select(w => w.Text));
     }
 }
