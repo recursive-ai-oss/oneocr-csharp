@@ -299,6 +299,10 @@ def main() -> None:
                 base = tc["val_baseline"]
                 score = (v["cer"] / base["val"] + sum(r["cer"] / base[k] for k, r in ev.items())) / (1 + len(ev))
                 score += tc.get("val_penalty", 3.0) * max(0.0, v["cer"] / base["val"] - 1.0)
+                # hard guard: a named set more than `tol` worse than the starting model cannot give the best checkpoint
+                cur = {"val": v["cer"]} | {k: r["cer"] for k, r in ev.items()}
+                for name, tol in tc.get("guard", {}).items():
+                    score += 100.0 * max(0.0, cur[name] / base[name] - 1.0 - tol)
             if score < best:  # the best checkpoint is picked on validation sets, never on the held-out or page evaluation sets
                 best = score
                 save(run_dir / "best.pt")
