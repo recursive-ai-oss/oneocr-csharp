@@ -27,11 +27,12 @@
 #   COMP_ROOT [~/oneocr/bench/competitors]           PaddleOCR / docTR virtual environments and model caches (competitors/setup.sh)
 #   PSMS [3 4 6 11]  PADDLE_VARIANTS [v6-default v5-mobile-en v5-server-en v5-mobile v5-server]  DOCTR_VARIANTS [default mobile]  (set empty to skip an engine)
 #   JOBS [8]  processes/threads for Tesseract pages and competitor engines (accuracy does not depend on it)
+#   COMP_PAR [1]  competitor variants run at the same time, each with JOBS threads
 #   SETS      [every set found under ROOT]
 #   TIMEOUT   [14400] overall seconds        LOCK [~/WORKER-BENCH.lock]
 #   DOTNET_DIR [~/dotnet10, when it exists]
 #
-# Estimated worker time (see the table at the end of --plan): about 520 pages over ten sets.
+# Estimated worker time: the table printed by --plan (about 12.5 h for ~520 pages with COMP_PAR=1, 4-5 h with COMP_PAR=5).
 set -uo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -48,6 +49,7 @@ PSMS="${PSMS:-3 4 6 11}"
 PADDLE_VARIANTS="${PADDLE_VARIANTS-v6-default v5-mobile-en v5-server-en v5-mobile v5-server}"
 DOCTR_VARIANTS="${DOCTR_VARIANTS-default mobile}"
 JOBS="${JOBS:-8}"
+COMP_PAR="${COMP_PAR:-1}"
 TIMEOUT="${TIMEOUT:-14400}"
 LOCK="${LOCK:-$HOME/WORKER-BENCH.lock}"
 if [[ -z "${SETS:-}" ]]; then
@@ -81,8 +83,21 @@ print_plan() {
   echo
   vision_commands
   echo
-  echo "estimate (seconds per page, JOBS=8, from OUT/steps.tsv of the test run; scale pages x seconds):"
-  echo "  see EST_* in this script"
+  cat <<EOT
+estimate, measured 2026-10-25 on the 32-thread worker (load 5-7 from the run itself), seconds per page:
+                        A4-size page (300 DPI)   screenshot / receipt-size page
+  Paddle v6-default      30                       10
+  Paddle v5-mobile-en    11                       3.1
+  Paddle v5-mobile       12                       3.3
+  Paddle v5-server-en    34                       16
+  Paddle v5-server       37                       17
+  docTR default / mobile 2.5 / 0.6                0.9 / 0.45
+  Tesseract, 8 runs      1.2 (wall, JOBS=8)       0.3
+  ours (gate)            about 1                  about 0.5   (not measured here)
+For ~520 pages (about 220 A4-size, 300 small): Paddle one variant after another ~11.8 h, docTR ~0.3 h, Tesseract ~0.2 h, gate ~0.2 h:
+  about 12.5 h with COMP_PAR=1 (needs TIMEOUT above the default 14400), about 4-5 h with COMP_PAR=5 (the v5-server variants bound it, ~3.7 h each).
+  Per set, multiply its pages by the row sums: A4-size ~125 s/page for Paddle, small ~50 s/page; plus ~5 s model load per variant and set.
+EOT
 }
 
 if [[ $plan == 1 ]]; then print_plan; exit 0; fi
@@ -166,8 +181,20 @@ mkdir -p "$OUT/logs" "$OUT/steps" "$OUT/competitors"
 
 step check check_root
 for s in $SETS; do step "tess-$s" tess_set "$s"; done
-for v in $PADDLE_VARIANTS; do step "paddle-$v" competitor "$v"; done
-for v in $DOCTR_VARIANTS; do step "doctr-$v" competitor "doctr:$v"; done
+# Competitor variants are independent: COMP_PAR of them run at once (each with THREADS=JOBS); accuracy does not depend on it.
+names=()
+for v in $PADDLE_VARIANTS; do
+  names+=("paddle-$v")
+  ( step "paddle-$v" competitor "$v" ) &
+  while (( $(jobs -rp | wc -l) >= COMP_PAR )); do wait -n; done
+done
+for v in $DOCTR_VARIANTS; do
+  names+=("doctr-$v")
+  ( step "doctr-$v" competitor "doctr:$v" ) &
+  while (( $(jobs -rp | wc -l) >= COMP_PAR )); do wait -n; done
+done
+wait
+for n in "${names[@]}"; do [[ -e "$OUT/steps/$n.done" ]] || { echo "FAILED $n"; exit 1; }; done
 fsig=$(echo "$(ls "$OUT/competitors" 2>/dev/null) $(ls "$OUT/vision" 2>/dev/null)" | md5sum | cut -c1-8)
 rm -f $(ls "$OUT"/steps/freeze-*.done "$OUT"/steps/gate-*.done 2>/dev/null | grep -v -e "freeze-$fsig" -e "gate-$fsig")
 step "freeze-$fsig" freeze
