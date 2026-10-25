@@ -134,6 +134,8 @@ def run_engine(dotnet: str, dll: Path, args: argparse.Namespace, set_name: str, 
            "--out", str(out), "--degree", str(degree), "--repeat", "1"]
     if args.detector:
         cmd += ["--detector", args.detector]
+    if args.wordlm:
+        cmd += ["--wordlm", args.wordlm]
     if sidecars:
         cmd += ["--words", "1", "--pagejson", "1"]
     t0 = time.perf_counter()
@@ -181,12 +183,46 @@ def build_tool(work: Path, dotnet: str, isa: str) -> tuple[Path, dict]:
     return exe, {"process": "oneocr ocr (src/OneOcr.Tool, NativeAOT publish)", "rid": rid, "instruction_set": chosen or "project default", "sha256": _sha(str(exe))}
 
 
+def _pins() -> dict[str, str]:
+    """Role -> SHA-256 of the files the library pins as its bundled models (src/OneOcr.Models/models.json), when the checkout has it."""
+    f = Path(__file__).resolve().parent.parent.parent / "src" / "OneOcr.Models" / "models.json"
+    try:
+        return {m["role"]: m["sha256"] for m in json.loads(f.read_text())["models"]}
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
+def model_files(args: argparse.Namespace) -> dict:
+    """The files that produced the rows: path, SHA-256 and whether it is the bundled pin, for recognizer, detector and word character model."""
+    pins = _pins()
+    out: dict = {}
+    for key, role, path in (("recognizer", "recognizer", args.model), ("detector", "detector", args.detector), ("word_model", "language-model", args.wordlm)):
+        sha = _sha(path)
+        out[key] = {"file": path, "sha256": sha, "is_bundled_pin": (sha == pins.get(role)) if sha and pins else None}
+    return out
+
+
+def _models_line(mf: dict) -> str:
+    names = {"recognizer": "recognizer", "detector": "detector", "word_model": "char LM"}
+    parts = []
+    for k, label in names.items():
+        e = mf[k]
+        if not e["sha256"]:
+            parts.append(f"{label}: none" + (" (classical finder)" if k == "detector" else ""))
+        else:
+            pin = "" if e["is_bundled_pin"] is None else (" = bundled pin" if e["is_bundled_pin"] else " (not the bundled pin)")
+            parts.append(f"{label} `{e['sha256']}`{pin}")
+    return "Models: " + "; ".join(parts) + "."
+
+
 def run_tool(exe: Path, args: argparse.Namespace, set_name: str, out: Path, degree: int) -> tuple[float, dict]:
     out.mkdir(parents=True, exist_ok=True)
     cmd = [str(exe), "ocr", "--model", args.model, "--in", str(Path(args.eval) / set_name / "pages"), "--out", str(out), "--degree", str(degree),
            "--stats", str(out / "timing.json")]
     if args.detector:
         cmd += ["--detector", args.detector]
+    if args.wordlm:
+        cmd += ["--wordlm", args.wordlm]
     t0 = time.perf_counter()
     r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     wall = time.perf_counter() - t0
@@ -424,6 +460,7 @@ def render(out_dir: Path) -> None:
                "A run on it counts once per milestone and nothing is tuned against it.", ""]
     if acc:
         md += [f"Accuracy: model `{acc['model_sha256'][:12]}…`" + (f", detector `{acc['detector_sha256'][:12]}…`" if acc["detector_sha256"] else ", no detector (classical finder)"),
+               _models_line(acc["models"]) if acc.get("models") else "",
                f"engine {acc['runtime']}; eval sets `{acc['eval']}` (SHA256SUMS `{(acc['eval_sums_sha256'] or 'n/a')[:12]}…`); scorer boxes: ink.",
                f"{acc['env']['cpu']}, {acc['env']['cores']} threads; load before {acc['load_before']}, after {acc['load_after']}; started {acc['started']}.", "",
                "Quality: error rates in %. Baseline per metric: " + ("the best value any measured engine reaches (Tesseract best-of with its best PSM per metric, and the competitor configurations of the frozen results directory)" if acc.get("competitors") else "Tesseract best-of (best PSM per metric)") +
@@ -469,6 +506,7 @@ def render(out_dir: Path) -> None:
         sp = speed_rows(tim, tt, qmap)
         report["timing"] = {"env": tim["env"], "sets": sp, "load": tim["load"]}
         md += ["## Speed and memory", "",
+               _models_line(tim["models"]) if tim.get("models") else "",
                f"{tim['env']['cpu']}, {tim['env']['cores']} threads. Load (1 min) before {tim['load']['before']}, during (after each run) "
                f"min {min(tim['load']['during'])} / max {max(tim['load']['during'])}, after {tim['load']['after']}; lock held by the job: {tim['lock']}. "
                f"Each cell is the mean of {tim['repeats']} runs (one `{(tim.get('engine') or {}).get('process', 'OneOcr.Bench run')}` process per run, {(tim.get('engine') or {}).get('rid', '')} "
@@ -569,6 +607,12 @@ def main(args) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     args.model = str(Path(args.model).expanduser()) if args.model else None
     args.detector = str(Path(args.detector).expanduser()) if args.detector else None
+    if args.wordlm and args.no_wordlm:
+        raise SystemExit("--wordlm and --no-wordlm exclude each other")
+    if args.model and not args.wordlm and not args.no_wordlm:
+        raise SystemExit("--wordlm FILE is required: the shipped pipeline decides word breaks with the character model (charlm-v1). "
+                        "Pass --no-wordlm to measure without it.")
+    args.wordlm = str(Path(args.wordlm).expanduser()) if args.wordlm else None
     if args.rerun_tess:
         rerun_tess(args, names, work)
     tess_results = _tess_results(args, work)
@@ -611,6 +655,7 @@ def main(args) -> None:
         (out_dir / "accuracy.json").write_text(json.dumps({
             "started": started, "env": env, "load_before": load_before, "load_after": _load(), "runtime": runtime,
             "model": args.model, "model_sha256": _sha(args.model), "detector": args.detector, "detector_sha256": _sha(args.detector),
+            "models": model_files(args),
             "competitors": args.competitors, "competitors_sha256": _sha(str(Path(args.competitors).expanduser() / "scores.json")) if args.competitors else None,
             "eval": args.eval, "sealed": bool(args.sealed), "eval_sums_sha256": _sha(str(sums)) if sums.exists() else None, "scorer_sha256": _sha(str(Path(__file__).with_name("score.py"))),
             "sets": sets}, indent=1) + "\n")
@@ -642,5 +687,5 @@ def main(args) -> None:
     (out_dir / "timing.json").write_text(json.dumps({
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"), "env": _env_info(), "repeats": args.repeats, "default_degree": default_degree,
         "engine": tool_info, "lock": LOCK.read_text().strip() if LOCK.exists() else "none (smoke)", "load": {"before": load_before, "during": during, "after": _load()},
-        "model_sha256": _sha(args.model), "detector_sha256": _sha(args.detector), "sets": sets}, indent=1) + "\n")
+        "model_sha256": _sha(args.model), "detector_sha256": _sha(args.detector), "models": model_files(args), "sets": sets}, indent=1) + "\n")
     render(out_dir)
