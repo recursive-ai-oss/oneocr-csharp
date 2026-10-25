@@ -95,3 +95,10 @@ The `docextract-v0` forward pass (graph in [docextract-v0.md](docextract-v0.md))
 ### Tolerance of the document extraction model
 
 Per layer (`char_pool`, `emb`, `pair_bias`, `block.<l>`, `final`, `tags`, `roles`, `doc`, `rel`), against PyTorch's float64 run of the same fp16 weights: `max |ours - exact| <= 2 * Floor(L) + 8 ulp * max |exact|`, where `Floor(L)` is PyTorch's own fp32-versus-float64 maximum error for the layer (`fp32_vs_fp64_floor` in the fixtures) and the second term (8 times 2^-23 of the layer's largest value) covers layers where PyTorch happens to be nearly exact. Against PyTorch's fp32 result: `max |ours - pytorch| <= 3 * Floor(L) + 8 ulp * max |exact|`. Observed on two random-weight models over pages of 24 to 300 words on all four paths: our error is 0.4 to 1.13 times PyTorch's for every layer except the document logits (2.05 times a very small floor, inside the ulp term); the difference from PyTorch's own result is at most 1.44 times the floor. Results are bit-identical across paths and degrees.
+
+## Line sampling
+
+Reading a leaning line (see [detector-v1](detector-v1.md#line-axis-post-processing-any-detector-version)) samples the page at points off the pixel grid.
+The sampler is bilinear in double precision with a fixed order of operations (`top`, `bottom`, then their blend), edge pixels repeated and the
+result rounded half up to a byte. It uses no fused multiply-add and no library trigonometry: the axis comes from `sqrt`, `+ - * /` only, so
+every platform and every degree of parallelism produces the same bytes. The sampled crop then goes through the same resize as any line crop.

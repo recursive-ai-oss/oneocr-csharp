@@ -144,6 +144,11 @@ internal static class DetectorLines
             for (int i = 0; i < detection.Lines.Count; i++)
             {
                 int leaf = LeafOf(detection, i);
+                if (TiltedLines.TryInkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, strips, leaf))
+                {
+                    continue;
+                }
+
                 var boxes = new List<LineBox>(1);
                 InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes);
                 foreach (LineBox b in boxes)
@@ -172,7 +177,7 @@ internal static class DetectorLines
 
     // The ink inside the detected box, as the classical finder's boxes are (the recognizer's crop rules are written for ink-tight
     // lines); the detected box itself when the page has no contrast or no ink falls inside it.
-    private static void InkBoxes(DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<LineBox> result)
+    internal static void InkBoxes(DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<LineBox> result)
     {
         int x0 = Math.Clamp((int)Math.Floor(line.Left), 0, width), x1 = Math.Clamp((int)Math.Ceiling(line.Right), 0, width);
         int y0 = Math.Clamp((int)Math.Floor(line.Top), 0, height), y1 = Math.Clamp((int)Math.Ceiling(line.Bottom), 0, height);
