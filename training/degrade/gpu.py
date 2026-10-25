@@ -100,6 +100,8 @@ def sample_params(side: dict, n: int, g: torch.Generator, dev) -> dict[str, torc
         on = flag("thermal")
         extra["dropout"] = _uniform(R["dropout"], n, g, dev) * on
         extra["streak"] = _uniform(R["streak"], n, g, dev) * on
+    if "dotmatrix" in P:  # impact-printer text: ink only at the points of a dot lattice, dots per em drawn here (0 = off)
+        extra["dots_per_em"] = _uniform(R.get("dots_per_em", [8.0, 13.0]), n, g, dev) * flag("dotmatrix")
     return extra | {
         "em": em,
         "src_h": wh.float(),
@@ -208,6 +210,23 @@ def _sep_conv(img: torch.Tensor, kx: torch.Tensor | None, ky: torch.Tensor | Non
 _SUBPIXEL = [[0.0, 2 / 3, 1 / 3], [0.0, 1.0, 0.0], [1 / 3, 2 / 3, 0.0]]  # R, G, B: the coverage sampled a third of a pixel apart
 
 
+def _dotmatrix(cov: torch.Tensor, pitch: float) -> torch.Tensor:
+    """cov [1, h, w] text coverage -> the same text printed as round dots on a lattice of `pitch` pixels (impact printers, dot-matrix
+    displays). Each lattice cell takes the coverage averaged over the cell; a dot is drawn where it is above 0.25."""
+    _, h, w = cov.shape
+    k = max(2, round(pitch))
+    avg = F.avg_pool2d(cov.unsqueeze(0), k, 1, k // 2, count_include_pad=False)[..., :h, :w][0]
+    ys = (torch.arange(h, device=cov.device, dtype=cov.dtype) + 0.5) / pitch
+    xs = (torch.arange(w, device=cov.device, dtype=cov.dtype) + 0.5) / pitch
+    fy, fx = ys - ys.floor() - 0.5, xs - xs.floor() - 0.5
+    dot = torch.exp(-(fy.view(-1, 1) ** 2 + fx.view(1, -1) ** 2) / (2 * 0.22**2))
+    # the cell value is read at the lattice point, so a stroke thinner than the pitch still leaves its dots
+    cx, cy = (xs.floor() + 0.5) * pitch, (ys.floor() + 0.5) * pitch
+    ix, iy = cx.long().clamp(0, w - 1), cy.long().clamp(0, h - 1)
+    cell = avg[0][iy.view(-1, 1), ix.view(1, -1)]
+    return ((cell > 0.25).to(cov.dtype) * dot).unsqueeze(0)
+
+
 def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> torch.Tensor:
     """cov: [n, 1, 48, Wp] text coverage 0..1 of samples that share the intermediate height wh. Returns luma 0..255, [n, 1, wh, w]."""
     dev = cov.device
@@ -215,6 +234,11 @@ def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> t
     if wh != IN_H:
         cov = F.interpolate(cov, size=(wh, max(8, round(cov.shape[3] * wh / IN_H))), mode="bilinear", antialias=True, align_corners=False)
     h, w = cov.shape[2:]
+    if "dots_per_em" in p:
+        for i in (p["dots_per_em"] > 0).nonzero().flatten().tolist():
+            pitch = wh / CROP_PER_EM / float(p["dots_per_em"][i])  # working pixels between dots
+            if pitch >= 1.6:
+                cov[i] = _dotmatrix(cov[i], pitch)
     # corner jitter: vertical moves are full strength, horizontal ones a third of it (a line is far wider than it is high)
     cov = _warp(cov, p["persp_offsets"] * p["persp"].view(-1, 1, 1) * torch.tensor([0.35, 1.0], device=dev))
     if "dropout" in p:
