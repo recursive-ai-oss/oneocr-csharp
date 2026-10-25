@@ -168,8 +168,9 @@ def main() -> None:
     if not rules:
         print("no rule improves the objective within the tolerance: recommend nothing")
 
-    def report(label, tab, pairs):
-        res = evaluate(tab, rules, variants, a.lo, recall)
+    def report(label, tab, upto=None):
+        used = rules if upto is None else rules[:upto]
+        res = evaluate(tab, used, variants, a.lo, recall)
         print(f"\n{label}: CER / WER / order % (sel-cord and cord-conf: recall); pages taken by the rule")
         for n in tab:
             b0 = metrics(tab, n, np.zeros(len(tab[n]["pages"]), int), variants, n in recall)
@@ -179,11 +180,15 @@ def main() -> None:
                 line += f"   {a.also} {al[0]:.3f} / {al[1]:.3f} / {al[2]:.3f}"
             print(line)
 
-    report("FIT", tfit, None)
+    report("FIT", tfit)
+    if len(rules) > 1:
+        report("FIT, first rule only", tfit, 1)
     if a.conf_root:
         conf_truth = {k: Path(v) for k, v in (s.split("=", 1) for s in a.conf)}
         tconf = page_table(Path(a.conf_root), variants, conf_truth, json.loads(Path(a.conf_noise).read_text()))
-        report("CONFIRM", tconf, None)
+        report("CONFIRM", tconf)
+        if len(rules) > 1:
+            report("CONFIRM, first rule only", tconf, 1)
     if a.out:
         Path(a.out).write_text(json.dumps([{"cond": [list(t) for t in c], "variant": v} for c, v in rules], indent=1))
 
