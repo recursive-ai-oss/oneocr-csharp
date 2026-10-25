@@ -49,6 +49,7 @@ def main() -> None:
     ap.add_argument("--truth", action="append", required=True, help="NAME=TRUTH_DIR; NAME also names the set under each variant")
     ap.add_argument("--target", default="degraded-tune")
     ap.add_argument("--tol", type=float, default=0.02, help="allowed loss on the other sets, percentage points")
+    ap.add_argument("--max-candidates", type=int, default=30, help="thresholds tried per measure (evenly spaced in rank)")
     ap.add_argument("--recall", default="sel-cord,receipts-v1", help="sets scored on recall (partial truth)")
     a = ap.parse_args()
     root = Path(a.root)
@@ -67,7 +68,8 @@ def main() -> None:
     rows = []
     for measure in ("sigma", "junk"):
         values = sorted({noise[n][p][measure] for n in truth for p in pages[n] if p in noise.get(n, {})})
-        cands = [(x + y) / 2 for x, y in zip(values, values[1:], strict=False)]
+        mids = [(x + y) / 2 for x, y in zip(values, values[1:], strict=False)]
+        cands = mids if len(mids) <= a.max_candidates else [mids[round(i * (len(mids) - 1) / (a.max_candidates - 1))] for i in range(a.max_candidates)]
         for hi in a.hi.split(","):
             for T in cands:
                 res = {}
