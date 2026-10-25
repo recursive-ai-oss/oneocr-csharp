@@ -59,7 +59,7 @@ def main() -> None:
             lab, n = ndimage.label(m["prob"] > a.thr)
             for k in range(1, n + 1):
                 ys, xs = np.nonzero(lab == k)
-                if len(xs) < 40 or xs.ptp() < 8 * max(ys.ptp(), 1):  # long thin components only (a line, not a speck or a block)
+                if len(xs) < 40 or np.ptp(xs) < 8 * max(np.ptp(ys), 1):  # long thin components only (a line, not a speck or a block)
                     continue
                 X, Y = xs * TEXT_STRIDE / sc, ys * TEXT_STRIDE / sc
                 c = np.cov(np.vstack([X, Y]))
