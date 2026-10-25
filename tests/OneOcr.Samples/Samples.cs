@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using OneImage;
 using OneOcr;
@@ -277,6 +278,16 @@ internal static class Samples
         {
             Console.WriteLine($"check: {word.Text} ({word.Confidence:P0}) at {word.Box.Left:F0},{word.Box.Top:F0}");
         }
+        #endregion
+    }
+
+    public static async Task AsyncOcr(OcrEngine engine, Image image)
+    {
+        #region AsyncOcr
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        OcrPage page = await image.OcrAsync(engine, new OcrOptions { Deskew = false }, cts.Token);
+        string text = await image.ToTextAsync(engine, cts.Token);
+        IReadOnlyList<OcrPage> frames = await engine.OcrAsync([image, image], cancellationToken: cts.Token);
         #endregion
     }
 
