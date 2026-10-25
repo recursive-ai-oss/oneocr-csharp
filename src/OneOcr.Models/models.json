@@ -13,11 +13,11 @@
     {
       "name": "dbnet-lite-v1",
       "role": "detector",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "container": 1,
-      "bytes": 1370248,
-      "sha256": "b25041984b9f702ecdb930573664711749cf22cb95a6c3c2d943ae0fb9cdfe43",
-      "asset": "dbnet-lite-v1-0.2.0.onm"
+      "bytes": 1370568,
+      "sha256": "af520cb6f990ccd1cf0ad3860de7801e0e8411f373550345764c6b6e15093974",
+      "asset": "dbnet-lite-v1-0.2.1.onm"
     }
   ]
 }

@@ -30,6 +30,8 @@ public sealed class LineRecognizer
     /// <summary>The scratch pool of this recognizer, for a page detector to share (it is thread-safe).</summary>
     internal BufferPool<float> ScratchPool => _pool;
 
+    internal KernelPath UsedPath => _path;
+
     internal LineRecognizer(CrnnModel model, OcrLimits limits, KernelPath path)
     {
         _model = model;

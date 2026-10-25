@@ -22,4 +22,6 @@
     <Compile Include="../OneOcr.Tests/PdfFixtures.cs" Link="PdfFixtures.cs" />
   </ItemGroup>
 
+  <Import Project="../../src/OneOcr/buildTransitive/OneOcr.targets" />
+
 </Project>
