@@ -1,6 +1,6 @@
 # Receipt fine-tune on the lines the engine itself cuts from generated receipt photos: chains from ${ONEOCR_BASE} (the accepted
 # checkpoint) and keeps the mix of its last stage (adaptive 12, receipt-style 4, wide gaps 4, interface 20, narrow gaps 20, CORD crops 12, the
-# production mix fills the rest); on top it adds 16 lines per batch of transcribed engine crops (`gen/receipt_photos.py align` then
+# production mix fills the rest); on top it adds 16 lines per batch of transcribed engine crops (`gen/best_angle.py` picks each photo's reading angle from engine confidence alone, then `gen/receipt_photos.py align` and
 # `LineGen --page-lines`: crops cut by the detector's own line boxes, tilted lines rectified, labelled with the transcription of the printed
 # line). Selection on validation only, relative to the starting model: the sets of the last stage plus the engine crops of the held-out
 # receipt photos. ${ONEOCR_HOME} is this stage's state directory, ${ONEOCR_PREV} the production run, ${ONEOCR_FT} the receipt fine-tune
