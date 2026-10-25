@@ -50,7 +50,7 @@ from pathlib import Path
 from . import tess as tess_mod
 from .paths import BENCH, data_dir
 from .score import score_dir
-from .sets import SETS
+from .sets import category, discover, is_clean, is_real, is_receipts, order_judged
 
 LOCK = Path(os.environ.get("ONEOCR_LOCK", "~/WORKER-BENCH.lock")).expanduser()
 TIE_PP = 0.2  # clean print may tie within this many percentage points
@@ -256,8 +256,8 @@ def tess_baselines(set_name: str, truth: Path, tess_results: Path) -> dict | Non
             s = score_dir(truth, hyp, "ink")
             f1 = s["det"]["f1"] if s["det"] else None
         out["models"][model] = {"best_per_metric": per, "selected_psm": sel, "selected_by": d["selected_by"], "f1_ink": f1,
-                                "s_per_page_1thread": row["1thread"]["s_per_page"], "s_per_page_default": row["default"]["s_per_page"],
-                                "peak_rss_mb_1thread": row["1thread"]["peak_rss_mb"], "peak_rss_mb_default": row["default"]["peak_rss_mb"],
+                                "s_per_page_1thread": row["1thread"]["s_per_page"], "s_per_page_default": row.get("default", {}).get("s_per_page"),
+                                "peak_rss_mb_1thread": row["1thread"]["peak_rss_mb"], "peak_rss_mb_default": row.get("default", {}).get("peak_rss_mb"),
                                 "load": {"before": d["env"]["loadavg_before"], "during": d["env"]["loadavg_during"], "after": d["env"]["loadavg_after"]}}
     return out
 
@@ -266,9 +266,9 @@ def tess_baselines(set_name: str, truth: Path, tess_results: Path) -> dict | Non
 
 def metric_keys(set_name: str) -> list[tuple[str, str, bool]]:
     """(label, key in score result, judged)"""
-    if set_name == RECEIPTS:
+    if is_receipts(set_name):
         return [("recall-CER", "cer_recall", True), ("recall-WER", "wer_recall", True), ("order", "order_err", False)]
-    return [("CER", "cer", True), ("WER", "wer", True), ("order", "order_err", True)]
+    return [("CER", "cer", True), ("WER", "wer", True), ("order", "order_err", order_judged(set_name))]
 
 
 def load_competitors(path: str | None) -> dict | None:
@@ -315,7 +315,7 @@ def quality(set_name: str, ours: dict, tess: dict | None, comp: dict | None = No
                 v = "info"
             elif o < best:
                 v = "win"
-            elif set_name == CLEAN and diff_pp <= TIE_PP:
+            elif is_clean(set_name) and diff_pp <= TIE_PP:
                 v = "tie"
             else:
                 v = "loss"
@@ -334,7 +334,7 @@ def calibration(set_name: str, ours: dict) -> dict:
         return {"ece": None, "ece_matched": None, "verdict": "no confidences", "pass": False}
     v = "pass" if e["ece"] <= ECE_GATE else "fail"
     note = None
-    if set_name == RECEIPTS:
+    if is_receipts(set_name):
         note = "ECE is an upper bound (partial truth)"
         if v == "fail" and e["ece_matched"] <= ECE_GATE:
             v = "unclear"
@@ -464,41 +464,50 @@ def render(out_dir: Path) -> None:
                f"engine {acc['runtime']}; eval sets `{acc['eval']}` (SHA256SUMS `{(acc['eval_sums_sha256'] or 'n/a')[:12]}…`); scorer boxes: ink.",
                f"{acc['env']['cpu']}, {acc['env']['cores']} threads; load before {acc['load_before']}, after {acc['load_after']}; started {acc['started']}.", "",
                "Quality: error rates in %. Baseline per metric: " + ("the best value any measured engine reaches (Tesseract best-of with its best PSM per metric, and the competitor configurations of the frozen results directory)" if acc.get("competitors") else "Tesseract best-of (best PSM per metric)") +
-               ". Receipts: recall-CER / recall-WER (order is shown, not judged).", "",
-               "| category (set) | metric | ours | best | best engine / configuration | Tesseract best | Tesseract fast | verdict |", "|---|---|---|---|---|---|---|---|"]
+               ". Receipts: recall-CER / recall-WER (order is shown, not judged; so is the order of screenshot-real).", "",
+               ]
         report["accuracy"] = {}
-        for name, d in acc["sets"].items():
-            q = d["quality"]
-            for r in q["rows"]:
-                md.append(f"| {SETS[name].category} ({name}) | {r['metric']} | {_pct(r['ours'])} | {_pct(r.get('best'))} | {r.get('best_engine', '-')} | "
-                          f"{_pct(r.get('tess_best'))} | {_pct(r.get('tess_fast'))} | {r['verdict']} |")
-            report["accuracy"][name] = {"quality": q, "calibration": d["calibration"], "f1": d["f1"]}
-        if acc.get("competitors"):
-            md += ["", "All engines, error rate % per metric (the best per row is in bold):", ""]
-            for name, d in acc["sets"].items():
-                rows = d["quality"]["rows"]
-                engines = sorted({e for r in rows for e in r.get("others", {})})
-                md += [f"{SETS[name].category} ({name})", "", "| metric | ours | " + " | ".join(engines) + " |", "|---|---|" + "---|" * len(engines)]
-                for r in rows:
-                    best = r.get("best")
-                    cells = []
-                    for e in engines:
-                        v = r.get("others", {}).get(e)
-                        cells.append("-" if v is None else (f"**{v * 100:.2f}**" if v == best else f"{v * 100:.2f}"))
-                    md.append(f"| {r['metric']} | {_pct(r['ours'])} | " + " | ".join(cells) + " |")
-                md.append("")
-        md += ["", "| category | quality | pages | ECE | ECE-m | calibration (≤ 0.05) | F1@0.5 ink: ours | Tess best | Tess fast |", "|---|---|---|---|---|---|---|---|---|"]
-        for name, d in acc["sets"].items():
-            c, q, f = d["calibration"], d["quality"], d["f1"]
-            ece = "-" if c["ece"] is None else f"{c['ece']:.4f}"
-            ecem = "-" if c["ece_matched"] is None else f"{c['ece_matched']:.4f}"
-            cv = c["verdict"] + (f" ({c['note']})" if c.get("note") else "")
-            qv = "PASS" if q["pass"] else "FAIL"
-            f1o = "-" if f["ours"] is None else f"{f['ours']:.3f}"
-            f1b = "-" if f["tess_best"] is None else f"{f['tess_best']:.3f}"
-            f1f = "-" if f["tess_fast"] is None else f"{f['tess_fast']:.3f}"
-            md.append(f"| {SETS[name].category} | {qv} | {d['pages']} | {ece} | {ecem} | {cv} | {f1o} | {f1b} | {f1f} |")
-        md.append("")
+        # Sets we rendered and sets sourced from real captures are reported in separate tables.
+        groups = [(t, [n for n in acc["sets"] if is_real(n) == real]) for t, real in (("Synthetic sets", False), ("Real-sourced sets", True))]
+        groups = [(t, ns) for t, ns in groups if ns]
+        for title, gnames in groups:
+            if len(groups) > 1:
+                md += [f"## {title}", ""]
+            md += ["| category (set) | metric | ours | best | best engine / configuration | Tesseract best | Tesseract fast | verdict |", "|---|---|---|---|---|---|---|---|"]
+            for name in gnames:
+                d = acc["sets"][name]
+                q = d["quality"]
+                for r in q["rows"]:
+                    md.append(f"| {category(name)} ({name}) | {r['metric']} | {_pct(r['ours'])} | {_pct(r.get('best'))} | {r.get('best_engine', '-')} | "
+                              f"{_pct(r.get('tess_best'))} | {_pct(r.get('tess_fast'))} | {r['verdict']} |")
+                report["accuracy"][name] = {"quality": q, "calibration": d["calibration"], "f1": d["f1"], "real": is_real(name)}
+            if acc.get("competitors"):
+                md += ["", "All engines, error rate % per metric (the best per row is in bold):", ""]
+                for name in gnames:
+                    rows = acc["sets"][name]["quality"]["rows"]
+                    engines = sorted({e for r in rows for e in r.get("others", {})})
+                    md += [f"{category(name)} ({name})", "", "| metric | ours | " + " | ".join(engines) + " |", "|---|---|" + "---|" * len(engines)]
+                    for r in rows:
+                        best = r.get("best")
+                        cells = []
+                        for e in engines:
+                            v = r.get("others", {}).get(e)
+                            cells.append("-" if v is None else (f"**{v * 100:.2f}**" if v == best else f"{v * 100:.2f}"))
+                        md.append(f"| {r['metric']} | {_pct(r['ours'])} | " + " | ".join(cells) + " |")
+                    md.append("")
+            md += ["", "| category (set) | quality | pages | ECE | ECE-m | calibration (≤ 0.05) | F1@0.5 ink: ours | Tess best | Tess fast |", "|---|---|---|---|---|---|---|---|---|"]
+            for name in gnames:
+                d = acc["sets"][name]
+                c, q, f = d["calibration"], d["quality"], d["f1"]
+                ece = "-" if c["ece"] is None else f"{c['ece']:.4f}"
+                ecem = "-" if c["ece_matched"] is None else f"{c['ece_matched']:.4f}"
+                cv = c["verdict"] + (f" ({c['note']})" if c.get("note") else "")
+                qv = "PASS" if q["pass"] else "FAIL"
+                f1o = "-" if f["ours"] is None else f"{f['ours']:.3f}"
+                f1b = "-" if f["tess_best"] is None else f"{f['tess_best']:.3f}"
+                f1f = "-" if f["tess_fast"] is None else f"{f['tess_fast']:.3f}"
+                md.append(f"| {category(name)} ({name}) | {qv} | {d['pages']} | {ece} | {ecem} | {cv} | {f1o} | {f1b} | {f1f} |")
+            md.append("")
     else:
         md += ["No accuracy run yet (`gate` without `--timing`).", ""]
     if tim:
@@ -523,7 +532,7 @@ def render(out_dir: Path) -> None:
                 bm = "-" if "best_ms" not in r else f"{r['best_ms']:.0f}"
                 fr = "-" if "fast_rss_mb" not in r else f"{r['fast_rss_mb']:.0f}"
                 br = "-" if "best_rss_mb" not in r else f"{r['best_rss_mb']:.0f}"
-                md.append(f"| {SETS[name].category} ({name}) | {r['config']} | {r['ours_ms']:.0f} | {r['ours_process_ms_per_page']:.0f} | {fm} | {bm} | {r['speed']} | "
+                md.append(f"| {category(name)} ({name}) | {r['config']} | {r['ours_ms']:.0f} | {r['ours_process_ms_per_page']:.0f} | {fm} | {bm} | {r['speed']} | "
                           f"{r['ours_rss_mb']:.0f} | {fr} | {br} | {r['memory']} |")
         md.append("")
     (out_dir / "gate.json").write_text(json.dumps(report, indent=1) + "\n")
@@ -534,7 +543,9 @@ def render(out_dir: Path) -> None:
 # --------------------------------------------------------------------------- modes
 
 def _eval_sets(args) -> list[str]:
-    names = args.sets or list(SETS)
+    names = args.sets or discover(Path(args.eval))
+    if not names:
+        raise SystemExit(f"no sets (<set>/pages and <set>/truth) under {args.eval}")
     for n in names:
         if not (Path(args.eval) / n / "pages").is_dir():
             raise SystemExit(f"{Path(args.eval) / n / 'pages'} not found (--eval / ONEOCR_EVAL)")

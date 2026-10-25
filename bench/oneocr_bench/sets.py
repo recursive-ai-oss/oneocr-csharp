@@ -38,6 +38,46 @@ SETS = {s.name: s for s in [
 ]}
 
 
+# Eval roots may hold more sets than the six frozen ones (for example `screenshot-real`). A set's category comes from the part of its
+# name before the first dash; a name with another prefix is its own category.
+CATEGORY_BY_PREFIX = {
+    "clean": "clean 300 DPI print", "degraded": "degraded scans", "screenshot": "screenshots and UI",
+    "layout": "complex layout", "phone": "phone photos", "receipts": "receipts",
+}
+ORDER_INFO_ONLY = {"screenshot-real"}  # reading order is shown, not judged (receipts always are)
+
+
+def _prefix(name: str) -> str:
+    return name.split("-", 1)[0]
+
+
+def category(name: str) -> str:
+    return SETS[name].category if name in SETS else CATEGORY_BY_PREFIX.get(_prefix(name), name)
+
+
+def is_real(name: str) -> bool:
+    """Sets sourced from real captures rather than rendered by us: named `*-real`."""
+    return name.endswith("-real")
+
+
+def is_clean(name: str) -> bool:
+    return _prefix(name) == "clean"
+
+
+def is_receipts(name: str) -> bool:
+    return _prefix(name) == "receipts"
+
+
+def order_judged(name: str) -> bool:
+    return not is_receipts(name) and name not in ORDER_INFO_ONLY
+
+
+def discover(root: Path) -> list[str]:
+    """Set names under an eval root (directories with `pages` and `truth`): the frozen six in their order, then the others by name."""
+    found = {d.name for d in Path(root).iterdir() if (d / "pages").is_dir() and (d / "truth").is_dir()}
+    return [n for n in SETS if n in found] + sorted(found - set(SETS))
+
+
 def set_dir(name: str) -> Path:
     return data_dir() / name
 

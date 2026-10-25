@@ -45,7 +45,10 @@ def main() -> None:
     s.add_argument("--boxes", choices=["ink", "layout"], default="ink", help="truth boxes for F1: tight to the ink (default; falls back to layout where a truth has no ink box) or the layout rectangles")
 
     t = sub.add_parser("tess", help="Tesseract baselines for one set")
-    t.add_argument("--set", default="clean300-v1", choices=names)
+    t.add_argument("--set", default="clean300-v1")
+    t.add_argument("--root", default=None, help="eval root holding <set>/pages and <set>/truth (default: the benchmark data directory)")
+    t.add_argument("--jobs", type=int, default=1, help="pages run in this many single-thread processes at once (accuracy is unchanged, times are not publishable)")
+    t.add_argument("--no-timing-runs", action="store_true", help="skip the default-threading re-run that only serves timing")
     t.add_argument("--models", nargs="+", default=["best", "fast"])
     t.add_argument("--psms", nargs="+", type=int, default=[3, 4, 6, 11])
     t.add_argument("--tess", default=os.path.expanduser("~/tools/tesseract/tess"))
@@ -66,7 +69,7 @@ def main() -> None:
                     help="frozen sets: <set>/pages and <set>/truth (env ONEOCR_EVAL)")
     gt.add_argument("--sealed", default=None, metavar="DIR", help="score the sealed set at DIR (same layout as --eval) and mark the report as sealed")
     gt.add_argument("--dry-run", action="store_true", help="list the eval files and exit without building or running anything")
-    gt.add_argument("--sets", nargs="+", choices=names, default=None)
+    gt.add_argument("--sets", nargs="+", default=None, help="set names under --eval (default: every set found there)")
     gt.add_argument("--work", default=os.environ.get("ONEOCR_WORK", "~/oneocr/work/gate"), help="engine outputs and the build (env ONEOCR_WORK)")
     gt.add_argument("--out", default=None, help="where gate.md, gate.json, accuracy.json and timing.json go (default WORK/gate)")
     gt.add_argument("--tess-results", default=None, help="Tesseract results root holding <set>/tesseract.json (default $ONEOCR_BENCH_DIR/results)")
@@ -122,7 +125,7 @@ def main() -> None:
             truth = a.truth or str(sets.set_dir(a.set or "clean300-v1") / "truth")
             score.main(truth, a.hyp, a.json, a.boxes)
     elif a.cmd == "tess":
-        tess.main(a.set, a.models, a.psms, a.tess, a.results)
+        tess.main(a.set, a.models, a.psms, a.tess, a.results, a.root, a.jobs, not a.no_timing_runs)
     elif a.cmd == "competitors-report":
         print(competitors.report(a.root, a.eval, a.timing))
     elif a.cmd == "competitors-freeze":
