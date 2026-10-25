@@ -358,6 +358,33 @@ internal static class Program
             }
         }
 
+        bool angleOff = false;
+        if (Int(o, "angletrace", 0) != 0)
+        {
+            PageAngleSearch.Trace = line => Console.WriteLine("  angle " + line);
+        }
+
+        if (o.TryGetValue("angle", out string? angle))
+        {
+            // --angle off | force | SHARE:MARGIN[:MAXSTEP[:COARSE]]: the page angle search off, on every page, or with other thresholds (see PageAngleSearch).
+            if (angle == "off")
+            {
+                angleOff = true;
+            }
+            else if (angle == "force")
+            {
+                PageAngleSearch.Always = true;
+            }
+            else
+            {
+                string[] f = angle.Split(':');
+                PageAngleSearch.WeakShare = double.Parse(f[0], CultureInfo.InvariantCulture);
+                PageAngleSearch.Margin = double.Parse(f[1], CultureInfo.InvariantCulture);
+                PageAngleSearch.MaxStep = f.Length > 2 ? int.Parse(f[2], CultureInfo.InvariantCulture) : PageAngleSearch.MaxStep;
+                PageAngleSearch.CoarseStep = f.Length > 3 ? int.Parse(f[3], CultureInfo.InvariantCulture) : PageAngleSearch.CoarseStep;
+            }
+        }
+
         using AllocTrace? allocTrace = Int(o, "alloc", 0) != 0 ? new AllocTrace() : null;
         var clock = Stopwatch.StartNew();
         OcrEngine engine = o.ContainsKey("model") ? OcrEngine.Load(o["model"]) : OcrEngine.LoadBundled();
@@ -397,10 +424,10 @@ internal static class Program
         // --digits off: keep an O read inside a number as the letter (OcrOptions.FixDigitLookalikes off).
         bool digitsOff = o.TryGetValue("digits", out string? digitsSpec) && digitsSpec == "off";
         OcrOptions Page() => !o.TryGetValue("junk", out string? junkSpec)
-            ? new OcrOptions { MaxDegreeOfParallelism = degree, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff"), JunkTuning = controlsOff ? new OneOcr.Layout.JunkParameters(ControlConfidence: 0) : null }
+            ? new OcrOptions { MaxDegreeOfParallelism = degree, SearchAngle = !angleOff, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff"), JunkTuning = controlsOff ? new OneOcr.Layout.JunkParameters(ControlConfidence: 0) : null }
             : junkSpec == "off"
-                ? new OcrOptions { MaxDegreeOfParallelism = degree, DropNoise = false, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff") }
-                : new OcrOptions { MaxDegreeOfParallelism = degree, JunkTuning = ParseJunk(junkSpec), FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff") };
+                ? new OcrOptions { MaxDegreeOfParallelism = degree, SearchAngle = !angleOff, DropNoise = false, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff") }
+                : new OcrOptions { MaxDegreeOfParallelism = degree, SearchAngle = !angleOff, JunkTuning = ParseJunk(junkSpec), FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff") };
         bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
         var errors = new List<(string Id, string Message)>();
@@ -420,8 +447,8 @@ internal static class Program
                 {
                     clock.Restart();
                     text = noOrient
-                        ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, IncludeChars = false }).ToText()
-                        : o.ContainsKey("junk") || !respace || controlsOff || digitsOff || o.ContainsKey("sepoff") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
+                        ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, SearchAngle = false, IncludeChars = false }).ToText()
+                        : o.ContainsKey("junk") || angleOff || !respace || controlsOff || digitsOff || o.ContainsKey("sepoff") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
                     times.Add(clock.Elapsed.TotalMilliseconds);
                 }
 
@@ -442,6 +469,14 @@ internal static class Program
                     {
                         File.WriteAllText(Path.Combine(outDir, id + ".page.json"), OcrPageJson.ToJson([page]), new UTF8Encoding(false));
                     }
+                }
+
+                if (Int(o, "feat", 0) != 0)
+                {
+                    OcrPage f = engine.Ocr(image, Page());
+                    PageAngleSearch.IsWeak(f, out double share);
+                    bool searched = f.Diagnostics.Any(d => d.StartsWith("The first reading was weak", StringComparison.Ordinal));
+                    File.WriteAllText(Path.Combine(outDir, id + ".feat"), string.Create(CultureInfo.InvariantCulture, $"{share:0.####}\t{f.SkewDegrees:0.###}\t{f.Words.Count}\t{PageAngleSearch.Score(f):0.##}\t{(searched ? 1 : 0)}\n"));
                 }
 
                 if (Int(o, "meta", 0) != 0)

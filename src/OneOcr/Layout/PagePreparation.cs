@@ -36,6 +36,12 @@ internal sealed class PreparedPage
     /// <summary>The page detector's reading of <see cref="Pixels"/> when preparing the page already made it, so the reader need not detect again.</summary>
     public PageDetection? Detection { get; init; }
 
+    /// <summary>
+    /// The page as it was before it was straightened (turned upright already), with the frame that maps its own turns back to the input
+    /// and the notes made up to that point. The angle search turns this page by other angles than the estimated skew.
+    /// </summary>
+    public SearchSource? Source { get; init; }
+
     /// <summary>The binarization (threshold, whether ink is bright) of <see cref="Pixels"/> when preparing the page already made it on those pixels.</summary>
     public (int Level, bool InkIsBright)? Level { get; init; }
 
@@ -72,6 +78,9 @@ internal sealed class PreparedPage
         _owned.Clear();
     }
 }
+
+/// <summary>The pixels the angle search turns: the page before straightening, its size, the quarter turns the frame carries, and the notes so far.</summary>
+internal sealed record SearchSource(Gray8[] Pixels, int Width, int Height, int FrameWidth, int FrameHeight, int FrameQuarter, IReadOnlyList<string> Notes);
 
 /// <summary>Orientation and deskew: the step between the page's pixels and line finding.</summary>
 internal static class PagePreparation
@@ -142,7 +151,11 @@ internal static class PagePreparation
             owned.Add(straight);
             kept = true;
             notes.Add(string.Create(CultureInfo.InvariantCulture, $"The text lines were tilted by {frame.SkewDegrees:0.0} degrees and were straightened."));
-            return new PreparedPage(straight, frame.DeskewedWidth, frame.DeskewedHeight, frame, notes, owned, pool) { Detection = detection };
+            return new PreparedPage(straight, frame.DeskewedWidth, frame.DeskewedHeight, frame, notes, owned, pool)
+            {
+                Detection = detection,
+                Source = new SearchSource(gray, width, height, width, height, 0, []),
+            };
         }
         finally
         {
@@ -218,6 +231,7 @@ internal static class PagePreparation
 
             // With the quarter turn reported in the input frame the frame carries it back; otherwise the turned page is the page and
             // the frame covers the deskew turn alone.
+            var source = new SearchSource(pixels, w, h, quarterInInputFrame ? width : w, quarterInInputFrame ? height : h, quarterInInputFrame ? quarter : 0, [.. notes]);
             var frame = quarterInInputFrame ? new PageFrame(width, height, quarter, slope) : new PageFrame(w, h, 0, slope);
             if (slope != 0)
             {
@@ -242,7 +256,7 @@ internal static class PagePreparation
                 }
             }
 
-            return new PreparedPage(pixels, w, h, frame, notes, owned, pool) { Level = level };
+            return new PreparedPage(pixels, w, h, frame, notes, owned, pool) { Level = level, Source = source };
         }
         catch
         {
