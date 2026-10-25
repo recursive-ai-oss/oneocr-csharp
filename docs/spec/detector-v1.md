@@ -78,3 +78,35 @@ Before a tensor is read or a buffer allocated: `layout16_blocks` is in `[0, MaxC
 ## Tolerances
 
 As in [numerics.md](numerics.md), with these additional layers against the float64 evaluation: `p16` Atol 4e-6, `layout16` 5e-6, `layout_mix` 5e-6 (Rtol 1e-5). `layout_feat`, `layout` and `orient` keep their v0 values. Worst error measured on random-weight models at the 0.2.0 widths and a narrow model, on every path, as a fraction of the tolerance: `p16` 0.24, `layout16` 0.38, `layout_mix` 0.29, `layout_feat` 0.55, `layout` 0.39, `orient` 0.14. Against PyTorch fp32 fixtures at the 0.2.0 widths (and a second model with the branch only) every layer differs by about PyTorch's own fp32 error.
+
+## Page-conditional text threshold (post-processing, any detector version)
+
+Camera pages carry sensor noise that the detector sometimes turns into faint speckle; on them a higher text threshold reads better, while
+on scans, screenshots and clean pages the manifest's `text_threshold` is right. A model may carry a rule that picks the text threshold
+per page. It needs all three members of `config.postprocess`; with none of them the rule is off, with some of them the file is rejected.
+
+| member | meaning |
+|---|---|
+| `rule_sigma_min` | the page's noise estimate must be above this |
+| `rule_junk_max` | the page's speck density must be below this |
+| `rule_text_threshold` | text probability above which a cell is on, on pages the rule selects (0.5 is logit 0) |
+
+**Noise estimate `sigma`.** Take the gray page at detector scale: the page resized so that its long side is 1024 pixels (the resize of
+the network input, before padding), unpadded area only. Apply the 3x3 kernel `[[1,-2,1],[-2,4,-2],[1,-2,1]]` to every interior pixel
+(`(h-2) x (w-2)` responses; a page under 3 pixels in either direction has `sigma = 0`). Build the exact integer histogram of the absolute
+responses (0 to 2040), take the lower median (the value at rank `(n+1) div 2`, counting from 1, n the number of responses) and divide by
+4.047. This is Immerkaer's noise estimate (Immerkaer 1996, "Fast noise variance estimation") with the median of a half-normal
+distribution, 0.6745 x 6, in place of the mean. The median is an integer, so `sigma` is exact.
+
+**Speck density `junk`.** In the text map (probabilities, one per cell, padding included), count the 4-connected components of
+cells with probability above 0.3 that have 2 to 12 cells and a mean cell probability below 0.5. This count always uses 0.3, whatever
+`text_threshold` is. Divide by the map's cell count times 4, over 10^6 (the map has stride 2, so a cell stands for 4 input pixels).
+
+**Rule.** If `sigma > rule_sigma_min` and `junk < rule_junk_max`, label the text map with `rule_text_threshold`; otherwise with
+`text_threshold`. Nothing else changes: boxes, axes, layout regions and orientation are computed as before from the chosen labelling.
+`sigma` is computed only for models that carry the rule. The integer histogram makes it identical on every platform; the speck density
+depends on the text map, so it is as reproducible as the map.
+
+Constants of the first model with the rule, chosen on held-out pages (camera-simulated pages gain; clean, layout and screenshot pages
+have `sigma` under the minimum): `rule_sigma_min` 0.1235, `rule_junk_max` 0.6358, `rule_text_threshold` 0.5. The script
+`training/export/add_postprocess_rule.py` adds the three members to an existing container without touching the tensors.

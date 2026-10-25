@@ -123,6 +123,18 @@ internal sealed class PostprocessDto
 
     [JsonPropertyName("layout_expand")]
     public double? LayoutExpand { get; init; }
+
+    /// <summary>Page noise above which the page-conditional text threshold may apply; the rule needs all three <c>rule_*</c> members.</summary>
+    [JsonPropertyName("rule_sigma_min")]
+    public double? RuleSigmaMin { get; init; }
+
+    /// <summary>Speck density per megapixel below which the page-conditional text threshold applies.</summary>
+    [JsonPropertyName("rule_junk_max")]
+    public double? RuleJunkMax { get; init; }
+
+    /// <summary>Text threshold used on pages the rule selects.</summary>
+    [JsonPropertyName("rule_text_threshold")]
+    public double? RuleTextThreshold { get; init; }
 }
 
 internal sealed class DocExtractConfigDto
