@@ -4,11 +4,11 @@
     {
       "name": "crnn-v0",
       "role": "recognizer",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "container": 1,
-      "bytes": 5042780,
-      "sha256": "8943cd8808264e731124b0bcbf7288a982312049f32355ecb9257fb6b5244754",
-      "asset": "crnn-v0-0.5.0.onm"
+      "bytes": 5044636,
+      "sha256": "347c208d2626ed88f9c7c57c0f6bec86dff0ce7e03bcea5c2e0bf9ef87342749",
+      "asset": "crnn-v0-0.6.0.onm"
     },
     {
       "name": "dbnet-lite-v1",
