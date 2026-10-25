@@ -23,9 +23,9 @@ public sealed class BundledModelsTests
         BundledModel pin = BundledModels.Detector;
         Assert.Equal("dbnet-lite-v1", pin.Name);
         Assert.Equal("detector", pin.Role);
-        Assert.Equal("0.2.0", pin.Version);
-        Assert.Equal("b25041984b9f702ecdb930573664711749cf22cb95a6c3c2d943ae0fb9cdfe43", pin.Sha256);
-        Assert.Equal(1370248, pin.Bytes);
+        Assert.Equal("0.2.1", pin.Version);
+        Assert.Equal("af520cb6f990ccd1cf0ad3860de7801e0e8411f373550345764c6b6e15093974", pin.Sha256);
+        Assert.Equal(1370568, pin.Bytes);
     }
 
     [Fact]
