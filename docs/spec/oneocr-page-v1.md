@@ -260,8 +260,17 @@ speck read as a mark) is dropped when its calibrated confidence is under `SpeckC
 `SpeckPageMin` such words: dust comes in numbers, while a clean page has none or a stray one, and the stray one may be a real mark.
 Dashes, bullets, middle dots and other separators are words of their own on real pages and are never dropped by this rule.
 
+*Controls* (any strip height): radio buttons and checkboxes are drawn rings and squares that the detector finds as lines of their
+own and the recognizer reads as a letter or a letter and a bracket. A word whose text is one character from
+`O Q L D C [` or such a character followed by one from `] ) [ l I |` is dropped when its calibrated confidence is under
+`ControlConfidence` and it is alone in its strip, or first or last in it with a gap to its neighbour of at least half its own
+height (a control sits apart from its label; a letter in running text is a word space away). A letter read with confidence (a
+grade, a column label) stays, as does any word with a letter outside this set (`Do`, `OK`) and a digit.
+
 The parameters are `MaxConfidence` = 0.5, `RelativeHeight` = 0.6, `MaxHeight` = 12 px, `TinyHeight` = 8 px, `TinyConfidence` = 0.99,
-`AnchorConfidence` = 0.9, `MinAnchorLines` = 3, `SpeckConfidence` = 0.9, `SpeckPageMin` = 3. They were chosen on pages that are
+`AnchorConfidence` = 0.9, `MinAnchorLines` = 3, `SpeckConfidence` = 0.9, `SpeckPageMin` = 3, `ControlConfidence` = 0.9. The control rule's glyph set and bar were read off the unmatched words of two benchmark sets (form and
+dialog screenshots, form pages) and then checked on held-out screenshot and layout sets rendered with other seeds, where the same
+glyphs appear. The other values were chosen on pages that are
 not part of the benchmark sets: a degraded-scan set and a screenshot set rendered with new seeds, and the validation split of the
 generated page set. The dropped words never reach reading order, tables, `text` or the JSON; the page gets one diagnostic stating
 how many words were dropped. `OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM are not

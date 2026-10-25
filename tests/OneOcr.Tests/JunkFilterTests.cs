@@ -120,4 +120,54 @@ public class JunkFilterTests
         Assert.Equal(3, strips[4]!.Words.Count);
         Assert.Equal(2, JunkFilter.Apply(strips, new JunkParameters(SpeckPageMin: 2)));
     }
+
+    [Fact]
+    public void ControlsReadAsLettersAreDropped()
+    {
+        // Radio buttons and checkboxes: lines that are only a ring or box glyph read with little confidence.
+        OrderStrip?[] strips =
+        [
+            Strip(0, 30, ("O", 0.3f)),
+            Strip(40, 30, ("L]", 0.6f)),
+            Strip(80, 30, ("[]", 0.1f)),
+            Strip(120, 30, ("D", 0.84f)),
+            Strip(160, 30, ("Remember", 0.99f), ("me", 0.99f)),
+        ];
+
+        Assert.Equal(4, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.All(strips.Take(4), s => Assert.Null(s));
+        Assert.NotNull(strips[4]);
+    }
+
+    [Fact]
+    public void AControlApartFromItsLabelIsDroppedButALetterInTextStays()
+    {
+        static OcrWord At(string text, double left, double right, float confidence) =>
+            new(text, new OcrBox(left, 0, right, 20), confidence, confidence, OcrSource.Ocr, []);
+
+        OrderStrip Line(params OcrWord[] words) => new() { Leaf = 0, Box = new OcrBox(0, 0, 400, 20), Size = 20, Words = words };
+
+        // A radio button (height 20) and its label 14 px to the right; "O" then a word one space (4 px) away is running text.
+        OrderStrip?[] strips = [Line(At("O", 0, 12, 0.4f), At("Remember", 26, 120, 0.99f)), Line(At("Hail", 0, 40, 0.99f), At("O", 44, 56, 0.4f), At("Captain", 60, 130, 0.99f))];
+
+        Assert.Equal(1, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Equal(["Remember"], strips[0]!.Words.Select(w => w.Text));
+        Assert.Equal(3, strips[1]!.Words.Count);
+    }
+
+    [Fact]
+    public void ConfidentLettersAndRealWordsAreNotControls()
+    {
+        OrderStrip?[] strips =
+        [
+            Strip(0, 30, ("C", 0.97f)), // a grade, read with confidence
+            Strip(40, 30, ("Do", 0.4f)), // a word
+            Strip(80, 30, ("OK", 0.5f)), // second letter outside the control set
+            Strip(120, 30, ("O", 0.3f), ("Yes", 0.99f)), // a label on the same line: not a lone glyph
+            Strip(160, 30, ("0", 0.2f)), // a digit
+        ];
+
+        Assert.Equal(0, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Equal(0, JunkFilter.Apply([Strip(0, 30, ("O", 0.3f))], new JunkParameters(ControlConfidence: 0)));
+    }
 }
