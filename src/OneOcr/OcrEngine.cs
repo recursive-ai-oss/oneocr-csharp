@@ -77,7 +77,7 @@ public sealed class OcrEngine
 
     /// <summary>
     /// An engine that shares this one's recognizer and finds text lines, layout regions and the page's orientation with a page detector
-    /// model (architecture <c>dbnet-lite-v0</c> or <c>dbnet-lite-v1</c>) instead of the built-in classical line finding. Page methods (<see cref="Ocr"/>,
+    /// model (architecture <c>dbnet-lite-v0</c> or <c>dbnet-lite-v1</c>) instead of the built-in classical line finding. Page methods (<see cref="Ocr(Image, OcrOptions?, CancellationToken)"/>,
     /// <see cref="ToText(Image, int, CancellationToken)"/>) use it: lines come from the detector, regions fill
     /// <see cref="OcrPage.Regions"/> and set header and footer blocks, and a page the detector is sure is rotated by 90, 180 or 270
     /// degrees is turned upright first (a diagnostic says so, and positions refer to the turned page). Layout classes the model was not
@@ -211,6 +211,26 @@ public sealed class OcrEngine
         ToText(image, _decoding, maxDegreeOfParallelism, cancellationToken);
 
     /// <summary>
+    /// Like <see cref="ToText(Image, int, CancellationToken)"/>, on a thread-pool thread: the same code runs, so the text is identical.
+    /// The caller must keep <paramref name="image"/> alive until the task completes.
+    /// </summary>
+    /// <param name="image">The page.</param>
+    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores).</param>
+    /// <param name="cancellationToken">Cancels between lines; the task then ends as cancelled.</param>
+    /// <returns>The text; empty when no text lines were found.</returns>
+    public Task<string> ToTextAsync(Image image, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToText(image, _decoding, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ToText(Image, DecodeOptions, int, CancellationToken)"/>, on a thread-pool thread, with the same text.</summary>
+    /// <param name="image">The page.</param>
+    /// <param name="decoding">How each line's network output becomes text.</param>
+    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores).</param>
+    /// <param name="cancellationToken">Cancels between lines; the task then ends as cancelled.</param>
+    /// <returns>The text; empty when no text lines were found.</returns>
+    public Task<string> ToTextAsync(Image image, DecodeOptions decoding, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToText(image, decoding, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+
+    /// <summary>
     /// Like <see cref="ToText(Image, int, CancellationToken)"/> with the given decoding for this call instead of the engine's.
     /// </summary>
     /// <param name="image">The page.</param>
@@ -280,6 +300,54 @@ public sealed class OcrEngine
         options.Validate();
         return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, options.FixWordSpacing, options.FixDigitLookalikes, cancellationToken);
     }
+
+    /// <summary>Like <see cref="Ocr(Image, OcrOptions?, CancellationToken)"/>, on a thread-pool thread: the same code runs, so the page is identical.</summary>
+    /// <param name="image">The page image; keep it alive until the task completes.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between lines; the task then ends as cancelled.</param>
+    /// <returns>The page.</returns>
+    public Task<OcrPage> OcrAsync(Image image, OcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Ocr(image, options, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// Reads several images, one page each, in order. Page <c>i</c> gets <see cref="OcrPage.Index"/> = <c>options.PageIndex + i</c>; each page is
+    /// identical to what <see cref="Ocr(Image, OcrOptions?, CancellationToken)"/> gives for that image alone with that index. The token is checked before
+    /// each page and between lines. Pages are read one after another, each at the options' degree of parallelism.
+    /// </summary>
+    /// <param name="images">The page images, for example the frames of a multi-page TIFF.</param>
+    /// <param name="options">Per-call options applied to every page; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages and lines.</param>
+    /// <returns>The pages in order; empty for no images.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="images"/> or one of its images is null.</exception>
+    /// <exception cref="OcrLimitException">There are more images than <see cref="OcrLimits.MaxPagesPerCall"/>, or one of the limits of a single page is exceeded.</exception>
+    public IReadOnlyList<OcrPage> Ocr(IEnumerable<Image> images, OcrOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(images);
+        options ??= new OcrOptions();
+        options.Validate();
+        var pages = new List<OcrPage>();
+        foreach (Image image in images)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (pages.Count >= _limits.MaxPagesPerCall)
+            {
+                throw new OcrLimitException(nameof(OcrLimits.MaxPagesPerCall), _limits.MaxPagesPerCall, pages.Count + 1L);
+            }
+
+            ArgumentNullException.ThrowIfNull(image);
+            pages.Add(BuildPage(image, checked(options.PageIndex + pages.Count), options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, options.FixWordSpacing, options.FixDigitLookalikes, cancellationToken));
+        }
+
+        return pages;
+    }
+
+    /// <summary>Like <see cref="Ocr(IEnumerable{Image}, OcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same pages.</summary>
+    /// <param name="images">The page images; keep them alive until the task completes.</param>
+    /// <param name="options">Per-call options applied to every page; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages and lines; the task then ends as cancelled.</param>
+    /// <returns>The pages in order.</returns>
+    public Task<IReadOnlyList<OcrPage>> OcrAsync(IEnumerable<Image> images, OcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Ocr(images, options, cancellationToken), cancellationToken);
 
     private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, CancellationToken cancellationToken)
     {

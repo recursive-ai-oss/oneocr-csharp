@@ -157,9 +157,22 @@ character). All are on by default and documented on the type.
   (bytes that are not what they claim to be), `OcrLimitException`, `OcrModelException`,
   `OcrProviderException` and `OcrBudgetException` (in the LLM package). Where something is
   recoverable the page says so in `page.Diagnostics` instead of throwing.
-- **Threading and async.** Local OCR is synchronous and takes a `CancellationToken`; wrap it in
-  `Task.Run` if you need a task. The PDF and document-extraction APIs have `Async` variants, the
-  LLM package is async only.
+- **Threading and async.** Every local call takes a `CancellationToken`, checked between pages and
+  between lines, and throws `OperationCanceledException`. Every local call also has an `Async`
+  twin (`OcrAsync`, `ToTextAsync`, `ToMarkdownAsync`, `ExtractInvoiceAsync`, `ExtractReceiptAsync`,
+  `ExtractAsync<T>`, and the same on PDF pages and documents). A twin runs the very same code on a
+  thread-pool thread, so its result is byte-identical to the sync call, and a cancelled token ends
+  the task as cancelled. Keep the `Image` alive until the task completes. `engine.Ocr(images)` and
+  `engine.OcrAsync(images)` read several images (for example the frames of a TIFF) in order, with
+  consecutive `OcrPage.Index` values. The LLM package is async only.
+
+<!-- sample: AsyncOcr -->
+```csharp
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+OcrPage page = await image.OcrAsync(engine, new OcrOptions { Deskew = false }, cts.Token);
+string text = await image.ToTextAsync(engine, cts.Token);
+IReadOnlyList<OcrPage> frames = await engine.OcrAsync([image, image], cancellationToken: cts.Token);
+```
 - **Decoding.** Page reading (`Ocr`, `ToMarkdown`) is always greedy CTC, because the word boxes come
   from the greedy alignment. `engine.WithDecoding(...)` sets the decoding the plain-text call
   `engine.ToText(image, engine.Decoding)` uses: beam search with a character language model or a
@@ -284,7 +297,7 @@ string markdown = pages.ToMarkdown();
 ```
 
 Extension methods on OnePDF's `PdfPage` and `PdfDocument` (`Ocr`, `ToText`, `ToMarkdown`,
-`ExtractInvoice`, `ExtractReceipt`, and `OcrAsync`) do the same on a document you already hold.
+`ExtractInvoice`, `ExtractReceipt`, each with an `Async` twin) do the same on a document you already hold.
 
 - A text layer is not trusted blindly. An invisible layer laid over a scan (a previous OCR pass)
   is re-read with our engine unless you set `TrustExistingOcrLayer`. Lines that look garbled

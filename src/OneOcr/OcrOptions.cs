@@ -1,6 +1,6 @@
 namespace OneOcr;
 
-/// <summary>Per-call options of <see cref="OcrEngine.Ocr"/>. Everything has a default.</summary>
+/// <summary>Per-call options of <see cref="OcrEngine.Ocr(OneImage.Image, OcrOptions?, CancellationToken)"/>. Everything has a default.</summary>
 public sealed class OcrOptions
 {
     /// <summary>

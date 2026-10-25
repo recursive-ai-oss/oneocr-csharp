@@ -175,6 +175,14 @@ public sealed partial class DocumentExtractor
     public Task<Receipt> ExtractReceiptAsync(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
         Task.Run(() => ExtractReceipt(page, maxDegreeOfParallelism, cancellationToken), cancellationToken);
 
+    /// <summary>Asynchronous <see cref="Extract(OcrPage, int, CancellationToken)"/>: runs the same local work on the thread pool.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The extraction.</returns>
+    public Task<DocumentExtraction> ExtractAsync(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Extract(page, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+
     internal DocumentExtraction Run(OcrPage page, string? forcedType, int maxDegreeOfParallelism, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(page);
