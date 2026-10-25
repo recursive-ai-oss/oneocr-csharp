@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import stat
 import sys
 from pathlib import Path
@@ -102,7 +103,8 @@ def _windows(root: Path) -> set[str]:
 
 def verify(a) -> None:
     root = Path(a.root).expanduser()
-    names = a.sets or list(sets.SETS)
+    meta = json.loads((root / "SEALED.json").read_text())["sets"]
+    names = a.sets or list(meta)
     bad: list[str] = []
 
     listed = {}
@@ -129,10 +131,11 @@ def verify(a) -> None:
     for n in names:
         d = root / n
         sets.sanity(n, d)
+        expected = meta[n]["pages"]
         truths = sorted((d / "truth").glob("*.json"))
         images = sorted((d / "pages").iterdir())
-        if len(truths) != sets.SETS[n].count or len(images) != len(truths):
-            bad.append(f"{n}: {len(truths)} truths, {len(images)} images, expected {sets.SETS[n].count}")
+        if len(truths) != expected or len(images) != len(truths):
+            bad.append(f"{n}: {len(truths)} truths, {len(images)} images, expected {expected}")
         words = weak = size_bad = font_bad = 0
         for t in truths:
             tr = json.loads(t.read_text())
@@ -174,5 +177,70 @@ def verify(a) -> None:
     print("sealed set verifies")
 
 
+REAL_KINDS = {
+    "screenshot-real": {
+        "made_of": "real public web pages captured in headless Chromium; images and generated content blanked so every glyph is DOM text; truth from DOM ranges",
+        "order_metric": "information",
+        "order_note": "DOM order of visible text is not always the visual reading order",
+    },
+    "clean-real": {
+        "made_of": "real born-digital PDF pages rendered at 300 DPI; truth from the text layer, cross-checked by two independent readers",
+        "order_metric": "gated",
+        "order_note": "content-stream order, kept only where two reading-order analyses agree",
+    },
+    "layout-real": {
+        "made_of": "real born-digital PDF pages (columns, tables, forms) rendered at 300 DPI; truth from the text layer, cross-checked",
+        "order_metric": "gated",
+        "order_note": "content-stream order, kept only where two reading-order analyses agree",
+    },
+    "degraded-real": {
+        "made_of": "other pages of the same real PDFs, run through the bench scan-degradation simulator; truth moved with the image",
+        "order_metric": "gated",
+        "order_note": "as clean-real",
+    },
+}
+NO_REAL_SOURCE = {
+    "phone-v1": "no real photographs with exact truth exist; the row is a simulated camera capture of a generated page",
+    "receipts-v1": "no unseen real receipts with exact truth exist (CORD v2 is fully used); the row is synthetic text with a simulated camera",
+}
+
+
+def _unlock(root: Path) -> None:
+    for p in [root, *root.rglob("*")]:
+        p.chmod(p.stat().st_mode | stat.S_IWUSR)
+
+
+def add_real(a) -> None:
+    """Add the real-sourced sets (screenshot from --web, the PDF sets from --pdf) to a sealed tree and rewrite SEALED.json and
+    SHA256SUMS. Every file of the original sets keeps its hash; the old SHA256SUMS digest is recorded."""
+    root = Path(a.root).expanduser()
+    old_sums = (root / "SHA256SUMS").read_text()
+    old_digest = hashlib.sha256(old_sums.encode()).hexdigest()
+    _unlock(root)
+    meta = json.loads((root / "SEALED.json").read_text())
+    sources = {"screenshot-real": Path(a.web).expanduser() if a.web else None}
+    for n in ("clean-real", "layout-real", "degraded-real"):
+        sources[n] = Path(a.pdf).expanduser() / n if a.pdf else None
+    for n, src in sources.items():
+        if src is None or not (src / "pages").is_dir():
+            continue
+        if (root / n).exists():
+            raise SystemExit(f"{n} already in the sealed tree")
+        shutil.copytree(src, root / n, ignore=shutil.ignore_patterns("page.html"))
+        pages = len(list((root / n / "pages").iterdir()))
+        meta["sets"][n] = {"pages": pages, **REAL_KINDS[n], "real_images": False, "real_sourced": True}
+        print(f"{n}: {pages} pages added")
+    meta["no_real_source"] = NO_REAL_SOURCE
+    meta["real_sets_added"] = {"previous_sha256sums_digest": old_digest}
+    (root / "SEALED.json").write_text(json.dumps(meta, indent=1) + "\n")
+    digest = write_sums(root)
+    new_lines = set((root / "SHA256SUMS").read_text().splitlines())
+    kept = [ln for ln in old_sums.splitlines() if ln.split("  ", 1)[1] != "SEALED.json"]
+    if not set(kept) <= new_lines:
+        raise SystemExit("a file of the original sets changed")
+    lock(root)
+    print(f"previous SHA256SUMS digest {old_digest}\nSHA256SUMS {digest}")
+
+
 def main(a) -> None:
-    (build if a.action == "build" else verify)(a)
+    {"build": build, "verify": verify, "add-real": add_real}[a.action](a)
