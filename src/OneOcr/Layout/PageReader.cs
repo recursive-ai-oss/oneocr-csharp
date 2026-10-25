@@ -115,7 +115,9 @@ internal static partial class PageReader
         for (int index = 0; index < strips.Count; index++)
         {
             LineBox ink = strips[index].Box;
-            crops[index] = LinePreprocessor.CropBox(ink, typical, width, height);
+            crops[index] = strips[index].Tilt is { } tilted
+                ? LinePreprocessor.CropBoxInFrame(tilted.Ink, typical)
+                : LinePreprocessor.CropBox(ink, typical, width, height);
             LineBox crop = crops[index];
             // A strip far wider than tall (a rule, a photo's edge) would be wider than the model's limit once scaled to its input height;
             // it is left out with a note instead of failing the page.
@@ -161,7 +163,9 @@ internal static partial class PageReader
                 {
                     int index = queue[first + k].Index;
                     long c0 = StageClock.Start();
-                    pixels[k] = LinePreprocessor.Prepare(page, width, crops[index], modelHeight, pixelPool, resizers, out int cropWidth);
+                    pixels[k] = strips[index].Tilt is { } tilt
+                        ? TiltedLines.Prepare(page, width, height, tilt, crops[index], modelHeight, pixelPool, resizers, out int cropWidth)
+                        : LinePreprocessor.Prepare(page, width, crops[index], modelHeight, pixelPool, resizers, out cropWidth);
                     images[k] = new LineImage(pixels[k], cropWidth);
                     StageClock.Stop("8c line crops", c0);
                 }
@@ -177,7 +181,9 @@ internal static partial class PageReader
                     var words = new List<OcrWord>(lines[k].Words.Count);
                     foreach (RecognizedWord w in lines[k].Words)
                     {
-                        words.Add(MakeWord(w, page, width, height, threshold, inkIsBright, ink, crops[index], images[k].Width, includeChars));
+                        words.Add(strips[index].Tilt is { } along
+                            ? MakeTiltedWord(w, page, width, height, threshold, inkIsBright, along, crops[index], images[k].Width, includeChars)
+                            : MakeWord(w, page, width, height, threshold, inkIsBright, ink, crops[index], images[k].Width, includeChars));
                     }
 
                     read[index] = new OrderStrip
@@ -410,7 +416,7 @@ internal static partial class PageReader
             chars += w.Text.Length;
         }
 
-        return new OcrLine(text, words, cellStarts, box, (float)(weighted / chars), OcrSource.Ocr);
+        return new OcrLine(text, words, cellStarts, box, (float)(weighted / chars), OcrSource.Ocr, Quad: EnclosingQuad(words));
     }
 
     private static OcrBlock MakeBlock(OrderBlock block, List<OcrLine> lines)

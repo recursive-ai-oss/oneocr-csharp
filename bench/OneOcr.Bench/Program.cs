@@ -278,6 +278,23 @@ internal static class Program
         string pages = Need(o, "pages"), outDir = Need(o, "out");
         int degree = Int(o, "degree", 0), repeat = Math.Max(1, Int(o, "repeat", 1));
         Directory.CreateDirectory(outDir);
+        if (o.TryGetValue("tilt", out string? tilt))
+        {
+            // --tilt off | --tilt DEG:MAXDEG:CELLS:ELONGATION[:NOISE]: the thresholds for reading a line along its own axis (see TiltedLines).
+            if (tilt == "off")
+            {
+                TiltedLines.ToleranceSin = 2;
+            }
+            else
+            {
+                string[] f = tilt.Split(':');
+                TiltedLines.ToleranceSin = Math.Sin(double.Parse(f[0], CultureInfo.InvariantCulture) * Math.PI / 180);
+                TiltedLines.MaxSin = Math.Sin(double.Parse(f[1], CultureInfo.InvariantCulture) * Math.PI / 180);
+                TiltedLines.MinCells = int.Parse(f[2], CultureInfo.InvariantCulture);
+                TiltedLines.MinElongation = double.Parse(f[3], CultureInfo.InvariantCulture);
+                TiltedLines.NoiseFactor = f.Length > 4 ? double.Parse(f[4], CultureInfo.InvariantCulture) : 0;
+            }
+        }
 
         using AllocTrace? allocTrace = Int(o, "alloc", 0) != 0 ? new AllocTrace() : null;
         var clock = Stopwatch.StartNew();
