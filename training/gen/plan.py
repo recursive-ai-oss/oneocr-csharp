@@ -191,6 +191,37 @@ class Sampler:
             return str(rng.choice(["#", "No.", "No", "", "T"])) + d(int(rng.integers(2, 9)))
         return str(rng.choice(["Rp", "Rp.", "$", "€", "£", "IDR", "-", "*", "+", "=", ":", "(", ")"]))
 
+    def amount_token(self) -> str:
+        """A printed amount of the kinds receipts show: grouped with `.` or `,`, often round (ending 000 or 500), with a `.00` tail, a
+        trailing minus (discounts), a currency prefix, or a bare item count. Zeros are frequent on purpose: runs of zeros are where
+        the reader drops or invents characters."""
+        rng = self.rng
+        d = self._digits
+        r = rng.random()
+        if r < 0.12:
+            return d(1) if rng.random() < 0.7 else d(2)
+        n = int(rng.integers(3, 8))
+        body = d(n)
+        if rng.random() < 0.55:
+            body = body[:-3] + str(rng.choice(["000", "500", "000"]))
+        if body[0] == "0":
+            body = str(rng.choice(list("123456789"))) + body[1:]
+        sep = str(rng.choice([",", ".", ""], p=[0.4, 0.4, 0.2]))
+        if sep and len(body) > 3:
+            body = body[:-3] + sep + body[-3:]
+            if len(body) > 7 and rng.random() < 0.5:
+                body = body[:-7] + sep + body[-7:]
+        if rng.random() < 0.18:
+            body += ("," if sep == "." else ".") + str(rng.choice(["00", "00", d(2)]))
+        t = rng.random()
+        if t < 0.1:
+            body += "-"
+        elif t < 0.17:
+            body = "-" + body
+        elif t < 0.3:
+            body = str(rng.choice(["Rp", "Rp.", "$", "IDR", "@"])) + (" " if rng.random() < 0.4 else "") + body
+        return body
+
     def numbers_line(self) -> str:
         return " ".join(self.number() for _ in range(int(self.rng.integers(1, 5))))
 
@@ -594,6 +625,29 @@ def plan_shard(job) -> list[dict]:
                     toks.append(s.receipt_token())
             text, src = " ".join(toks), "synthetic:receipt"
             file = _pick_font(rng, fams, set(text) - {" "})
+        elif kind == "receipt2":
+            # the words of a till receipt as the reader gets them: round amounts in both separator conventions, item counts, label
+            # words with their colon, item words in the printers' capitals (extends "receipt" with the confusions measured on CORD)
+            file = _pick_font(rng, fams, set())
+            if file is None:
+                continue
+            s = Sampler(charset, cov.of(file), rng)
+            toks = []
+            for _ in range(int(rng.choice([1, 1, 1, 2, 2, 3]))):
+                r = rng.random()
+                if r < 0.42:
+                    toks.append(s.amount_token())
+                elif r < 0.52:
+                    toks.append(s.receipt_token())
+                elif r < 0.62:
+                    toks.append(str(rng.choice(_TOTAL_LABELS)) + str(rng.choice(["", ":", ":"])))
+                else:
+                    w, _t = books.window(rng, short=True)
+                    w = " ".join(w.split()[: int(rng.integers(1, 3))])
+                    q = rng.random()
+                    toks.append(w.upper() if q < 0.5 else w.title() if q < 0.8 else w)
+            text, src = " ".join(toks), "synthetic:receipt2"
+            file = _pick_font(rng, fams, set(text) - {" "})
         else:
             file = _pick_font(rng, fams, set())
             if file is None:
@@ -607,6 +661,10 @@ def plan_shard(job) -> list[dict]:
                 text = {"numbers": s.numbers_line, "codes": s.codes_line, "rare": s.rare, "pseudo": s.pseudo_line}[kind]()
             src = f"synthetic:{kind}"
         text = unicodedata.normalize("NFC", " ".join(text.split()))
+        # `single_script`: a line's letters come from one script, as on a printed receipt (each word of a line is drawn from its own book
+        # window, so a line could mix Latin and Cyrillic words, which teaches look-alike letters to stand for each other)
+        if spec.get("single_script") and len({cs.script_of(c) for c in text if c.isalpha()}) > 1:
+            continue
         # every character must be a charset class that the chosen font can draw (generated strings use literal symbols like "№")
         if not text or file is None or text in seen or text in banned or not set(text) - {" "} <= cov.of(file):
             continue
@@ -622,6 +680,10 @@ def plan_shard(job) -> list[dict]:
         broad = rng.random() < 0.15  # a minority of crops with margins far from the finder's convention
         vm = [rng.uniform(0.0, 0.45) if broad else rng.uniform(0.18, 0.32) for _ in range(2)]
         hm = [rng.uniform(0.05, 1.0) if broad else rng.uniform(0.35, 0.65) for _ in range(2)]
+        # `tight_ends`: the share of crops whose side margins are each 0-0.2 (of the finder's 0.5), so the first and last letters sit
+        # almost at the crop edge, as they do when the detector's box is ink-narrowed; keeps readers from dropping an end letter
+        if rng.random() < spec.get("tight_ends", 0.0):
+            hm = [rng.uniform(0.0, 0.2) for _ in range(2)]
         extra = (
             {"cells": [c.strip() for c in cells], "gaps": [round(g, 2) for g in gaps]} if kind in ("gap", "ui", "tight", "sep") and gaps else {}  # noqa: E501
         )
