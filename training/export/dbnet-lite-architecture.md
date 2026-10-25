@@ -142,6 +142,13 @@ to trust blindly on pages with little text).
 The layout threshold and expansion were picked on DocLayNet validation pages; the text values are the training-geometry defaults.
 Both text expansions were reported on the benchmark pages, which were not used to select anything.
 
+## Per-line angle and rotated line boxes
+
+Each text line's angle is read from its component in the text map (principal axis of the cell coordinates, from exact integer moments);
+the runtime's rule, filters and quad construction are specified in the library's `docs/spec/detector-v1.md`, "Line axis". The training
+side only supplies the oriented targets (`train.detect_data.text_targets`). `eval.quad_diag` measured the angle on the bench pages with
+the 0.2.0 detector: median error 0.07 deg on phone (95 % of 931 lines within 0.5 deg) against 0.23 deg (73 %) for one page skew.
+
 ## Numeric notes for the C# kernels
 
 - Depthwise 3x3 (stride 1 and 2) is new relative to the recognizer's kernels: per channel, 9 taps in (ky, kx) order, FMA, same

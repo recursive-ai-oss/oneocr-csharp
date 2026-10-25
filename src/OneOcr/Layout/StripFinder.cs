@@ -6,8 +6,12 @@ using OneOcr.Kernels;
 
 namespace OneOcr.Layout;
 
-/// <summary>A text line cut out of one leaf region of the page, with the leaf's number (lines of one leaf are never one line of the page).</summary>
-internal readonly record struct StripLine(LineBox Box, int Leaf);
+/// <summary>
+/// A text line cut out of one leaf region of the page, with the leaf's number (lines of one leaf are never one line of the page).
+/// <paramref name="Tilt"/> is set for a line read along its own tilted axis (see <see cref="TiltedLines"/>); its <paramref name="Box"/> is then
+/// the straightened line's ink rectangle placed, unrotated, at the centre of the tilted one, which is what reading order compares.
+/// </summary>
+internal readonly record struct StripLine(LineBox Box, int Leaf, TiltedLine? Tilt = null);
 
 /// <summary>
 /// Finds the text lines of a page that may have columns and ruled tables. It cuts the ink recursively into regions that have no

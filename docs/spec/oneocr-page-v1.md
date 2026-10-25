@@ -111,6 +111,10 @@ given, whatever the turn; text that was turned or straightened carries a `quad` 
 bottom-right, bottom-left), and its `bounds` is the box around the quad. How the turn and tilt are found and mapped back is in
 `page-orientation-v1.md`. Pages from a PDF have neither member.
 
+**Lines read along their own axis.** A line whose own lean differs from the page's (after any page-wide deskew) carries a `quad` on its
+words, characters and the line even when the page itself was not turned or straightened: the quad is the line's tilted rectangle, and
+`bounds` is the box around it. Straight lines carry none, as before. See `detector-v1.md`, "Line axis".
+
 **Word index.** Words of a page are numbered in reading order: blocks in order, lines in order, words in order, from 0.
 `words` of a cell and `key`/`value` of a key–value pair refer to that numbering. Block indices count from 0 in `blocks`.
 

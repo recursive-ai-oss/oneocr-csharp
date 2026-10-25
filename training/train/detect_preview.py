@@ -44,6 +44,8 @@ def main() -> None:
         arr = np.asarray(canvas).astype(np.float32)
         prob = np.kron(s["prob"][0].numpy(), np.ones((2, 2)))
         arr[..., 1] = np.clip(arr[..., 1] + 160 * prob, 0, 255)
+        unsup = np.kron(1 - s["text_ok"][0].numpy(), np.ones((2, 2)))  # cells outside the annotated band are not trained
+        arr[..., 0] = np.where(unsup > 0, 0.5 * arr[..., 0] + 127, arr[..., 0])
         lay = s["layout"].numpy()
         for c in range(lay.shape[0]):
             m = np.kron(lay[c], np.ones((8, 8)))

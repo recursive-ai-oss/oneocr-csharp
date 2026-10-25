@@ -25,13 +25,13 @@ from train.detect_data import merge_runs
 SETS = ["clean300-v1", "degraded-v1", "layout-v1", "phone-v1", "screenshot-v1", "receipts-v1"]
 
 
-def truth_lines(words: list[dict], key: str = "box") -> np.ndarray:
+def truth_lines(words: list[dict], key: str = "box", gap: float = 1.5) -> np.ndarray:
     """Line boxes from word boxes; key "ink" uses the bench-v2 ink-tight boxes (falls back to the layout box)."""
     by_block: dict[int, list[list[float]]] = {}
     for w in words:
         b = w.get(key) or w["box"]
         by_block.setdefault(w.get("block", 0), []).append([float(b[0]), float(b[1]), float(b[2]), float(b[3])])
-    lines = [ln for runs in by_block.values() for ln in merge_runs(runs, gap=1.5, overlap=0.5)]
+    lines = [ln for runs in by_block.values() for ln in merge_runs(runs, gap=gap, overlap=0.5)]
     return np.array(lines, np.float32).reshape(-1, 4)
 
 
@@ -47,6 +47,8 @@ def main() -> None:
     ap.add_argument("--boxes", default="box", choices=["box", "ink"], help="truth box kind (bench-v2 has ink)")
     ap.add_argument("--iou", type=float, default=0.5)
     ap.add_argument("--sets", default=",".join(SETS))
+    ap.add_argument("--gap", type=float, default=1.5, help="truth words on one baseline join into a line below this gap (line heights)")
+    ap.add_argument("--kinds", help="only pages whose truth `kind` is one of these (comma list; layout-v1 has table, form, mixed, ...)")
     a = ap.parse_args()
     ck = torch.load(a.checkpoint, map_location="cpu", weights_only=False)
     model = DBNetLite(ck["config"])
@@ -57,9 +59,12 @@ def main() -> None:
         files = sorted((Path(a.bench) / s / "truth").glob("*.json"))[: a.limit]
         tp = np.zeros(3, np.int64)
         orient_ok = 0
+        n_pages = 0
         hr, wr = [], []
         for f in files:
             t = json.loads(f.read_text())
+            if a.kinds and t.get("kind") not in a.kinds.split(","):
+                continue
             res = infer(
                 model,
                 Image.open(next((Path(a.bench) / s / "pages").glob(f.stem + ".*"))),
@@ -67,7 +72,8 @@ def main() -> None:
                 expand_text=a.expand,
                 text_thr=a.text_thr,
             )
-            gt = truth_lines(t["words"], a.boxes)
+            n_pages += 1
+            gt = truth_lines(t["words"], a.boxes, a.gap)
             tp += match_counts(res["text"], gt, a.iou)
             if len(gt) and len(res["text"]):  # size of each prediction relative to its best-overlapping truth line
                 m = iou_matrix(res["text"], gt)
@@ -79,8 +85,8 @@ def main() -> None:
             orient_ok += int(res["orient"].argmax() == 0)
         report["sets"][s] = {
             **prf(*[int(v) for v in tp]),
-            "pages": len(files),
-            "orient_upright_acc": orient_ok / max(len(files), 1),
+            "pages": n_pages,
+            "orient_upright_acc": orient_ok / max(n_pages, 1),
             "height_ratio_median": float(np.median(hr)) if hr else None,
             "width_ratio_median": float(np.median(wr)) if wr else None,
         }
