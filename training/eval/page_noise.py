@@ -56,6 +56,38 @@ def junk_density(prob: np.ndarray, thr: float = 0.3, max_cells: int = 12, max_sc
     return junk / mpx
 
 
+def map_stats(prob: np.ndarray, thr: float = 0.3) -> dict:
+    """Cheap statistics of the detector's text map (stride 2): what the text on the page looks like, not how noisy the paper is.
+
+    comps/coverage/height/prob are over components of P > thr with at least 2 cells (the detector's lines): `comps` per megapixel of
+    detector input, `coverage` the share of cells on, `height` the median short side in cells of the components with more than 12 cells
+    (0 when none), `prob` the median of component mean probabilities.
+    """
+    lab, n = ndimage.label(prob > thr)
+    mpx = prob.size * 4 / 1e6
+    out = {"comps": 0.0, "coverage": float((prob > thr).mean()), "height": 0.0, "prob": 0.0, "nlines": 0.0}
+    if n == 0:
+        return out
+    idx = np.arange(1, n + 1)
+    cnt = np.asarray(ndimage.sum(np.ones_like(prob), lab, idx))
+    score = np.asarray(ndimage.mean(prob, lab, idx))
+    keep = cnt >= 2
+    out["comps"] = float(keep.sum() / mpx)
+    out["nlines"] = float((cnt > 12).sum())
+    if keep.any():
+        out["prob"] = float(np.median(score[keep]))
+    big = [k + 1 for k in np.nonzero(cnt > 12)[0]]
+    if big:
+        objs = ndimage.find_objects(lab)
+        out["height"] = float(np.median([min(objs[k - 1][0].stop - objs[k - 1][0].start, objs[k - 1][1].stop - objs[k - 1][1].start) for k in big]))
+    return out
+
+
+def gray_stats(g: np.ndarray) -> dict:
+    """Paper level (median gray), ink contrast (median minus 2nd percentile) and the page's height / width."""
+    return {"paper": float(np.median(g)), "contrast": float(np.median(g) - np.percentile(g, 2)), "aspect": g.shape[0] / g.shape[1]}
+
+
 def unpadded_gray(img: Image.Image) -> np.ndarray:
     canvas, s = prepare(img)
     w, h = img.size
@@ -83,9 +115,10 @@ def main() -> None:
                 continue
             img = Image.open(f)
             m = raw_maps(model, img, a.device)
-            rows[f.stem] = {"sigma": sigma_median(unpadded_gray(img.convert("L"))), "junk": junk_density(m["prob"])}
+            g = unpadded_gray(img.convert("L"))
+            rows[f.stem] = {"sigma": sigma_median(g), "junk": junk_density(m["prob"]), **map_stats(m["prob"]), **gray_stats(g)}
         res[name] = rows
-        for k in ("sigma", "junk"):
+        for k in next(iter(rows.values())):
             v = np.array([r[k] for r in rows.values()])
             print(f"{name:16s} {k:6s} n={len(v)} min/p10/p50/p90/max " + " / ".join(f"{np.percentile(v, p):.2f}" for p in (0, 10, 50, 90, 100)), flush=True)
     if a.out:
