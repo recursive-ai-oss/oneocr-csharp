@@ -50,14 +50,25 @@ ul,ol,li,summary{list-style:none !important}
 summary::-webkit-details-marker{display:none !important}
 input,select,textarea,option{color:transparent !important;-webkit-text-fill-color:transparent !important;text-shadow:none !important}
 ::placeholder{color:transparent !important;opacity:0 !important}
+sup.reference,.mw-editsection,.mw-cite-backlink{visibility:hidden !important}
 """
 
 # Words as the page shows them: visible ones only, with the hit test's verdict on each rectangle.
-EXTRACT_JS = r"""([W, H]) => {
+EXTRACT_JS = r"""([W, H, css]) => {
   const out = [], ids = new Map(), fonts = {};
   const stats = {hidden: 0, partial: 0, outside: 0, pua: 0, controls: 0, shadow: 0, copyright: 0};
-  for (const el of document.querySelectorAll('*')) {
-    if (el.shadowRoot) stats.shadow++;
+  const roots = [document.body];
+  const collect = (node) => node.querySelectorAll('*').forEach(e => {
+    if (e.shadowRoot) { roots.push(e.shadowRoot); stats.shadow++; collect(e.shadowRoot); }
+  });
+  collect(document);
+  for (const r of roots.slice(1)) { const st = document.createElement('style'); st.textContent = css; r.appendChild(st); }
+  const deepHit = (x, y) => {
+    let h = document.elementFromPoint(x, y);
+    while (h && h.shadowRoot) { const i = h.shadowRoot.elementFromPoint(x, y); if (!i || i === h) break; h = i; }
+    return h;
+  };
+  for (const r of roots) for (const el of r.querySelectorAll('*')) {
     if (getComputedStyle(el).textTransform === 'capitalize') el.style.setProperty('text-transform', 'none', 'important');
   }
   const SKIP = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'TITLE', 'HEAD']);
@@ -76,22 +87,25 @@ EXTRACT_JS = r"""([W, H]) => {
     return verdict;
   };
   const verdictOf = (el, r) => {
-    const pts = [[(r.left + r.right) / 2, (r.top + r.bottom) / 2], [r.left + 1.5, (r.top + r.bottom) / 2],
-                 [r.right - 1.5, (r.top + r.bottom) / 2], [(r.left + r.right) / 2, r.top + 1], [(r.left + r.right) / 2, r.bottom - 1]];
+    // the centre, and for wider words a quarter in from each end, on the middle of the line: points near the edges
+    // of a rectangle often fall on a neighbouring inline element or the next line's box
+    const cy = (r.top + r.bottom) / 2, w = r.right - r.left;
+    const pts = w >= 24 ? [[(r.left + r.right) / 2, cy], [r.left + w * 0.25, cy], [r.left + w * 0.75, cy]] : [[(r.left + r.right) / 2, cy]];
     let inside = 0, hit = 0;
     for (const [x, y] of pts) {
       if (x < 0 || y < 0 || x >= W || y >= H) continue;
       inside++;
-      const h = document.elementFromPoint(x, y);
+      const h = deepHit(x, y);
       if (h && (el.contains(h) || h.contains(el))) hit++;
     }
     if (inside === 0) return 'outside';
     if (inside < pts.length) return 'partial';
     return hit === pts.length ? 'visible' : hit === 0 ? 'hidden' : 'partial';
   };
-  const tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const puaEls = [];
-  for (let nd = tw.nextNode(); nd; nd = tw.nextNode()) {
+  const texts = [];
+  for (const r of roots) { const tw = document.createTreeWalker(r, NodeFilter.SHOW_TEXT); for (let n = tw.nextNode(); n; n = tw.nextNode()) texts.push(n); }
+  for (const nd of texts) {
     const el = nd.parentElement;
     if (!el || SKIP.has(el.tagName) || el.closest('input,textarea,select,option')) continue;
     const cs = getComputedStyle(el);
@@ -215,10 +229,10 @@ def capture_one(ctx, entry: dict, k: int, out: Path, pid: str, set_name: str) ->
         page.evaluate("y => window.scrollTo(0, y)", pos)
         page.wait_for_timeout(600)
         page.evaluate("document.fonts.ready")
-        res = page.evaluate(EXTRACT_JS, [w, h])
+        res = page.evaluate(EXTRACT_JS, [w, h, FREEZE_CSS])
         words, stats = res["words"], res["stats"]
-        if stats["shadow"]:
-            return None, "open shadow roots"
+        if stats["hidden"] > 0.15 * (len(res["words"]) + stats["hidden"]):
+            return None, f"{stats['hidden']} covered or clipped words"
         if stats["copyright"]:
             return None, "copyright or permission notice in the text"
         if stats["partial"] > 3 or stats["pua"] > 30:
@@ -246,17 +260,20 @@ def capture_one(ctx, entry: dict, k: int, out: Path, pid: str, set_name: str) ->
         x["y1"] -= top
     tw = truth_words(words, scale)
     g = np.asarray(img, np.float32)
-    dead = 0
+    dead = partial = 0
     keep = []
-    for t in tw:  # a word with no contrast at all is not visible in the pixels (colour equal to the background)
+    for t in tw:  # does the word's box show ink across its width? white text on a blanked background fails this
         x0, y0, x1, y1 = (round(v) for v in t["box"])
         reg = g[max(0, y0): max(0, y1), max(0, x0): max(0, x1)]
-        if reg.size == 0 or float(reg.std()) < 2.0:
+        cov = float(((reg.max(axis=0) - reg.min(axis=0)) >= 12).mean()) if reg.size else 0.0
+        if cov < 0.1:
             dead += 1
         else:
+            if cov < 0.25 and len(t["text"]) > 2:
+                partial += 1
             keep.append(t)
-    if dead > max(2, 0.02 * len(tw)):
-        return None, f"{dead} of {len(tw)} words invisible in the pixels"
+    if partial > 2 or dead > max(2, 0.02 * len(tw)):
+        return None, f"{dead} invisible and {partial} part-visible words of {len(tw)} in the pixels"
     if dead:  # drop them from the truth; there is nothing on the page to read
         tw = keep
     add_ink(tw, img)
