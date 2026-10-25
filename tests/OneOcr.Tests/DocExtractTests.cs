@@ -4,6 +4,7 @@ using System.Text.Json;
 using OneOcr.Documents;
 using OneOcr.Kernels;
 using OneOcr.Model;
+using OneOcr.Models.Documents;
 using DocInvoice = OneOcr.Documents.Invoice;
 using DocReceipt = OneOcr.Documents.Receipt;
 using DocModels = OneOcr.Models.Documents.DocumentModels;
@@ -144,7 +145,7 @@ public class DocExtractTests
             {
                 foreach (KernelPath path in Dispatch.Available())
                 {
-                    foreach (Sample s in samples.Where(x => !IsAssemblyOnly(x) && x.Json.GetProperty("windows").GetArrayLength() == 1))
+                    foreach (Sample s in samples.Where(x => !IsAssemblyOnly(x) && (!x.Json.TryGetProperty("windows", out JsonElement windows) || windows.GetArrayLength() == 1)))
                     {
                         DocFeatures f = DocFeatures.Build(model, s.Texts, s.Boxes, s.Width, s.Height);
                         var trace = new Dictionary<string, float[]>();
@@ -157,21 +158,27 @@ public class DocExtractTests
                         {
                             string name = layer.GetProperty("name").GetString()!;
                             float[] pt = ReadF32(Path.Combine(dir, layer.GetProperty("file").GetString()!));
-                            double[] exact = ReadF64(Path.Combine(dir, layer.GetProperty("file64").GetString()!));
+                            // Fixtures from the trained model carry PyTorch's float64 error bound but not the float64 values: those
+                            // are checked against PyTorch's fp32 result only, within the same documented factor.
+                            double[]? exact = layer.TryGetProperty("file64", out JsonElement f64) ? ReadF64(Path.Combine(dir, f64.GetString()!)) : null;
                             double floor = s.Json.GetProperty("fp32_vs_fp64_floor").GetProperty(name).GetProperty("max_abs").GetDouble();
                             float[] got = trace[name];
                             Assert.Equal(pt.Length, got.Length);
-                            double refMax = exact.Max(Math.Abs);
+                            double refMax = exact is null ? s.Json.GetProperty("fp32_vs_fp64_floor").GetProperty(name).GetProperty("ref_max_abs").GetDouble() : exact.Max(Math.Abs);
                             double slack = UlpFloor * Ulp * Math.Max(refMax, 1e-30);
                             double errExact = 0, errPyTorch = 0;
                             for (int i = 0; i < got.Length; i++)
                             {
-                                errExact = Math.Max(errExact, Math.Abs(got[i] - exact[i]));
+                                if (exact is not null)
+                                {
+                                    errExact = Math.Max(errExact, Math.Abs(got[i] - exact[i]));
+                                }
+
                                 errPyTorch = Math.Max(errPyTorch, Math.Abs(got[i] - (double)pt[i]));
                             }
 
                             report.AppendLine(CultureInfo.InvariantCulture, $"{path} {s.Id} {name}: vs float64 {errExact:E2}, pytorch fp32 vs float64 {floor:E2}, vs pytorch {errPyTorch:E2}, max {refMax:E2}");
-                            Assert.True(errExact <= (ErrorFactor * floor) + slack, $"{path} {s.Id} {name}: error vs float64 {errExact:E3} exceeds {ErrorFactor} x PyTorch's {floor:E3} + {slack:E3}");
+                            Assert.True(exact is null || errExact <= (ErrorFactor * floor) + slack, $"{path} {s.Id} {name}: error vs float64 {errExact:E3} exceeds {ErrorFactor} x PyTorch's {floor:E3} + {slack:E3}");
                             Assert.True(errPyTorch <= ((ErrorFactor + 1) * floor) + slack, $"{path} {s.Id} {name}: differs from PyTorch by {errPyTorch:E3}, allowed {(ErrorFactor + 1) * floor + slack:E3}");
                         }
                     }
@@ -224,7 +231,7 @@ public class DocExtractTests
                     checkedPages++;
                 }
 
-                Assert.True(checkedPages >= 3);
+                Assert.True(checkedPages >= 3 || !samples.Any(IsAssemblyOnly));
             }
         }
     }
@@ -243,6 +250,17 @@ public class DocExtractTests
                     {
                         DocFeatures f = DocFeatures.Build(model, s.Texts, s.Boxes, s.Width, s.Height);
                         DocOutputs o = DocForward.Run(model, f, path, 2, CancellationToken.None);
+                        if (!s.Json.TryGetProperty("ptr_margin", out _))
+                        {
+                            // Trained-model fixtures record the assembled page, not the pointer margins.
+                            if (s.Json.TryGetProperty("assembled", out JsonElement whole))
+                            {
+                                AssertAssembled(whole, Assemble(model, s, o), $"{path} {s.Id}");
+                            }
+
+                            continue;
+                        }
+
                         double[][] margin = [.. s.Json.GetProperty("ptr_margin").EnumerateArray().Select(a => a.EnumerateArray().Select(e => e.GetDouble()).ToArray())];
                         int[][] expected = [
                             [.. s.Json.GetProperty("group_ptr").EnumerateArray().Select(e => e.GetInt32())],
@@ -331,7 +349,7 @@ public class DocExtractTests
             (DocExtractModel model, JsonDocument doc, List<Sample> samples) = Open(dir);
             using (doc)
             {
-                foreach (Sample s in samples.Where(x => !IsAssemblyOnly(x) && (x.Texts.Length is 64 or 513)))
+                foreach (Sample s in samples.Where(x => !IsAssemblyOnly(x) && (x.Texts.Length is 64 or 200 or 513)))
                 {
                     DocFeatures f = DocFeatures.Build(model, s.Texts, s.Boxes, s.Width, s.Height);
                     DocOutputs reference = DocForward.Run(model, f, KernelPath.Scalar, 1, CancellationToken.None);
@@ -740,12 +758,28 @@ public class DocExtractTests
     }
 
     [Fact]
-    public void ThePackageWithoutWeightsSaysSoPlainly()
+    public void ThePinNamesTheTrainedExtractor()
     {
-        Assert.Null(DocModels.Extractor);
-        Assert.False(DocModels.HasExtractor);
-        Assert.NotNull(DocModels.TryReadExtractor(out _));
-        Assert.Throws<OcrModelException>(() => DocModels.LoadExtractor());
+        BundledDocumentModel pin = Assert.IsType<BundledDocumentModel>(DocModels.Extractor);
+        Assert.Equal("docextract-v0", pin.Name);
+        Assert.Equal("0.1.0", pin.Version);
+        Assert.Equal("e52db02283080aff8dbf7d5535a06d5d4a9d742591cdb0745179c0e5ec837e7c", pin.Sha256);
+        Assert.Equal(3967168, pin.Bytes);
+    }
+
+    [Fact]
+    public void ABuildWithoutTheWeightsFileSaysSoPlainlyAndAPackedOneLoads()
+    {
+        if (!DocModels.HasExtractor)
+        {
+            Assert.NotNull(DocModels.TryReadExtractor(out _));
+            Assert.Throws<OcrModelException>(() => DocModels.LoadExtractor());
+            return;
+        }
+
+        Assert.Null(DocModels.TryReadExtractor(out byte[] data));
+        Assert.Equal(DocModels.Extractor!.Sha256, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(data)));
+        Assert.Equal("docextract-v0", DocModels.LoadExtractor().Name);
     }
 
     [Fact]
