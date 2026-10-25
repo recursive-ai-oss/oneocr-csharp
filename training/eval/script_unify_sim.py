@@ -81,9 +81,9 @@ def main() -> None:
         tot["words"] += len(hyp)
     r = tot["ref"]
     print(f"{tot['changed']}/{tot['words']} words rewritten")
-    print(
-        f"order-free CER {100 * tot['ce0'] / r:.2f} -> {100 * tot['ce1'] / r:.2f}   recall-CER {100 * tot['cm0'] / r:.2f} -> {100 * tot['cm1'] / r:.2f}"
-    )
+    cer = f"{100 * tot['ce0'] / r:.2f} -> {100 * tot['ce1'] / r:.2f}"
+    rec = f"{100 * tot['cm0'] / r:.2f} -> {100 * tot['cm1'] / r:.2f}"
+    print(f"order-free CER {cer}   recall-CER {rec}")
 
 
 if __name__ == "__main__":
