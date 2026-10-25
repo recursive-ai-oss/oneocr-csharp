@@ -33,6 +33,8 @@ def main() -> None:
     ap.add_argument("--version", default="0.2.1")
     ap.add_argument("--degree", type=int, default=1)
     ap.add_argument("--dotnet", default="dotnet")
+    ap.add_argument("--wordlm", help="character model file for word breaks, as the shipped engine loads it")
+    ap.add_argument("--extra-post", default="{}", help="JSON merged into every variant's postprocess (the page-noise rule keys, say)")
     ap.add_argument("--detector-file", action="append", default=[], help="MODEL.onm:NAME")
     a = ap.parse_args()
     sys.path.insert(0, str(BENCH))
@@ -47,7 +49,7 @@ def main() -> None:
         name = f"t{thr}-e{exp}"
         m = out / name / "model.onm"
         m.parent.mkdir(parents=True, exist_ok=True)
-        post = json.dumps({"text_threshold": float(thr), "text_expand": float(exp), "layout_threshold": 0.6, "layout_expand": 0.85})
+        post = json.dumps({"text_threshold": float(thr), "text_expand": float(exp), "layout_threshold": 0.6, "layout_expand": 0.85, **json.loads(a.extra_post)})
         subprocess.run(
             ["uv", "run", "--project", str(TRAIN), "python", "-m", "export.dbnet", "--checkpoint", a.checkpoint, "--run-manifest", a.run_manifest,
              "--version", a.version, "--exclude-classes", "form_field,checkbox", "--postprocess", post, "--out", str(m)],
@@ -64,7 +66,7 @@ def main() -> None:
             dest.mkdir(parents=True, exist_ok=True)
             subprocess.run(
                 [a.dotnet, str(dll), "run", "--model", a.recognizer, "--detector", str(m), "--pages", pages, "--out", str(dest),
-                 "--degree", str(a.degree), "--repeat", "1", "--words", "1", "--pagejson", "1"],
+                 "--degree", str(a.degree), "--repeat", "1", "--words", "1", "--pagejson", "1", *(["--wordlm", a.wordlm] if a.wordlm else [])],
                 check=True, stdout=subprocess.DEVNULL,
             )  # fmt: skip
         print("done", name, flush=True)
