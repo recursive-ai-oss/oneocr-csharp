@@ -11,14 +11,14 @@ internal static class Program
         oneocr - fine-tune the OneOcr line recognizer on your own documents
 
         usage:
-          oneocr ocr    --in <image or folder> [--out <dir>] [--model <file> --detector <file>] [--degree N] [--json] [--stats <file>]
+          oneocr ocr    --in <image or folder> [--out <dir>] [--model <file> --detector <file> [--wordlm <file>]] [--degree N] [--json] [--stats <file>]
           oneocr train  --model <file> --work <dir> [--docs <dir>] [labelling options] [training options]
           oneocr train  --extract <schema.json> --model <docextract file> --work <dir> [--docs <dir>] [labelling options] [extraction options]
           oneocr eval   --model <file> --work <dir> [--seed N] [--held-out F]
           oneocr review export --work <dir> --out <dir> [--include-reviewed]
           oneocr review import --work <dir> --file <review.json>
 
-        ocr reads PNG and JPEG pages with the bundled models (or with --model and --detector files) and writes <name>.txt per
+        ocr reads PNG and JPEG pages with the bundled models (or with --model and --detector files, and --wordlm for the word character model) and writes <name>.txt per
         page into --out (one page with no --out prints the text); --json adds <name>.page.json, the page model; --stats writes
         the model load time, time per page and peak memory as JSON. Local only, never touches the network.
 

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using OneImage;
+using OneOcr.Decoding;
 
 namespace OneOcr.Tool;
 
@@ -15,7 +16,7 @@ internal static class OcrCommand
     public static int Run(Flags f)
     {
         string input = f.Required("in");
-        string? outDir = f.Optional("out"), modelFile = f.Optional("model"), detectorFile = f.Optional("detector"), statsFile = f.Optional("stats");
+        string? outDir = f.Optional("out"), modelFile = f.Optional("model"), detectorFile = f.Optional("detector"), wordModelFile = f.Optional("wordlm"), statsFile = f.Optional("stats");
         int degree = f.Int("degree", 0);
         bool json = f.Switch("json");
         f.Done();
@@ -38,6 +39,11 @@ internal static class OcrCommand
         if (detectorFile is not null)
         {
             engine = engine.WithDetector(detectorFile);
+        }
+
+        if (wordModelFile is not null)
+        {
+            engine = engine.WithWordModel(CharLanguageModel.Load(wordModelFile));
         }
 
         double loadMs = clock.Elapsed.TotalMilliseconds;
