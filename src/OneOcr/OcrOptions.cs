@@ -32,12 +32,22 @@ public sealed class OcrOptions
     public bool Deskew { get; init; } = true;
 
     /// <summary>
-    /// Whether to drop unsure words that sit in lines much smaller than the page's own text (specks, scan grain and edges read as a
-    /// few characters). Default true. A word goes only when its calibrated confidence is under 0.5 and its line is both under 60% of the
-    /// height of the page's confidently read lines and under 12 pixels (in lines under 8 pixels, unless it is read with 0.99); the number dropped is reported in the page's diagnostics.
-    /// Pages with fewer than three confidently read lines are left alone.
+    /// Whether to drop words that are noise read as text (specks, scan grain and edges). Default true. Two kinds go: unsure words
+    /// that sit in lines much smaller than the page's own text (calibrated confidence under 0.5, and a line both under 60% of the
+    /// height of the page's confidently read lines and under 12 pixels; in lines under 8 pixels, unless it is read with 0.99; pages
+    /// with fewer than three confidently read lines are left alone), and words made only of dots, commas, colons, semicolons and
+    /// quotes that are read with confidence under 0.9. Dashes, bullets and middle dots are never dropped. The number dropped is
+    /// reported in the page's diagnostics.
     /// </summary>
     public bool DropNoise { get; init; } = true;
+
+    /// <summary>
+    /// Whether to decide the spaces between words from the line's pixels as well as from the network. Default true. A space the
+    /// network put inside a number or date, or between two letters where the ink is continuous, is taken out when the pieces
+    /// only make sense joined (for the letters: when the engine has a word model, see <see cref="OcrEngine.WithWordModel"/>);
+    /// a space is added where the line has an empty stretch far wider than its letter gaps. Only spaces change, never characters.
+    /// </summary>
+    public bool FixWordSpacing { get; init; } = true;
 
     /// <summary>Replaces the noise filter's thresholds; used to tune them. Null uses the defaults.</summary>
     internal global::OneOcr.Layout.JunkParameters? JunkTuning { get; init; }

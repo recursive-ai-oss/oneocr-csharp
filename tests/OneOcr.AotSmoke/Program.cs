@@ -96,6 +96,15 @@ if (b1 != b4 || b1.Split('\n').Length != 3)
     return 1;
 }
 
+// Word breaks from pixels and a word model: the page is the same at every degree, and the switch turns the step off.
+OcrEngine spaced = engine.WithWordModel(OneOcr.Decoding.CharLanguageModel.Parse(TestLm.Build("smoke", alphabet, [string.Concat(alphabet.Take(4)), string.Concat(alphabet.Skip(2).Take(5))], 3)));
+string s1 = OcrPageJson.ToJson([spaced.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 1 })]), s4 = OcrPageJson.ToJson([spaced.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 4 })]);
+if (!spaced.HasWordModel || engine.HasWordModel || s1 != s4 || spaced.Ocr(page, new OcrOptions { FixWordSpacing = false }).Blocks.Count == 0)
+{
+    Console.Error.WriteLine("word spacing disagrees across degrees");
+    return 1;
+}
+
 // A version 1 container: calibration is parsed (source-generated JSON), applied, and words come back with boxes.
 OcrEngine calibrated = OcrEngine.Load(new System.IO.MemoryStream(TestModels.RandomContainerV1(pageShape, 3,
     "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,1],\"y\":[0,0.5]}}}")));

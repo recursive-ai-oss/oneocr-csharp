@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using OneOcr.Decoding;
 using OneOcr.Model;
 using OneOcr.Models;
 
@@ -26,6 +27,31 @@ public sealed class BundledModelsTests
         Assert.Equal("0.2.1", pin.Version);
         Assert.Equal("af520cb6f990ccd1cf0ad3860de7801e0e8411f373550345764c6b6e15093974", pin.Sha256);
         Assert.Equal(1370568, pin.Bytes);
+    }
+
+    [Fact]
+    public void ThePinNamesTheWordLanguageModel()
+    {
+        BundledModel pin = BundledModels.LanguageModel;
+        Assert.Equal("charlm-v1", pin.Name);
+        Assert.Equal("language-model", pin.Role);
+        Assert.Equal("38c190e804f17f54244cfb16cc03cc7dba30d13aa4cb5b6540a71e068bdd68b5", pin.Sha256);
+        Assert.Equal(1421911, pin.Bytes);
+    }
+
+    [Fact]
+    public void BundledLanguageModelMatchesItsPinAndIsUsedWhenPacked()
+    {
+        if (!BundledModels.HasLanguageModel || !BundledModels.HasRecognizer)
+        {
+            return;
+        }
+
+        Assert.Null(BundledModels.TryReadLanguageModel(out byte[] data));
+        Assert.Equal(BundledModels.LanguageModel.Sha256, Convert.ToHexStringLower(SHA256.HashData(data)));
+        Assert.Equal(3, CharLanguageModel.Parse(data).Scripts.Count);
+        Assert.True(OcrEngine.LoadBundled().HasWordModel);
+        Assert.False(OcrEngine.LoadBundled().WithWordModel(null).HasWordModel);
     }
 
     [Fact]
