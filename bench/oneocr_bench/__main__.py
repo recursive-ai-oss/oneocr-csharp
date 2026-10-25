@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 
-from . import assets, competitors, gate, score, sets, tess
+from . import assets, competitors, gate, score, seal, sets, tess
 
 
 def main() -> None:
@@ -19,6 +19,17 @@ def main() -> None:
     g.add_argument("--set", default="clean300-v1", choices=[*names, "all"])
     g.add_argument("--count", type=int, default=None)
     g.add_argument("--check", action="store_true", help="compare with the committed manifest")
+    g.add_argument("--seed", type=int, default=None, help="another seed: render a new page set for --set into --out (pinned manifests untouched)")
+    g.add_argument("--out", default=None, help="with --seed: output directory")
+    g.add_argument("--synthetic-receipts", action="store_true", help="with --seed: receipts-v1 from the receipt generator, not CORD")
+    g.add_argument("--avoid-text", nargs="*", default=[], metavar="DIR", help="with --seed: eval roots (<set>/truth) whose passages are not reused")
+
+    sl = sub.add_parser("seal", help="cut or verify a sealed page set (all six categories, seeds from a private file)")
+    sl.add_argument("action", choices=["build", "verify"])
+    sl.add_argument("root", help="sealed eval root: <set>/pages, <set>/truth, SHA256SUMS")
+    sl.add_argument("--seeds", help="build: JSON file {set: seed}, kept outside the repository")
+    sl.add_argument("--avoid-text", nargs="*", default=[], metavar="DIR", help="eval roots whose passages (and page hashes) must not recur")
+    sl.add_argument("--sets", nargs="+", choices=names, default=None)
 
     d = sub.add_parser("draw", help="overlay truth boxes on a page")
     d.add_argument("--set", default="clean300-v1", choices=names)
@@ -51,6 +62,8 @@ def main() -> None:
     gt.add_argument("--detector", default=None, help="detector container (omit for the classical line finder)")
     gt.add_argument("--eval", default=os.environ.get("ONEOCR_EVAL", "~/oneocr/eval/bench-v2"),
                     help="frozen sets: <set>/pages and <set>/truth (env ONEOCR_EVAL)")
+    gt.add_argument("--sealed", default=None, metavar="DIR", help="score the sealed set at DIR (same layout as --eval) and mark the report as sealed")
+    gt.add_argument("--dry-run", action="store_true", help="list the eval files and exit without building or running anything")
     gt.add_argument("--sets", nargs="+", choices=names, default=None)
     gt.add_argument("--work", default=os.environ.get("ONEOCR_WORK", "~/oneocr/work/gate"), help="engine outputs and the build (env ONEOCR_WORK)")
     gt.add_argument("--out", default=None, help="where gate.md, gate.json, accuracy.json and timing.json go (default WORK/gate)")
@@ -82,6 +95,12 @@ def main() -> None:
     a = ap.parse_args()
     if a.cmd == "fetch":
         assets.fetch(a.update)
+    elif a.cmd == "gen" and a.seed is not None:
+        if a.set == "all" or not a.out or a.check:
+            ap.error("--seed needs one --set, --out, and no --check")
+        sets.run_gen_seeded(a.set, a.count, a.seed, Path(a.out).expanduser(), a.synthetic_receipts, [Path(p).expanduser() for p in a.avoid_text])
+    elif a.cmd == "seal":
+        seal.main(a)
     elif a.cmd == "gen":
         for n in names if a.set == "all" else [a.set]:
             sets.run_gen(n, a.count, a.check)

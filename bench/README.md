@@ -492,3 +492,25 @@ uv run python -m oneocr_bench score ~/oneocr/eval/bench-v1/clean300-v1 OUTPUT_DI
   `ONEOCR_BENCH_DIR`. Checked on the worker with nothing written to the published copy: the Tesseract outputs for `clean300-v1` give
   CER 0.2427 %, WER 0.7300 %, order 0.7394 % (best, PSM 11) and 0.2586 % / 0.8329 % / 0.8517 % (fast, PSM 6), the numbers in the
   baseline table above.
+
+## A sealed set
+
+The bench-v2 pages have been looked at while the engine was developed, so they are a development set. For quality claims a
+second set is cut once, with the same recipes, scorer and category sizes (30 / 40 / 40 / 40 / 40 / 100), and is not looked at,
+scored against or tuned on until a release check.
+
+- **Recipes.** Each category is rendered like its `-v1` set from a seed that is not in this repository (`gen --seed N --out DIR` is
+  the public seed override; `seal build ROOT --seeds FILE` reads six seeds from a private file and renders all categories).
+  Fonts are the same seven held-out families. `--avoid-text DIR` drops every Gutenberg passage that shares an eight-word run
+  with a truth under an earlier eval root, so the sealed prose is new text; `seal verify` reports any such run or any identical
+  page image as a failure.
+- **What is real.** Nothing in it is a photograph or a scan. Prose is public-domain text, truth is browser geometry or our own
+  transform of it, and `degraded`, `phone` and `receipts` are simulated captures. `receipts-v1` is synthetic text from
+  `receipts_synth.py` (stores, items, tax, totals, card lines; faint thermal ink; the phone simulation on a taller canvas),
+  because every CORD v2 split has been used for training or tuning, so no unseen CORD receipts exist. Synthetic receipts
+  have full truth, so recall-CER equals CER on them; they do not test the dataset's printer, paper or photo variety.
+- **Layout.** `<set>/pages`, `<set>/truth`, `<set>/MANIFEST.json`, `SEALED.json` (what each category is made of) and `SHA256SUMS`,
+  all read-only.
+- **Check and run.** `seal verify ROOT --avoid-text <earlier eval roots>` checks hashes, truth structure, image sizes, ink boxes
+  against pixels and overlap with earlier sets, printing counts only. `gate --sealed ROOT [--dry-run]` is the usual gate on that
+  root; its `gate.md` is headed as sealed. `--dry-run` lists the files and runs nothing.

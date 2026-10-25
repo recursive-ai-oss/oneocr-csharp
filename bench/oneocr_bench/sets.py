@@ -15,7 +15,7 @@ import numpy as np
 import PIL
 from PIL import Image, ImageDraw
 
-from . import degrade, gen, layouts, receipts, screens
+from . import degrade, gen, layouts, receipts, receipts_synth, screens
 from .paths import MANIFESTS, data_dir
 
 
@@ -69,10 +69,16 @@ def _post_phone(set_name, seed):
     return post
 
 
-def render(name: str, count: int, out: Path) -> dict:
+def render(name: str, count: int, out: Path, seed: int | None = None, synthetic_receipts: bool = False) -> dict:
+    """`seed` replaces the set's pinned seed (a new, unpinned page set); `synthetic_receipts` makes receipts-v1 from the
+    receipt generator instead of the CORD split."""
     spec = SETS[name]
-    seed = spec.seed
+    seed = spec.seed if seed is None else seed
     versions = {"pillow": PIL.__version__, "numpy": np.__version__}
+    if name == "receipts-v1" and synthetic_receipts:
+        pages, chromium = receipts_synth.render(count, seed, out, name)
+        (out / "page.html").unlink(missing_ok=True)
+        return {"set": name, "seed": seed, "count": count, "source": "synthetic", "chromium": chromium, **versions, "pages": pages}
     if name == "receipts-v1":
         pages = receipts.render(out, name)
         return {"set": name, "count": len(pages), **versions, "pages": pages}
@@ -95,10 +101,10 @@ def render(name: str, count: int, out: Path) -> dict:
     return m
 
 
-def sanity(name: str) -> None:
+def sanity(name: str, root: Path | None = None) -> None:
     """Every truth word has text, a box and an ink box inside its image; the text file is the words in order
     (the fragments of a hyphen-wrapped word join without a space)."""
-    for f in sorted((set_dir(name) / "truth").glob("*.json")):
+    for f in sorted(((root or set_dir(name)) / "truth").glob("*.json")):
         t = json.loads(f.read_text())
         w, h = t["image"]["width"], t["image"]["height"]
         for k in t["words"]:
@@ -116,6 +122,16 @@ def sanity(name: str) -> None:
                 merged.append(k["text"])
         if t["text"].split() != " ".join(merged).split():
             raise SystemExit(f"{name}/{f.stem}: text does not match the word list")
+
+
+def run_gen_seeded(name: str, count: int | None, seed: int, out: Path, synthetic_receipts: bool, avoid: list[Path]) -> None:
+    """A new page set for `name` from another seed, written to `out`; the pinned manifests are not touched."""
+    gen.AVOID_TEXT[:] = avoid
+    manifest = render(name, count or SETS[name].count, out, seed, synthetic_receipts)
+    sanity(name, out)
+    (out / "page.html").unlink(missing_ok=True)
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
+    print(f"{name}: wrote {len(manifest['pages'])} pages to {out}")
 
 
 def run_gen(name: str, count: int | None, check: bool) -> None:
