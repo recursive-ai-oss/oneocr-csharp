@@ -30,6 +30,43 @@ With `orient16` true the four logits are one linear layer over the concatenation
 
 They come from `config` only. The 0.2.0 configuration is `widths [32, 72, 176, 288]`, `depths [2, 3, 6, 4]`, `fpn 48`, `text 32`, `layout 96`, `layout16 160`, `layout16_blocks 4`, `orient16 true`.
 
+## Line axis (post-processing, any detector version)
+
+A text line's component of the text map also gives the line's own axis, used to read lines that lean (a photographed page keeps some
+perspective lean after the page-wide deskew). The text map and the component are those of [detector-v0](detector-v0.md#post-processing);
+nothing about the boxes changes.
+
+For a component of `n >= 12` cells (cell `(x, y)` has its centre at `(x + 0.5, y + 0.5)` in cell units, one cell = 2 network pixels), with
+mean `(mx, my)` over the cell indices and `a = Var x`, `b = Cov(x, y)`, `c = Var y` (divisors `n`, sums in the order the flood fill visits the cells):
+
+- `h = (a - c) / 2`, `d = sqrt(h*h + b*b)`; no axis when `d <= 1e-9`.
+- `cos 2t = h / d`; `cos t = sqrt(max(0, (1 + cos 2t) / 2))`, `sin t = sqrt(max(0, (1 - cos 2t) / 2))`, negated when `b < 0`. The axis points right (`cos t >= 0`); `sin t > 0` means the line descends to the right.
+- Eigenvalues `major = (a + c)/2 + d`, `minor = max(0, (a + c)/2 - d)`; `elongation = major / (minor + 1/12)` (one cell's own variance).
+- The line frame has its origin at the centroid `(mx + 0.5, my + 0.5)`, `u` along the axis and `v` across it, pointing down: `u = dx*cos t + dy*sin t`, `v = dy*cos t - dx*sin t` for a cell centre offset `(dx, dy)`. Its extent is `[min u - 0.5, max u + 0.5] x [min v - 0.5, max v + 0.5]`, then grown on every side by `0.75 * text_expand * min(length, thickness)` like the axis-aligned box.
+- Everything is scaled to page pixels by `2 / scale` (the text map stride over the page scale). The page point of `(u, v)` is `(cx + u*cos t - v*sin t, cy + u*sin t + v*cos t)`.
+
+Only `+ - * /` and square roots are used, so the axis is bit-identical on every platform and degree of parallelism.
+
+A line is **read along its axis** when its axis passes all of these; otherwise it takes the axis-aligned path described in the engine's
+line-crop rules, unchanged:
+
+| test | value |
+|---|---|
+| cells | at least 20 |
+| elongation | at least 100 (the component is about ten times longer than thick) |
+| `|sin t|` | at least `sin 0.3 degrees`, and at least `0.15 * thickness / length` (the angle of a short, thick component is not believed), and at most `sin 15 degrees` |
+
+The values were chosen on held-out camera-simulated pages and on straight pages (so that straight text stays on the axis-aligned path).
+
+Reading a line along its axis:
+
+1. **Ink band.** The detected rectangle is sampled into an upright strip of one-pixel cells (below), and the usual ink-band rule (the main band and any band holding at least 40% as much ink) finds the line's ink rectangle in the line frame; each band is one line.
+2. **Crop.** The crop rectangle has the margins of the axis-aligned rule (a quarter of the line height above and below, half of it left and right, the height raised to 0.85 of the page's median) but is taken in the line frame and is not clamped to the page. It is sampled (below) and scaled to the model height exactly as an axis-aligned crop.
+3. **Words.** A word's extent along the line comes from the alignment; its rectangle is the ink inside that extent and the line's rows, found on the line-frame pixel grid with the page pixel under each cell centre (nearest pixel). Its `quad` is that rectangle's corners (top-left, top-right, bottom-right, bottom-left of the text's own frame) mapped to the page, and its box is the box around the quad. Characters use the same rows and their alignment edges. A line's `quad` is the smallest rectangle in the first word's direction that holds all its words' corners.
+4. **Reading order** sees the straightened ink rectangle, unrotated, placed at the centre of the tilted one.
+
+**Sampling.** The value at a page point `(px, py)` (pixel `(x, y)` covers `[x, x+1)`) is bilinear between the four pixel centres around it: `fx = px - 0.5`, `x0 = floor(fx)`, `wx = fx - x0`, likewise `y`; neighbours outside the page repeat the edge pixel; `top = p00*(1-wx) + p10*wx`, `bottom = p01*(1-wx) + p11*wx`, `value = top*(1-wy) + bottom*wy` in double precision, rounded half up to a byte. No fused multiply-add is used, so the bytes are the same on every platform.
+
 ## Evaluation order and memory
 
 As for v0, every output value is an independent sum, so a port may evaluate whole or in bands. The C# reader keeps the v0 banded stages; the stride-16 branch runs on whole stride-16 maps (a quarter of the stride-8 map's size), `p16` is kept until the branch has consumed it, and stage 2's channel means are taken before stage 2 is dropped. On an A4 page at the 0.2.0 widths the scratch in use at once peaks at 24.3 MB at degree 1 (22.8 MB for v0 at its own widths).

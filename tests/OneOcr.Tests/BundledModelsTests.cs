@@ -21,11 +21,11 @@ public sealed class BundledModelsTests
     public void ThePinNamesThePageDetector()
     {
         BundledModel pin = BundledModels.Detector;
-        Assert.Equal("dbnet-lite-v0", pin.Name);
+        Assert.Equal("dbnet-lite-v1", pin.Name);
         Assert.Equal("detector", pin.Role);
-        Assert.Equal("0.1.0", pin.Version);
-        Assert.Equal("ac663d83a0e35c84dd38742f76b2c7cbe58eca2ac4941f27a6b489d517f1284f", pin.Sha256);
-        Assert.Equal(629896, pin.Bytes);
+        Assert.Equal("0.2.0", pin.Version);
+        Assert.Equal("b25041984b9f702ecdb930573664711749cf22cb95a6c3c2d943ae0fb9cdfe43", pin.Sha256);
+        Assert.Equal(1370248, pin.Bytes);
     }
 
     [Fact]

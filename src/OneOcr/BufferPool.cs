@@ -10,7 +10,7 @@ namespace OneOcr;
 internal sealed class BufferPool<T>
     where T : struct
 {
-    // Requests up to this many elements round up to a power of two; larger ones to a quarter-octave class.
+    // Requests up to this many elements round up to a power of two; larger ones to a half-octave class.
     private const int Grid = 1 << 16;
 
     private readonly object _gate = new();
@@ -118,9 +118,10 @@ internal sealed class BufferPool<T>
             return (int)Math.Min(int.MaxValue, System.Numerics.BitOperations.RoundUpToPowerOf2((uint)Math.Max(length, 16)));
         }
 
-        // Four size classes per doubling (at most 25% slack): lines of different widths ask for different sizes, and with classes
-        // this coarse a returned array fits the next request of its class instead of leaving a near miss behind as garbage.
-        long step = System.Numerics.BitOperations.RoundUpToPowerOf2((uint)length) / 8;
+        // Two size classes per doubling (at most 50% slack): lines and pages of different sizes ask for different sizes, and with
+        // classes this coarse a returned array fits the next request of its class instead of leaving a near miss behind. The slack
+        // costs address space, not memory: arrays this large are handed out unzeroed and only the part a request uses is ever written.
+        long step = System.Numerics.BitOperations.RoundUpToPowerOf2((uint)length) / 4;
         long rounded = ((long)length + step - 1) / step * step;
         return (int)Math.Min(rounded, Array.MaxLength);
     }

@@ -11,13 +11,13 @@
       "asset": "crnn-v0-0.5.0.onm"
     },
     {
-      "name": "dbnet-lite-v0",
+      "name": "dbnet-lite-v1",
       "role": "detector",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "container": 1,
-      "bytes": 629896,
-      "sha256": "ac663d83a0e35c84dd38742f76b2c7cbe58eca2ac4941f27a6b489d517f1284f",
-      "asset": "dbnet-lite-v0-0.1.0.onm"
+      "bytes": 1370248,
+      "sha256": "b25041984b9f702ecdb930573664711749cf22cb95a6c3c2d943ae0fb9cdfe43",
+      "asset": "dbnet-lite-v1-0.2.0.onm"
     }
   ]
 }

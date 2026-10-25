@@ -258,10 +258,13 @@ Accuracy mode runs `OneOcr.Bench run --words 1 --pagejson 1`, scores with the be
 `OUT/accuracy.json`; `--timing` writes `OUT/timing.json`. Both then rewrite `OUT/gate.md` and `OUT/gate.json`; the speed section
 appears once a timing run exists. Accuracy is not timing-sensitive and can run under `nice` when the machine is quiet.
 
-- **Quality verdict**, per category: ours must beat Tesseract best-of on CER, WER and reading order, where the baseline for each
-  metric is the best PSM for that metric of `tessdata_best` (the second table under *Tesseract 5.3.4 baselines*). Clean print may
-  tie: an error within 0.2 percentage points above the baseline counts as a tie and passes. Receipts are judged on recall-CER and
-  recall-WER (CORD truth is partial); their order is shown, not judged. Tesseract fast is shown beside it.
+- **Quality verdict**, per category and metric: ours against the **best value any measured engine reaches**. With
+  `--competitors DIR` (a frozen competitor-results directory, below) the candidates are Tesseract best-of (the best PSM for that metric of
+  `tessdata_best`, the second table under *Tesseract 5.3.4 baselines*) and every gated competitor configuration; the table names the
+  engine that holds the best value, keeps Tesseract best and fast in their own columns, and a second table lists every engine. Without
+  `--competitors` the baseline is Tesseract best-of alone. Win means strictly lower error; clean print may tie, an error within 0.2
+  percentage points above the baseline passes as a tie. Receipts are judged on recall-CER and recall-WER (CORD truth is partial); their
+  order is shown, not judged.
 - **Calibration verdict**: ECE (15 bins) ≤ 0.05. On receipts ECE is an upper bound; ECE-m is shown next to it.
 - **Detection**: ink-box F1@0.5 of ours, and of the selected Tesseract runs rescored with the same scorer.
 - **Speed and memory** (`--timing` only), two parts so each fits a timing window:
@@ -273,7 +276,7 @@ appears once a timing run exists. Accuracy is not timing-sensitive and can run u
     peak RSS from `wait4`. Writes `tess-timing.json`, merged per set (`--sets` runs a few sets per window; `--pages N` takes the first N pages).
   - The report pairs them: degree 1 against one Tesseract thread, the default degree against the same number of threads. Speed passes when
     ours is faster than `tessdata_fast`; slower than fast but faster than best with the quality row won is an *exception*; memory passes when
-    RSS is below both. Each file records CPU, cores, and load before, after every run and after.
+    peak RSS at the default degree is at most 300 MB (degree 1 is shown for information). Each file records CPU, cores, and load before, after every run and after.
 - **The lock**: Either `--timing` mode exits with status 75 and does nothing else unless the lock file (`~/WORKER-BENCH.lock`, env `ONEOCR_LOCK`)
   names one of its own ancestor processes as `pid=` (the one exception: `--tess-timing --pages 2` or fewer runs as a smoke test while no lock file exists). Claim it in the job's shell, so it is released however the job ends:
 

@@ -33,7 +33,7 @@ internal static partial class TableStructure
         {
             double cx = s.Box.X + (s.Box.Width / 2.0), cy = s.Box.Y + (s.Box.Height / 2.0);
             int gi = GridAt(grids, cx, cy);
-            if (gi < 0)
+            if (gi < 0 || s.Tilt is not null)
             {
                 result.Add(s);
                 continue;

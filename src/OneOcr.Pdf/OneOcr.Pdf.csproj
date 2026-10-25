@@ -6,8 +6,8 @@
 
   <ItemGroup>
     <ProjectReference Include="../OneOcr/OneOcr.csproj" />
-    <!-- OneImage.Pdf 1.9.0 pairs with the OneImage 1.9.0 floor of the core package and itself needs OnePdf 1.2.0. -->
-    <PackageReference Include="RecursiveAI.OnePdf" Version="1.2.0" />
+    <!-- OneImage.Pdf 1.9.0 pairs with the OneImage 1.9.0 floor of the core package; OnePdf 1.10.1 carries the inflate fix and satisfies its OnePdf floor. -->
+    <PackageReference Include="RecursiveAI.OnePdf" Version="1.10.1" />
     <PackageReference Include="RecursiveAI.OneImage.Pdf" Version="1.9.0" />
   </ItemGroup>
 
