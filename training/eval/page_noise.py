@@ -4,7 +4,7 @@
 Two families, both on the gray image at detector scale (long side 1024, the detector's own resize, unpadded area only):
 
   sigma    Immerkaer's noise estimate with a robust median: the 3x3 Laplacian-difference N = [[1,-2,1],[-2,4,-2],[1,-2,1]] is applied
-           to every interior pixel, |I * N| is an integer 0..1020 and for white Gaussian noise of deviation s its median is 0.6745 * 6 s,
+           to every interior pixel, |I * N| is an integer 0..2040 and for white Gaussian noise of deviation s its median is 0.6745 * 6 s,
            so sigma = median / 4.047. Text edges raise only the tail, so a page that is mostly paper reads the paper. Exact on integers.
   junk     from the detector's text map (probability, stride 2): the number of 4-connected components of P > 0.3 with at most 12 cells
            and a mean probability under 0.5, per megapixel of detector input. These are the blobs that become one-glyph "lines".
@@ -38,7 +38,7 @@ def sigma_median(gray: np.ndarray) -> float:
     for dy in range(3):
         for dx in range(3):
             r += N[dy, dx] * g[dy : dy + h - 2, dx : dx + w - 2]
-    hist = np.bincount(np.abs(r).ravel(), minlength=1021)
+    hist = np.bincount(np.abs(r).ravel(), minlength=2041)
     half = (hist.sum() + 1) // 2  # lower median of the integer values
     med = int(np.searchsorted(np.cumsum(hist), half))
     return med / 4.047

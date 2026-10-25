@@ -13,11 +13,11 @@
     {
       "name": "dbnet-lite-v1",
       "role": "detector",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "container": 1,
-      "bytes": 1370568,
-      "sha256": "af520cb6f990ccd1cf0ad3860de7801e0e8411f373550345764c6b6e15093974",
-      "asset": "dbnet-lite-v1-0.2.1.onm"
+      "bytes": 1370632,
+      "sha256": "19e1adb9e57863e0d59988b60938621cec48bc38ce57172fdab4a1cd1e0e2cae",
+      "asset": "dbnet-lite-v1-0.2.2.onm"
     },
     {
       "name": "charlm-v1",

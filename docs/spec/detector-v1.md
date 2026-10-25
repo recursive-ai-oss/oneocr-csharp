@@ -110,3 +110,6 @@ depends on the text map, so it is as reproducible as the map.
 Constants of the first model with the rule, chosen on held-out pages (camera-simulated pages gain; clean, layout and screenshot pages
 have `sigma` under the minimum): `rule_sigma_min` 0.1235, `rule_junk_max` 0.6358, `rule_text_threshold` 0.5. The script
 `training/export/add_postprocess_rule.py` adds the three members to an existing container without touching the tensors.
+
+`dbnet-lite-v1` 0.2.2 is 0.2.1 with these three members added and the manifest version changed: the tensor bytes are identical to 0.2.1's,
+so the forward-pass parity fixtures of 0.2.1 apply unchanged. Only the page-level behaviour differs.
