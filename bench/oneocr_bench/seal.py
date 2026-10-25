@@ -199,6 +199,12 @@ REAL_KINDS = {
         "order_note": "as clean-real",
     },
 }
+REAL_NOTES = {
+    "screenshot-real": {"composition_note": "mostly USWDS component documentation pages (a design-system site); federal sites supply the rest; a narrow slice of the real web"},
+    "clean-real": {"target_pages": 30, "composition_note": "short of the target at the strict agreement bars"},
+    "layout-real": {"target_pages": 40, "composition_note": "mostly IRS publications"},
+    "degraded-real": {"target_pages": 40, "composition_note": "scan degradation is simulated on real pages"},
+}
 NO_REAL_SOURCE = {
     "phone-v1": "no real photographs with exact truth exist; the row is a simulated camera capture of a generated page",
     "receipts-v1": "no unseen real receipts with exact truth exist (CORD v2 is fully used); the row is synthetic text with a simulated camera",
@@ -235,6 +241,13 @@ def add_real(a) -> None:
         pages = len(list((root / n / "pages").iterdir()))
         meta["sets"][n] = {"pages": pages, **REAL_KINDS[n], "real_images": False, "real_sourced": True}
         print(f"{n}: {pages} pages added")
+    for n in REAL_KINDS:  # composition of each real-sourced set, from its manifest (counts only)
+        if n in meta["sets"]:
+            pages = json.loads((root / n / "MANIFEST.json").read_text())["pages"]
+            mix: dict[str, int] = {}
+            for p in pages:
+                mix[p.get("source") or "?"] = mix.get(p.get("source") or "?", 0) + 1
+            meta["sets"][n].update(pages=len(pages), source_mix=mix, **REAL_NOTES.get(n, {}))
     meta["no_real_source"] = NO_REAL_SOURCE
     prev = meta.get("real_sets_added", {})
     history = prev.get("previous_sha256sums_digests") or ([prev["previous_sha256sums_digest"]] if "previous_sha256sums_digest" in prev else [])
