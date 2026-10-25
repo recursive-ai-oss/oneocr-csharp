@@ -2,6 +2,7 @@
 // `check_readme.py` verifies that the README still shows exactly these texts. Nothing in this program is run.
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -217,6 +218,65 @@ internal static class Samples
         ExtractionReport report = await trainer.RunAsync("purchase-orders/");
 
         DocumentExtractor tuned = DocumentExtractor.Load(report.ModelPath);
+        #endregion
+    }
+
+    public static void TesseractText(OcrEngine engine)
+    {
+        #region TesseractText
+        // tesseract page.png out -l eng            ->  out.txt
+        string text = Image.Load("page.png").ToText(engine);
+        #endregion
+    }
+
+    public static void WordTable(OcrEngine engine, Image image)
+    {
+        #region WordTable
+        OcrPage page = image.Ocr(engine);
+        for (int b = 0; b < page.Blocks.Count; b++)
+        {
+            for (int l = 0; l < page.Blocks[b].Lines.Count; l++)
+            {
+                foreach (OcrWord word in page.Blocks[b].Lines[l].Words)
+                {
+                    // block, line, left, top, width, height, confidence 0-100, text: the columns of Tesseract's TSV
+                    Console.WriteLine(string.Join('\t', b, l,
+                        (int)word.Box.Left, (int)word.Box.Top,
+                        (int)(word.Box.Right - word.Box.Left), (int)(word.Box.Bottom - word.Box.Top),
+                        (int)Math.Round(word.Confidence * 100), word.Text));
+                }
+            }
+        }
+        #endregion
+    }
+
+    public static void Batch(OcrEngine engine, string folder)
+    {
+        #region Batch
+        Parallel.ForEach(
+            Directory.EnumerateFiles(folder, "*.png"),
+            new ParallelOptions { MaxDegreeOfParallelism = 4 },
+            path => File.WriteAllText(Path.ChangeExtension(path, ".txt"), Image.Load(path).ToText(engine)));
+        #endregion
+    }
+
+    public static void OneLine(OcrEngine engine, string cropPath)
+    {
+        #region OneLine
+        // A crop that is one line of text: the page reader finds that line and reads it.
+        OcrPage page = Image.Load(cropPath).Ocr(engine, new OcrOptions { DetectOrientation = false, Deskew = false });
+        string line = page.Text;
+        float confidence = page.Words.Count == 0 ? 0 : page.Words.Min(w => w.Confidence);
+        #endregion
+    }
+
+    public static void LowConfidence(OcrEngine engine, Image image)
+    {
+        #region LowConfidence
+        foreach (OcrWord word in image.Ocr(engine).Words.Where(w => w.Confidence < 0.8f))
+        {
+            Console.WriteLine($"check: {word.Text} ({word.Confidence:P0}) at {word.Box.Left:F0},{word.Box.Top:F0}");
+        }
         #endregion
     }
 

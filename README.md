@@ -160,8 +160,10 @@ character). All are on by default and documented on the type.
 - **Threading and async.** Local OCR is synchronous and takes a `CancellationToken`; wrap it in
   `Task.Run` if you need a task. The PDF and document-extraction APIs have `Async` variants, the
   LLM package is async only.
-- **Decoding.** Decoding is greedy CTC. `engine.WithDecoding(...)` switches an engine to beam search
-  with a character language model or a lexicon:
+- **Decoding.** Page reading (`Ocr`, `ToMarkdown`) is always greedy CTC, because the word boxes come
+  from the greedy alignment. `engine.WithDecoding(...)` sets the decoding the plain-text call
+  `engine.ToText(image, engine.Decoding)` uses: beam search with a character language model or a
+  lexicon.
 
 <!-- sample: Decoding -->
 ```csharp
