@@ -42,6 +42,7 @@ def main() -> None:
     ap.add_argument("--splits", default="val,calib")
     ap.add_argument("--text-thr", type=float, nargs="+", default=[0.3])
     ap.add_argument("--expand", type=float, nargs="+", default=[0.4])
+    ap.add_argument("--min-cover", type=float, default=0.5, help="share of a word one box must cover to count as found")
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--limit", type=int)
     ap.add_argument("--dump", help="write the missed words of the first threshold/expand setting here, with the map's peak inside each")
@@ -65,7 +66,7 @@ def main() -> None:
                 boxes = decode(m, text_thr=thr, expand_text=exp)["text"]
                 lines += len(boxes)
                 wb = np.array([w["box"] for w in words], np.float32).reshape(-1, 4)
-                f = covered(wb, boxes) >= 0.5
+                f = covered(wb, boxes) >= a.min_cover
                 found += f.tolist()
                 single += [len(w["text"].strip()) == 1 for w in words]
                 digit += [any(c.isdigit() for c in w["text"]) for w in words]
@@ -77,7 +78,7 @@ def main() -> None:
                     wb = np.array([w["box"] for w in words], np.float32).reshape(-1, 4)
                     cov = covered(wb, boxes)
                     for w, b, c in zip(words, wb, cov, strict=True):
-                        if c < 0.5:
+                        if c < a.min_cover:
                             # peak probability inside the word, on the stride-2 map (the decoder's input)
                             k = m["scale"] / 2
                             x0, y0, x1, y1 = (int(b[0] * k), int(b[1] * k), int(np.ceil(b[2] * k)), int(np.ceil(b[3] * k)))
