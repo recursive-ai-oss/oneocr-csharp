@@ -278,7 +278,7 @@ internal static class Program
         string[] p = spec.Split(':');
         return new OneOcr.Layout.JunkParameters(
             float.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture), int.Parse(p[2], CultureInfo.InvariantCulture), 0.9f, 3,
-            p.Length > 3 ? int.Parse(p[3], CultureInfo.InvariantCulture) : 8, p.Length > 4 ? float.Parse(p[4], CultureInfo.InvariantCulture) : 0.99f);
+            p.Length > 3 ? int.Parse(p[3], CultureInfo.InvariantCulture) : 8, p.Length > 4 ? float.Parse(p[4], CultureInfo.InvariantCulture) : 0.99f, p.Length > 5 ? float.Parse(p[5], CultureInfo.InvariantCulture) : 0.9f, p.Length > 6 ? int.Parse(p[6], CultureInfo.InvariantCulture) : 3);
     }
 
     private static int Run(Dictionary<string, string> o)
@@ -317,6 +317,12 @@ internal static class Program
                 LanguageModel = o.TryGetValue("lm", out string? lmPath) ? OneOcr.Decoding.CharLanguageModel.Load(lmPath) : null,
             });
         }
+        if (o.TryGetValue("wordlm", out string? wordLm))
+        {
+            // --wordlm FILE: the character model that helps decide word breaks (see OcrEngine.WithWordModel).
+            engine = engine.WithWordModel(OneOcr.Decoding.CharLanguageModel.Load(wordLm));
+        }
+
         if (o.TryGetValue("detector", out string? detectorFile))
         {
             engine = engine.WithDetector(detectorFile);
@@ -330,11 +336,13 @@ internal static class Program
 
 
         // --junk off | MAXCONF:REL:MAXH: the noise filter off, or with other thresholds than the defaults (for tuning them).
+        // --respace off: no pixel check of word spaces (the page path before it existed).
+        bool respace = !(o.TryGetValue("respace", out string? respaceSpec) && respaceSpec == "off");
         OcrOptions Page() => !o.TryGetValue("junk", out string? junkSpec)
-            ? new OcrOptions { MaxDegreeOfParallelism = degree }
+            ? new OcrOptions { MaxDegreeOfParallelism = degree, FixWordSpacing = respace }
             : junkSpec == "off"
-                ? new OcrOptions { MaxDegreeOfParallelism = degree, DropNoise = false }
-                : new OcrOptions { MaxDegreeOfParallelism = degree, JunkTuning = ParseJunk(junkSpec) };
+                ? new OcrOptions { MaxDegreeOfParallelism = degree, DropNoise = false, FixWordSpacing = respace }
+                : new OcrOptions { MaxDegreeOfParallelism = degree, JunkTuning = ParseJunk(junkSpec), FixWordSpacing = respace };
         bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
         var errors = new List<(string Id, string Message)>();
@@ -355,7 +363,7 @@ internal static class Program
                     clock.Restart();
                     text = noOrient
                         ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, IncludeChars = false }).ToText()
-                        : o.ContainsKey("junk") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
+                        : o.ContainsKey("junk") || !respace ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
                     times.Add(clock.Elapsed.TotalMilliseconds);
                 }
 

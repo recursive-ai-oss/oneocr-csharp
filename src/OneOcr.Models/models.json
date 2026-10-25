@@ -18,6 +18,15 @@
       "bytes": 1370568,
       "sha256": "af520cb6f990ccd1cf0ad3860de7801e0e8411f373550345764c6b6e15093974",
       "asset": "dbnet-lite-v1-0.2.1.onm"
+    },
+    {
+      "name": "charlm-v1",
+      "role": "language-model",
+      "version": "1.0.0",
+      "container": 0,
+      "bytes": 1421911,
+      "sha256": "38c190e804f17f54244cfb16cc03cc7dba30d13aa4cb5b6540a71e068bdd68b5",
+      "asset": "charlm-v1.bin"
     }
   ]
 }
