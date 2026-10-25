@@ -61,7 +61,7 @@ OUTSIDE_INK = 0.02
 GUTTER_PT = 10.0
 SCAN_PER_DOC = 25
 MAX_PER_DOC = {"clean-real": 4, "layout-real": 5, "degraded-real": 5}
-UA = "oneocr-bench-fetch/1.0 (evaluation documents; a few requests per run)"
+UA = "oneocr-bench-fetch/1.0 (https://github.com/recursive-ai-oss/oneocr-csharp; evaluation documents, a few requests per run)"
 LIG = {"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st"}
 BAD_CHARS = re.compile("[\ufffd\ue000-\uf8ff\u0000-\u001f\u007f-\u009f]")
 WORD_RE = re.compile(r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(.*?)</word>', re.DOTALL)

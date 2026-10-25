@@ -38,7 +38,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from .render import add_ink, png_bytes, sha256, text_of, truth_words, write_page
 
-UA = "oneocr-bench-fetch/1.0 (evaluation pages; a few requests per run)"
+UA = "oneocr-bench-fetch/1.0 (https://github.com/recursive-ai-oss/oneocr-csharp; evaluation pages, a few requests per run)"
 
 FREEZE_CSS = """
 *,*::before,*::after{animation:none !important;transition:none !important;caret-color:transparent !important;
@@ -275,7 +275,12 @@ def capture_one(ctx, entry: dict, k: int, out: Path, pid: str, set_name: str) ->
 def capture(a) -> None:
     from playwright.sync_api import sync_playwright
 
-    entries = [resolve(e) for e in json.loads(Path(a.list).expanduser().read_text())]
+    entries = []
+    for e in json.loads(Path(a.list).expanduser().read_text()):
+        try:
+            entries.append(resolve(e))
+        except Exception as exc:  # noqa: BLE001 - an entry that cannot be pinned is skipped and reported
+            print(f"skipped {e.get('wikipedia') or e.get('url')}: {type(exc).__name__} {exc}", flush=True)
     out = Path(a.out).expanduser()
     (out / "pages").mkdir(parents=True, exist_ok=True)
     pages: list[dict] = []
