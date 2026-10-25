@@ -1,4 +1,5 @@
 using OneOcr.Decoding;
+using OneOcr.Models;
 using OneOcr.Recognition;
 
 namespace OneOcr.Tests;
@@ -166,5 +167,43 @@ public class WordSegmenterTests
         };
 
         Assert.Null(WordSegmenter.Plan(chars, [false, true, false], Image(50, ink), 50, 32, Words()));
+    }
+
+    // Ink blocks of 6 pixels per letter, 2 pixels apart, except the stretch of `stretch` pixels after letter `cut`.
+    private static (int, int)[] Ink(int letters, int cut, int stretch)
+    {
+        var ink = new (int, int)[letters];
+        int x = 5;
+        for (int i = 0; i < letters; i++)
+        {
+            ink[i] = (x, x + 5);
+            x += 6 + (i == cut ? stretch : 2);
+        }
+
+        return ink;
+    }
+
+    [Theory]
+    [InlineData("Company", 2, 4, true)] // gain 3.5 nats at 4 px: plain evidence
+    [InlineData("Company", 2, 6, false)] // the same gain at 6 px: over the plain bound, and neither "Com" nor "pany" is a non-word
+    [InlineData("January", 3, 4, true)] // gain 1.66 nats: weak evidence, enough because "Janu" scores as no word
+    [InlineData("taxat", 2, 4, false)] // gain 1.66 too, but "tax" is a rare real word: not bad enough to call it a fragment
+    [InlineData("abough", 0, 4, false)] // "a" and "bough" are words: a gain under the plain margin does not join them
+    public void WeakEvidenceJoinsAFragmentOnlyWhenAPieceIsNoWord(string text, int cut, int stretch, bool joins)
+    {
+        byte[] data = [];
+        if (!BundledModels.HasLanguageModel || BundledModels.TryReadLanguageModel(out data) is not null)
+        {
+            return;
+        }
+
+        var words = new WordPlausibility(CharLanguageModel.Parse(data));
+        (int, int)[] ink = Ink(text.Length, cut, stretch);
+        int width = ink[^1].Item2 + 8;
+        bool[] was = new bool[text.Length - 1];
+        was[cut] = true;
+
+        bool[]? plan = WordSegmenter.Plan(Chars(text, ink), was, Image(width, ink), width, 32, words);
+        Assert.Equal(joins, plan is not null && !plan[cut]);
     }
 }

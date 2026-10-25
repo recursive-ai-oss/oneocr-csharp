@@ -49,6 +49,16 @@ public sealed class OcrOptions
     /// </summary>
     public bool FixWordSpacing { get; init; } = true;
 
+    /// <summary>
+    /// Whether to read the letter <c>O</c> as the digit <c>0</c> inside identifiers and dates. Default true. In a word of at least
+    /// three digits, a run of letters and digits (the pieces between punctuation) that holds only digits and capital <c>O</c>s,
+    /// with at least one of each, has its <c>O</c>s read as <c>0</c>: <c>ACC-71O3O5</c> becomes <c>ACC-710305</c> and
+    /// <c>2020-04-O7</c> becomes <c>2020-04-07</c>. Words with other letters inside the run (<c>CO2</c>, <c>COVID19</c>) and
+    /// short strings (<c>O2</c>) are left as read. This is the only step after recognition that changes a character; set it to
+    /// false to keep exactly what the network read.
+    /// </summary>
+    public bool FixDigitLookalikes { get; init; } = true;
+
     /// <summary>Replaces the noise filter's thresholds; used to tune them. Null uses the defaults.</summary>
     internal global::OneOcr.Layout.JunkParameters? JunkTuning { get; init; }
 
