@@ -22,5 +22,5 @@ if [ "$stage" != materialize ]; then
   done
 fi
 if [ "$stage" != render ]; then
-  uv run python -m degrade.materialize "$cfg" "$out" ${SETS:-sep_val uiword_val calib7}
+  uv run python -m degrade.materialize "$cfg" "$out" ${SETS:-sep_val uiword_val numneg_val calib7}
 fi

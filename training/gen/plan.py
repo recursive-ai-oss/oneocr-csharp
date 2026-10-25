@@ -301,6 +301,36 @@ def tight_cells(rng: np.random.Generator, s: Sampler, books) -> tuple[list[str],
     return words, [float(np.clip(g + rng.normal(0, 0.03), 0.1, 0.45)) for _ in words[1:]], "tight"
 
 
+_NUM_LABELS = ["No.", "No.-", "Ref.", "Ref", "Order", "Invoice", "Total", "Due", "Paid", "Tel", "Qty", "Page", "Item"]
+
+
+def numtext_line(rng: np.random.Generator, s: Sampler, books) -> str:
+    """Running text with figures that carry their own punctuation (1,234.56, 03/01/2008, No.-63894, 14:18) at ordinary word spacing.
+    A negative example for the separator lines: a comma, slash, point or hyphen inside a number or after an abbreviation must not
+    become a space just because separators and items elsewhere are set apart."""
+    toks: list[str] = []
+    for _ in range(int(rng.integers(3, 9))):
+        r = rng.random()
+        if r < 0.35:
+            w, _t = books.window(rng, short=True)
+            toks += w.split()[: int(rng.integers(1, 4))]
+        elif r < 0.55:
+            toks.append(s.receipt_token())
+        elif r < 0.65:  # an amount with thousands separators, as invoices print it
+            cur = str(rng.choice(["$", "\u20ac", "\u00a3", "EUR ", ""]))
+            toks.append(f"{cur}{int(rng.integers(1, 999)):d},{s._digits(3)}{rng.choice(['.', ','])}{s._digits(2)}")
+        elif r < 0.75:
+            toks.append(s.number())
+        elif r < 0.85:
+            toks.append(s.code())
+        else:
+            lab = str(rng.choice(_NUM_LABELS))
+            toks.append(lab + s._digits(int(rng.integers(4, 7))) if lab.endswith("-") else lab)
+            if not lab.endswith("-"):
+                toks.append(s._digits(int(rng.integers(3, 7))))
+    return " ".join(toks)
+
+
 _SEPARATORS = ["\u00b7", "\u2022", "|"]
 _META_UNITS = [" min read", " views", " comments", " replies", " likes", " items", " MB", " KB", " min", " h ago", " days ago", "%"]
 
@@ -571,6 +601,8 @@ def plan_shard(job) -> list[dict]:
             s = Sampler(charset, cov.of(file), rng)
             if kind == "figures":
                 text = figures_line(rng, s)
+            elif kind == "numtext":
+                text = numtext_line(rng, s, books)
             else:
                 text = {"numbers": s.numbers_line, "codes": s.codes_line, "rare": s.rare, "pseudo": s.pseudo_line}[kind]()
             src = f"synthetic:{kind}"

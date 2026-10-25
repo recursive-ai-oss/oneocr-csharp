@@ -21,9 +21,9 @@ for s in lines-v5/calib:calib_receipt cord-lines/calib/finder:calib_cord lines-v
 for s in figures_val small_val reader_val shot_val calib; do extra+=(--extra "${s}6=$h/data/lines-v6/$s"); done
 # lines-v7 (separators, mixed-case interface words), when this stage rendered them: held-out validation sets and their calibration crops
 v7=()
-for s in sep_val uiword_val calib7; do [ -d "$h/data/lines-v7/$s" ] && { extra+=(--extra "${s}=$h/data/lines-v7/$s"); v7+=("$s"); }; done
+for s in sep_val uiword_val numneg_val calib7; do [ -d "$h/data/lines-v7/$s" ] && { extra+=(--extra "${s}=$h/data/lines-v7/$s"); v7+=("$s"); }; done
 cal7=(); [ -d "$h/data/lines-v7/calib7" ] && cal7=("$o/hyps/calib7.hyps.jsonl")
-also7=""; [ -d "$h/data/lines-v7/sep_val" ] && also7=",sep_val,uiword_val"
+also7=""; [ -d "$h/data/lines-v7/sep_val" ] && also7=",sep_val,uiword_val,numneg_val"
 uv run python -m eval.model_hyps --device cpu --checkpoint "$ck" --sets-dir "$ONEOCR_PREV/data/lines-v4" --bench-dir "$BENCH_LINES" --out "$o/hyps" "${extra[@]}" | tail -2
 uv run python -m eval.calibrate fit --hyps "$o/hyps/calib.hyps.jsonl" "$o/hyps/calib_receipt.hyps.jsonl" "$o/hyps/calib6.hyps.jsonl" "${cal7[@]}" \
   "$o/hyps/calib_cord.hyps.jsonl:${CORD_WEIGHT:-8}" --out "$o/calibration.json"
