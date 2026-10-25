@@ -57,7 +57,7 @@ internal static partial class TableStructure
             var inside = new List<int>();
             for (int i = 0; i < slots.Length; i++)
             {
-                if (slots[i] is { Cells: null } b && Inside(region, b))
+                if (slots[i] is { Cells: null, IsStandalone: false } b && Inside(region, b))
                 {
                     inside.Add(i);
                 }
