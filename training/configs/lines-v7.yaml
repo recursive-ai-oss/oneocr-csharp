@@ -1,0 +1,48 @@
+# Lines for the separator and small-interface-text fine-tune (crnn-v11). Exact-truth synthetic; the label is the string the generator drew.
+#   sep_*      metadata items divided by a middle dot, bullet or bar ("2021 · 9", "Oct 3, 2021 | 5 min read"), gaps of 0.1-0.35 em and
+#              0.35-1.2 em on each side of the separator, which the first recognizers merged into the number and read as a hyphen
+#   uiword_*   one to three interface words in sentence, lower, title or upper case, half of them rich in i, l and s, some beside a count
+#   calib7     the same two kinds plus ordinary interface lines, for the confidence calibration of the new crops (training and held-out
+#              fonts alike)
+# Training sets use training font families and the `sdark` degradation side; the validation sets (never trained on) use unseen font
+# families, unseen books and the shifted `sdark_ho` ranges. Screen text: little blur, high contrast, light on dark in about half of the
+# crops, 8-17 px em (cap heights of 6-12 px), then the reader's own resampling. Render with gen/make_lines_v7.sh.
+name: lines-v7
+seed: 20261301
+charset: data/charset-v1.txt
+fonts: data/fonts.yaml
+sets:
+  sep_train: { n: 250000, fonts: train, books: train, degrade: sdark, mix: { sep: 1.0 }, families: &ui [arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans, manrope, firasans, rubik, jost, istokweb, notoserif, ptserif, cousine] }
+  uiword_train: { n: 250000, fonts: train, books: train, degrade: sdark, mix: { uiword: 1.0 }, families: *ui }
+  sep_val: { n: 3000, fonts: heldout, books: heldout, degrade: sdark_ho, mix: { sep: 1.0 }, families: &ho [cabin, karla, alegreyasans, ptsansnarrow, spectral, domine] }
+  uiword_val: { n: 3000, fonts: heldout, books: heldout, degrade: sdark_ho, mix: { uiword: 1.0 }, families: *ho }
+  calib7: { n: 9000, fonts: any, books: heldout, degrade: sdark_ho, mix: { sep: 0.4, uiword: 0.4, ui: 0.2 }, families: [arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans, manrope, firasans, rubik, jost, istokweb, notoserif, ptserif, cousine, cabin, karla, alegreyasans, ptsansnarrow, spectral, domine] }
+mix: { book: 0.80, numbers: 0.07, codes: 0.05, rare: 0.03, pseudo: 0.05 }
+gpu_degrade:
+  sdark:
+    ranges:
+      em: [[8, 10], [9, 12], [11, 14], [13, 17], [18, 26]]
+      blur_rel: [[0.0, 0.05], [0.0, 0.10]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 3.0]]
+      shot: [0.0, 0.01]
+      jpeg_q: [60, 95]
+      contrast: [[110, 255]]
+      persp: [0.0, 0.03]
+      light: [0.0, 0.1]
+      tilt_deg: [0.0, 0.3]
+    p: { blur: 0.6, motion: 0.02, jpeg: 0.25, persp: 0.1, light: 0.1, subpixel: 0.4, dark: 0.5, tint: 0.4, sliver_v: 0.15, sliver_h: 0.1, rule: 0.15, resample: 0.5, resample2: 0.2 }
+  # held-out ranges: other sizes, softer and noisier, a different contrast floor
+  sdark_ho:
+    ranges:
+      em: [[8.5, 11], [10.5, 13], [14, 19]]
+      blur_rel: [[0.02, 0.07], [0.04, 0.12]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 4.0]]
+      shot: [0.0, 0.015]
+      jpeg_q: [50, 90]
+      contrast: [[90, 230]]
+      persp: [0.0, 0.04]
+      light: [0.0, 0.15]
+      tilt_deg: [0.0, 0.3]
+    p: { blur: 0.7, motion: 0.03, jpeg: 0.3, persp: 0.1, light: 0.15, subpixel: 0.4, dark: 0.5, tint: 0.4, sliver_v: 0.15, sliver_h: 0.1, rule: 0.15, resample: 0.5, resample2: 0.2 }
