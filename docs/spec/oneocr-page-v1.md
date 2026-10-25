@@ -142,6 +142,27 @@ of PDF fragments:
 - Strips on one row from different columns join into one line when their vertical centres agree within 0.3 em.
 - A horizontal cut is refused when more than one column lies in the region and a column has text on both sides of the gap
   (columns that share paragraph gaps are not interleaved).
+- Sections of columns are cut as a whole. When the horizontal cut would run through a page with several columns, every empty band
+  that crosses all of them (paragraphs that end at the same height) would cut the columns into slices read left, right, left,
+  right. Consecutive bands that share an empty vertical stripe of at least 1.25 em are therefore merged back into one section,
+  which is then cut into its columns. A section that would be a table is not merged.
+- Screens and forms (`ReadingOrder.Sections.cs`). When a region has empty vertical stripes and is not a table, three rules
+  decide whether the columns are the structure, in this order:
+  1. *Header row*: the topmost band is read first, whole, when it is at most 2 em tall, has at least two fragments, spans at least
+     60% of the region's width and is separated from the rest by at least 3 em (a menu bar whose last item lines up with the
+     body's right column). The label row of a field grid has a smaller gap and is not taken.
+  2. *Tied rows*: the region is cut at empty bands of at least 1.5 em, bands being joined across a gap of at most 0.8 of both
+     neighbouring gaps (the label above its value inside one cell). If the smaller column is not the first one, has at least
+     three items in at least half as many bands, and every band holding one of them also holds other text, the bands are read
+     in order and each is cut into its columns: a setting then its value, a field's label and value then the next field. A narrow
+     first column (a sidebar) is read before the body instead.
+  3. *Embedded column*: if one column lies wholly between two parts of another (text at least 2 em above and below it), the
+     columns are not the structure and the bands of rule 2 (or, without them, of half an em) are used (cards between a title
+     and a list).
+- A table needs more than most of its rows having several fragments: its columns must also be filled in 60% of the rows on
+  average (short blocks side by side that share a few rows are not columns), no row of fragments may be 1.6 times taller than the
+  median (a card's large number), and the distance between consecutive lines must not alternate short and long by a factor of
+  1.25 or more (a label above its value). These tests only remove tables that the earlier tests accepted.
 - A run of rows whose cells align in columns is a table block: `table` is true, each line is a row, and a `Table` entry carries
   its cells. Table `confidence` is the share of rows with more than one cell and is not calibrated.
   Tables drawn with ruling lines, and tables in a detected `table` region, get spans, empty cells (`words: []`) and multi-line

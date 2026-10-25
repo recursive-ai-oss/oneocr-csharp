@@ -30,6 +30,33 @@ internal static class LayoutParameters
 
     /// <summary>... and at least this fraction of the rows have fragments in more than one column.</summary>
     internal const double TableRowFraction = 0.6;
+
+    /// <summary>The topmost band of a region is a header row (a bar of menu items) when it is at most this many em tall ...</summary>
+    internal const double HeaderHeightEm = 2;
+
+    /// <summary>... spans at least this fraction of the region's width ...</summary>
+    internal const double HeaderSpan = 0.6;
+
+    /// <summary>... and stands clear of the rest by at least this many em.</summary>
+    internal const double HeaderGapEm = 3;
+
+    /// <summary>A column is inside another when the other has text above and below it, each at least this many em away.</summary>
+    internal const double EmbedMarginEm = 2;
+
+    /// <summary>Rows of fields or cards are separated by empty bands of at least this many em.</summary>
+    internal const double RowGapEm = 1.5;
+
+    /// <summary>A gap inside a row band that is at most this fraction of the gaps on both sides does not separate rows (a label above its value).</summary>
+    internal const double WeakGapRatio = 0.8;
+
+    /// <summary>A table's columns are filled in at least this fraction of its rows, on average.</summary>
+    internal const double TableMinColumnFill = 0.6;
+
+    /// <summary>A table has no row of fragments taller than this multiple of the median row (a card's large number).</summary>
+    internal const double TableMaxRowSizeRatio = 1.6;
+
+    /// <summary>Lines whose spacing alternates short and long by at least this factor are fields (label above value), not table rows.</summary>
+    internal const double FieldPitchRatio = 1.25;
 }
 
 /// <summary>A recognized strip handed to the reading-order analysis: one line found in one leaf region, with its words left to right.</summary>
@@ -89,7 +116,7 @@ internal sealed class OrderBlock
     public float? TableConfidence { get; init; }
 }
 
-internal static class ReadingOrder
+internal static partial class ReadingOrder
 {
     /// <summary>Puts the strips of a page into reading order: blocks of lines, with tables found.</summary>
     /// <param name="strips">The recognized strips; strips without words are ignored.</param>
@@ -292,9 +319,18 @@ internal static class ReadingOrder
                     continue;
                 }
             }
-            else
+
+            if (groups is null)
             {
                 groups = Partition(f, reg, false, LayoutParameters.BlockGapEm * ms);
+                if (groups is not null)
+                {
+                    groups = MergeColumnRuns(f, groups, ms);
+                }
+            }
+            else
+            {
+                groups = ChooseCut(f, reg, groups, ms);
             }
 
             groups ??= SplitByLineKind(f, reg);
@@ -328,7 +364,7 @@ internal static class ReadingOrder
     }
 
     // Sorts the region along one axis and cuts it at every empty stripe of at least `gap`. Null when there is none.
-    private static List<int[]>? Partition(List<OrderFragment> f, int[] reg, bool xAxis, double gap)
+    private static List<int[]>? Partition(List<OrderFragment> f, int[] reg, bool xAxis, double gap, List<double>? gaps = null)
     {
         int[] sorted = [.. reg];
         Array.Sort(sorted, (a, b) =>
@@ -371,6 +407,7 @@ internal static class ReadingOrder
                 if (key - curEnd >= gap && straddling == 0)
                 {
                     groups.Add(sorted[start..i]);
+                    gaps?.Add(key - curEnd);
                     start = i;
                 }
 
@@ -432,7 +469,12 @@ internal static class ReadingOrder
             widths[i] = (f[reg[i]].X1 - f[reg[i]].X0) / Math.Max(ms, 1e-6);
         }
 
-        return Median(widths) <= LayoutParameters.TableCellWidthEm;
+        if (Median(widths) > LayoutParameters.TableCellWidthEm)
+        {
+            return false;
+        }
+
+        return !(SparseColumns(f, columns) || UnevenRows(f, reg) || AlternatingPitch(f, reg));
     }
 
     // OnePDF TextLayout.SplitByLineKind: lines with a gutter (several fragments) alternating with single-fragment lines are cut
