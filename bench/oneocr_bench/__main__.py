@@ -98,6 +98,7 @@ def main() -> None:
     rw.add_argument("--list", required=True)
     rw.add_argument("--out", required=True)
     rw.add_argument("--target", type=int, default=40)
+    rw.add_argument("--seconds", type=float, default=1e9, help="stop starting new pages after this many seconds")
 
     rp = sub.add_parser("realpdf", help="fetch real PDFs and cut verified pages from them (list file is private)")
     rp.add_argument("action", choices=["fetch", "cut", "hashdir"])

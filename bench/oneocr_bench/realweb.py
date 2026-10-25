@@ -313,10 +313,11 @@ def capture(a) -> None:
     pages: list[dict] = []
     log: list[dict] = []
     set_name = "screenshot-real"
+    started = time.time()
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
         for entry in entries:
-            if len(pages) >= a.target:
+            if len(pages) >= a.target or time.time() - started > a.seconds:
                 break
             ctx = browser.new_context(viewport={"width": entry["viewport"][0], "height": entry["viewport"][1]},
                                       device_scale_factor=entry["scale"], reduced_motion="reduce", locale="en-US",
