@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .paths import data_dir
 from .score import score_dir
-from .sets import SETS
+from .sets import category, discover
 
 
 def report(root: str, eval_dir: str | None, timing: str | None = None) -> str:
@@ -27,7 +27,7 @@ def report(root: str, eval_dir: str | None, timing: str | None = None) -> str:
     names = sorted({d.name.removesuffix("-default").removesuffix("-1t") for d in rootp.iterdir() if d.is_dir()})
     lines = ["| category (set) | engine / configuration | CER % | WER % | order % | recall-CER % | recall-WER % | F1@0.5 | s/page 1 thread | s/page default | peak RSS MB (1t / default) | load1 before / after (default run) |",
              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    for set_name, spec in SETS.items():
+    for set_name in discover(base):
         for name in names:
             main = rootp / f"{name}-default" if (rootp / f"{name}-default").is_dir() else rootp / name
             one = rootp / f"{name}-1t"
@@ -43,7 +43,7 @@ def report(root: str, eval_dir: str | None, timing: str | None = None) -> str:
             sec1 = f"{t1['mean_s_per_page']:.2f} (n={t1['pages']})" if t1 else "-"
             rss1 = f"{t1['peak_rss_mb']:.0f}" if t1 else "-"
             load = f"{tm['loadavg_before'][0]:.1f} / {tm['loadavg_after'][0]:.1f}" if "loadavg_before" in tm else "-"
-            lines.append(f"| {spec.category} ({set_name}) | {name} | {s['cer'] * 100:.2f} | {s['wer'] * 100:.2f} | {s['order_err'] * 100:.2f} | "
+            lines.append(f"| {category(set_name)} ({set_name}) | {name} | {s['cer'] * 100:.2f} | {s['wer'] * 100:.2f} | {s['order_err'] * 100:.2f} | "
                          f"{s['cer_recall'] * 100:.2f} | {s['wer_recall'] * 100:.2f} | {f1} | {sec1} | {tm['mean_s_per_page']:.2f} (n={tm['pages']}) | "
                          f"{rss1} / {tm['peak_rss_mb']:.0f} | {load} |")
     return "\n".join(lines) + "\n"
@@ -62,6 +62,7 @@ def freeze(srcs: list[str], eval_dir: str, out: str, info_only: list[str]) -> No
 
     outp = Path(out).expanduser()
     base = Path(eval_dir).expanduser()
+    outp.mkdir(parents=True, exist_ok=True)
     configs: dict = {}
     for src in srcs:
         prefix, _, root = src.rpartition("=")
@@ -69,7 +70,7 @@ def freeze(srcs: list[str], eval_dir: str, out: str, info_only: list[str]) -> No
         for d in sorted(p for p in rootp.iterdir() if p.is_dir() and not p.name.endswith("-1t")):
             name = prefix + d.name.removesuffix("-default")
             entry = {"gate": not any(w in name for w in info_only), "sets": {}}
-            for set_name in SETS:
+            for set_name in discover(base):
                 hyp = d / set_name
                 if not hyp.is_dir():
                     continue

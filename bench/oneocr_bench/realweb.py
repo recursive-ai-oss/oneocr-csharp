@@ -34,7 +34,6 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
 from .render import add_ink, png_bytes, sha256, text_of, truth_words, write_page
 
@@ -208,6 +207,8 @@ def row_cut(words: list[dict], lo: float, hi: float, want_low: bool) -> float | 
 
 
 def capture_one(ctx, entry: dict, k: int, out: Path, pid: str, set_name: str) -> tuple[dict | None, str]:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout  # imported here so the rest of the package needs no browser library
+
     w, h = entry["viewport"]
     scale = entry["scale"]
     page = ctx.new_page()
