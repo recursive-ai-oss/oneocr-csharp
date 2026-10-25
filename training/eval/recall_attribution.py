@@ -35,6 +35,52 @@ def touches(a: list[float], b: list[float]) -> bool:
     return min(a[2], b[2]) > max(a[0], b[0]) and min(a[3], b[3]) > max(a[1], b[1])
 
 
+def attribute_page(tw: list[dict], hw: list[dict]):
+    """Per leftover truth word: (text, word, chars counted, class, texts of touching boxes, paired hypothesis text or None)."""
+    ref = [(t, w) for w in tw for t in normalize(w["text"])]
+    hyp = [(t, w) for w in hw for t in normalize(w["text"])]
+    rc, hc = collections.Counter(t for t, _ in ref), collections.Counter(t for t, _ in hyp)
+    # leftover truth words: for equal words the earlier ones cancel, as `normalize`d lists are compared as multisets
+    seen: collections.Counter = collections.Counter()
+    left_r = []
+    for t, w in ref:
+        seen[t] += 1
+        if seen[t] > hc[t]:
+            left_r.append((t, w))
+    seen = collections.Counter()
+    left_h = []
+    for t, w in hyp:
+        seen[t] += 1
+        if seen[t] > rc[t]:
+            left_h.append((t, w))
+    pair: dict[int, int] = {}
+    if left_r and left_h:
+        pairs = sorted((Levenshtein.distance(left_r[i][0], left_h[j][0]), i, j) for i in range(len(left_r)) for j in range(len(left_h)))
+        used_h: set[int] = set()
+        for _, i, j in pairs:
+            if i in pair or j in used_h:
+                continue
+            pair[i] = j
+            used_h.add(j)
+            if len(pair) == len(left_r) or len(used_h) == len(left_h):
+                break
+    for i, (t, w) in enumerate(left_r):
+        paired = left_h[pair[i]][0] if i in pair else None
+        miss = min(Levenshtein.distance(t, paired), len(t)) if paired is not None else len(t)
+        tb = box(w)
+        near = [h for h in hw if touches(tb, box(h))]
+        texts = [x for h in near for x in normalize(h["text"])]
+        if not near:
+            c = "undetected"
+        elif any(t != x and t in x for x in texts):
+            c = "merged"
+        elif len(near) > 1 and t in "".join(texts):
+            c = "split"
+        else:
+            c = "wrong"
+        yield t, w, miss, c, texts, paired
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("truth")
@@ -49,50 +95,8 @@ def main() -> None:
         tw = json.loads(tf.read_text())["words"]
         hf = Path(a.hyp) / tf.name
         hw = json.loads(hf.read_text())["words"] if hf.exists() else []
-        ref = [(t, w) for w in tw for t in normalize(w["text"])]
-        hyp = [(t, w) for w in hw for t in normalize(w["text"])]
-        ref_chars += sum(len(t) for t, _ in ref)
-        rc, hc = collections.Counter(t for t, _ in ref), collections.Counter(t for t, _ in hyp)
-        # leftover truth words: for equal words the earlier ones cancel, as `normalize`d lists are compared as multisets
-        seen: collections.Counter = collections.Counter()
-        left_r = []
-        for t, w in ref:
-            seen[t] += 1
-            if seen[t] > hc[t]:
-                left_r.append((t, w))
-        seen = collections.Counter()
-        left_h = []
-        for t, w in hyp:
-            seen[t] += 1
-            if seen[t] > rc[t]:
-                left_h.append((t, w))
-        pair: dict[int, int] = {}
-        if left_r and left_h:
-            pairs = sorted((Levenshtein.distance(left_r[i][0], left_h[j][0]), i, j) for i in range(len(left_r)) for j in range(len(left_h)))
-            used_h: set[int] = set()
-            for _, i, j in pairs:
-                if i in pair or j in used_h:
-                    continue
-                pair[i] = j
-                used_h.add(j)
-                if len(pair) == len(left_r) or len(used_h) == len(left_h):
-                    break
-        for i, (t, w) in enumerate(left_r):
-            if i in pair:
-                miss = min(Levenshtein.distance(t, left_h[pair[i]][0]), len(t))
-            else:
-                miss = len(t)
-            tb = box(w)
-            near = [h for h in hw if touches(tb, box(h))]
-            texts = [x for h in near for x in normalize(h["text"])]
-            if not near:
-                c = "undetected"
-            elif any(t != x and t in x for x in texts):
-                c = "merged"
-            elif len(near) > 1 and t in "".join(texts):
-                c = "split"
-            else:
-                c = "wrong"
+        ref_chars += sum(len(t) for w in tw for t in normalize(w["text"]))
+        for t, _w, miss, c, texts, _p in attribute_page(tw, hw):
             words[c] += 1
             cost[c] += miss
             if len(ex[c]) < a.examples and miss:
