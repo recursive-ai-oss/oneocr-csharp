@@ -31,8 +31,17 @@ internal static class WordSegmenter
     /// <summary>The character model removes a space when the joined word scores at least this many nats above the two pieces together.</summary>
     internal const double ModelMargin = 2.0;
 
+    /// <summary>A weaker gain suffices, at a stretch of up to <see cref="ModelGapWeak"/> pixels, when one of the two pieces is itself no word (see <see cref="WeakPieceMax"/>).</summary>
+    internal const double ModelMarginWeak = 1.0;
+
+    /// <summary>The widest stretch at which the weaker gain is enough.</summary>
+    internal const double ModelGapWeak = 6.0;
+
+    /// <summary>A piece counts as no word when its own score is at most this (a typical word scores about zero or more; a rare real word such as "tax" scores about -1.7).</summary>
+    internal const double WeakPieceMax = -2.0;
+
     /// <summary>... and, when the line has at least <see cref="MinSpacesForGap"/> spaces, the stretch has to be at most this fraction of the line's median word gap.</summary>
-    internal const double ModelRatio = 0.6;
+    internal const double ModelRatio = 0.7;
 
     /// <summary>A line needs this many network spaces before its median word gap is trusted.</summary>
     internal const int MinSpacesForGap = 4;
@@ -144,7 +153,7 @@ internal static class WordSegmenter
         bool changed = false;
         for (int p = 0; p < n - 1; p++)
         {
-            if (wasSpace[p] && widest[p] <= Math.Max(NumberGap, ModelGap) && ShouldJoin(chars, wasSpace, p, widest[p], wordGap, words))
+            if (wasSpace[p] && widest[p] <= Math.Max(NumberGap, Math.Max(ModelGap, ModelGapWeak)) && ShouldJoin(chars, wasSpace, p, widest[p], wordGap, words))
             {
                 result[p] = false;
             }
@@ -280,12 +289,27 @@ internal static class WordSegmenter
             return true;
         }
 
-        return gap <= ModelGap && (wordGap == 0 || gap <= ModelRatio * wordGap) && words is not null && JoinGain(words, l, r) >= ModelMargin;
+        if (words is null || gap > ModelGapWeak || (wordGap != 0 && gap > ModelRatio * wordGap))
+        {
+            return false;
+        }
+
+        (double Gain, double MinPiece)? evidence = JoinEvidence(words, l, r);
+        if (evidence is null)
+        {
+            return false;
+        }
+
+        // Plain evidence: the joined word is much more plausible than the pieces. Weak evidence, enough when one piece could not
+        // stand as a word by itself ("val" + "uable", "in" + "debted"): a smaller gain. Two pieces that are both words ("tax" "at")
+        // need the plain evidence.
+        return (gap <= ModelGap && evidence.Value.Gain >= ModelMargin)
+            || (evidence.Value.Gain >= ModelMarginWeak && evidence.Value.MinPiece <= WeakPieceMax);
     }
 
     // How much more word-like the two words are as one word than as two (null when the model has no score for them): the pieces
     // must end and begin with letters, and only their outer marks (quotes, a full stop) are left out of the score.
-    private static double? JoinGain(WordPlausibility words, string left, string right)
+    private static (double Gain, double MinPiece)? JoinEvidence(WordPlausibility words, string left, string right)
     {
         if (left.Length == 0 || right.Length == 0 || !char.IsLetter(left[^1]) || !char.IsLetter(right[0]))
         {
@@ -332,7 +356,7 @@ internal static class WordSegmenter
             return null;
         }
 
-        return joined - (one + two);
+        return (joined.Value - (one.Value + two.Value), Math.Min(one.Value, two.Value));
     }
 
     // Whether the words on either side of a break are the two halves of one number or date: a thousands group that the break cut

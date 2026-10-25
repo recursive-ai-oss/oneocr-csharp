@@ -212,12 +212,18 @@ glyph); `widest[p]` is the widest stretch touching pair `p`.
    exactly the digits that complete three (`16,0` `80.65`); (c) the left number is only digits and `/ - : .` with at least two
    digits and ends in `/` or `-`, and the right word begins with a digit (`2014-` `02-15.`); (d) the left number holds a `/` or
    `-` and the right word begins with `/` or `-` followed by a digit (`24/07` `/2010.`).
-2. *Letters* (`widest[p] <= ModelGap` = 5, only when the engine has a word model): the left word ends and the right word begins
-   with a letter; with their outer non-letters set aside, neither piece has an upper-case letter other than the first letter of
-   the left piece (capitals inside mark codes, abbreviations and headings, which the model cannot judge); when the line has at
-   least `MinSpacesForGap` (4) network spaces, `widest[p]` is also at most `ModelRatio` (0.6) times the median stretch at those
-   spaces; and `Score(joined) - (Score(left) + Score(right)) >= ModelMargin` (2.0 nats), where `Score` is the word score of the
-   character model below. A piece the model has no score for (digits, code symbols, letters outside the script) never joins.
+2. *Letters* (only when the engine has a word model): the left word ends and the right word begins with a letter; with their
+   outer non-letters set aside, neither piece has an upper-case letter other than the first letter of the left piece (capitals
+   inside mark codes, abbreviations and headings, which the model cannot judge); when the line has at least `MinSpacesForGap` (4)
+   network spaces, `widest[p]` is at most `ModelRatio` (0.7) times the median stretch at those spaces; with `Score` the word
+   score of the character model below, `gain = Score(joined) - (Score(left) + Score(right))`, and the space goes when either
+   - `widest[p] <= ModelGap` (5) and `gain >= ModelMargin` (2.0 nats): plain evidence; or
+   - `widest[p] <= ModelGapWeak` (6) and `gain >= ModelMarginWeak` (1.0 nat) and the lower of `Score(left)` and `Score(right)` is at
+     most `WeakPieceMax` (-2.0): weak evidence, enough when one piece is clearly no word (`Janu` + `ary`, `Fieldn` + `ote`). A
+     piece that is a rare real word (`tax` scores about -1.7) is not bad enough, and neither are two pieces that both score as
+     words: they need the plain evidence.
+
+   A piece the model has no score for (digits, code symbols, letters outside the script) never joins: the code-word rule.
 
 **Putting a space in.** A stretch that no network space accounts for (no pair it touches has a network space) becomes a space at
 the pair it overlaps most when its width is at least `max(SplitGap, SplitRatio x letterGap)` (`SplitGap` = 9 pixels,
@@ -232,8 +238,10 @@ covers the most of the word's letters (the first on ties; no score when it does 
 first context symbol, as in `decoding.md`, in `double` in that order. A typical word scores about zero. The word model is the
 model file that ships with the models package (`charlm-v1`); an engine without one skips rule 2 above and nothing else.
 
-The parameters were chosen on pages that are not part of the benchmark sets (a degraded-scan set and a screenshot set rendered
-with new seeds). `OcrOptions.FixWordSpacing = false` turns the whole step off. Pages from a PDF text layer or an LLM are not
+The first parameters were chosen on pages that are not part of the benchmark sets (a degraded-scan set and a screenshot set
+rendered with new seeds). The weak-evidence values were chosen on the held-out tune sets, by counting joins that the truth text
+confirms against joins of two real words over every candidate space the engine met there; the benchmark sets were counted in
+the same tables as information and agree. `OcrOptions.FixWordSpacing = false` turns the whole step off. Pages from a PDF text layer or an LLM are not
 re-segmented.
 
 ## Noise filter
