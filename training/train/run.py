@@ -198,10 +198,12 @@ def main() -> None:
         if step == 0:
             tc["val_baseline"] = {"val": evaluate(model, sets["val"], charset, dev, limit=1500)["cer"]} | {
                 k: evaluate(model, d, charset, dev, limit=3000)["cer"] for k, d in extra_val.items()}  # fmt: skip
-            emit({"baseline": tc["val_baseline"]})
+            tc["val_baseline_wer"] = {k: evaluate(model, d, charset, dev, limit=3000)["wer"] for k, d in extra_val.items()}
+            emit({"baseline": tc["val_baseline"], "baseline_wer": tc["val_baseline_wer"]})
         else:
             lines = (run_dir / "metrics.jsonl").read_text().splitlines()
-            tc["val_baseline"] = next(json.loads(ln)["baseline"] for ln in lines if '"baseline"' in ln)
+            first = next(json.loads(ln) for ln in lines if '"baseline"' in ln)
+            tc["val_baseline"], tc["val_baseline_wer"] = first["baseline"], first.get("baseline_wer", {})
 
     def producer(first: int, q: queue.Queue) -> None:
         """Builds batches on a background thread so the GPU is not waiting for numpy."""
@@ -301,6 +303,10 @@ def main() -> None:
                 score += tc.get("val_penalty", 3.0) * max(0.0, v["cer"] / base["val"] - 1.0)
                 # hard guard: a named set more than `tol` worse than the starting model cannot give the best checkpoint
                 cur = {"val": v["cer"]} | {k: r["cer"] for k, r in ev.items()}
+                # word-level guard (space errors show up as word errors): a set whose WER rises above the starting model's by more
+                # than `tol` (relative) cannot give the best checkpoint
+                for name, tol in tc.get("guard_wer", {}).items():
+                    score += 100.0 * max(0.0, ev[name]["wer"] / tc["val_baseline_wer"][name] - 1.0 - tol)
                 for name, tol in tc.get("guard", {}).items():
                     score += 100.0 * max(0.0, cur[name] / base[name] - 1.0 - tol)
             if score < best:  # the best checkpoint is picked on validation sets, never on the held-out or page evaluation sets
