@@ -41,6 +41,11 @@ internal static class OcrCommand
         }
 
         double loadMs = clock.Elapsed.TotalMilliseconds;
+        if (engine.PerformanceNotice is { } notice)
+        {
+            Console.Error.WriteLine("oneocr: warning: " + notice);
+        }
+
         if (outDir is not null)
         {
             Directory.CreateDirectory(outDir);

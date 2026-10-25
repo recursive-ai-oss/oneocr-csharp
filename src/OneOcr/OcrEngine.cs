@@ -49,6 +49,16 @@ public sealed class OcrEngine
     /// <summary>Whether this engine finds lines, regions and the page's orientation with a page detector (see <see cref="WithDetector(string, OcrLimits?)"/>).</summary>
     public bool HasDetector => _detector is not null;
 
+    /// <summary>The instruction-set path this engine's kernels run on. The text, boxes and confidences are the same on every path; only the speed differs.</summary>
+    public OcrKernelPath KernelPath => (OcrKernelPath)(int)_recognizer.UsedPath;
+
+    /// <summary>
+    /// A note for the user when the engine runs the slow scalar path on a CPU that supports AVX2 and FMA, otherwise null. The usual cause is a
+    /// NativeAOT app published below <c>x86-64-v3</c>; the text says how to fix it. Fixed for the life of the process, never throws, and kept out
+    /// of <see cref="OcrPage.Diagnostics"/> so that a page's JSON does not depend on the path.
+    /// </summary>
+    public string? PerformanceNotice => Dispatch.SlowPathNotice(_recognizer.UsedPath);
+
     /// <summary>The decoding this engine uses unless a call passes its own. Greedy unless <see cref="WithDecoding"/> changed it.</summary>
     public DecodeOptions Decoding => _decoding;
 

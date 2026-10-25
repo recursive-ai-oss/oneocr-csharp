@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Consumers get a safe NativeAOT instruction-set default; see the file. -->
+    <None Include="buildTransitive/OneOcr.targets" Pack="true" PackagePath="buildTransitive/$(PackageId).targets" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../OneOcr.Models/OneOcr.Models.csproj" />
   </ItemGroup>
 
