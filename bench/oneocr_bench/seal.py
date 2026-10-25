@@ -34,6 +34,7 @@ KINDS = {
     "phone-v1": "generated page with simulated phone capture; truth moved with the image",
     "receipts-v1": "generated receipts (synthetic text) with simulated phone capture; truth moved with the image",
 }
+PROSE_SETS = {"clean300-v1", "degraded-v1", "phone-v1"}
 INK_STD = 5.0  # a word's ink box must show some contrast against the page
 INK_SHARE = 0.97  # share of words that must pass
 
@@ -94,7 +95,7 @@ def _windows(root: Path) -> set[str]:
     for f in sorted(root.glob("*/truth/*.txt")):
         for line in f.read_text(encoding="utf-8").splitlines():
             w = line.split()
-            for i in range(max(1, len(w) - 7)):
+            for i in range(len(w) - 7):
                 seen.add(" ".join(w[i : i + 8]))
     return seen
 
@@ -155,11 +156,12 @@ def verify(a) -> None:
         for f in sorted((d / "truth").glob("*.txt")):
             for line in f.read_text(encoding="utf-8").splitlines():
                 w = line.split()
-                for i in range(max(1, len(w) - 7)):
+                for i in range(len(w) - 7):
                     new_windows.add(" ".join(w[i : i + 8]))
         reused = len(new_windows & old_windows)
         same_pages = sum(1 for rel, h in listed.items() if rel.startswith(f"{n}/pages/") and h in old_hashes)
-        if reused or same_pages:
+        # screens and layouts reuse fixed interface and form wording by design; only prose sets must not repeat passages
+        if (reused and n in PROSE_SETS) or same_pages:
             bad.append(f"{n}: {reused} eight-word runs and {same_pages} page images also in earlier sets")
         print(f"{n}: {len(truths)} pages, {words} words, ink share {share:.4f}, size mismatches {size_bad}, "
               f"runs shared with earlier sets {reused}, identical images {same_pages}")

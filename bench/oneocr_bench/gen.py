@@ -53,7 +53,7 @@ def avoid_text() -> set[str]:
         for f in sorted(d.glob("*/truth/*.txt")):
             for line in f.read_text(encoding="utf-8").splitlines():
                 words = line.split()
-                for i in range(max(1, len(words) - 7)):
+                for i in range(len(words) - 7):
                     seen.add(" ".join(words[i : i + 8]))
     return seen
 
@@ -74,7 +74,7 @@ def load_paragraphs() -> list[list[str]]:
             sents = SENT_SPLIT.split(t)
             if avoid:
                 w = t.split()
-                if any(" ".join(w[i : i + 8]) in avoid for i in range(max(1, len(w) - 7))):
+                if any(" ".join(w[i : i + 8]) in avoid for i in range(len(w) - 7)):
                     continue
             if len(sents) >= 2:
                 paras.append(sents)
