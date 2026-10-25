@@ -35,7 +35,7 @@ def main() -> None:
     sl.add_argument("--sets", nargs="+", choices=all_names, default=None)
 
     d = sub.add_parser("draw", help="overlay truth boxes on a page")
-    d.add_argument("--set", default="clean300-v1", choices=names)
+    d.add_argument("--set", default="clean300-v1", choices=all_names)
     d.add_argument("page")
 
     s = sub.add_parser("score", help="score hypotheses: <id>.txt (and optional <id>.json boxes) per page")
