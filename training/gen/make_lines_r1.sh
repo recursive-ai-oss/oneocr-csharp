@@ -8,7 +8,7 @@ out=$(realpath -m "$1")
 stage=${2:-both}
 cd "$(dirname "$0")/.."
 : "${ONEOCR_FONT_ROOT:?}" "${ONEOCR_TEXT_ROOT:?}"
-cfg=configs/lines-r1.yaml
+cfg=${CFG:-configs/lines-r1.yaml}
 if [ "$stage" != materialize ]; then
   mkdir -p "$out"
   dotnet build gen/LineGen -c Release 2>&1 | grep -E ' error |rror\(s\)' || true
