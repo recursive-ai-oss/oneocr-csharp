@@ -70,6 +70,7 @@ internal static class Program
             "noise" => Noise(options),
             "grids" => Grids(options),
             "skew" => Skew(options),
+            "reach" => WordReach.Run(options),
             "profile" => Profile(options),
             _ => 2,
         };
