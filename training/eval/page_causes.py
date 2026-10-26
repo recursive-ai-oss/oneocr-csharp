@@ -166,6 +166,7 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
     confusions = Counter()
     breaks = Counter()
     wrong_words = []
+    all_words = []  # every truth word: page, index, text, read text, class, char errors, height
     page_rows = {}
     tot_chars = tot_words = 0
     off_ce = off_we = off_oe = off_ref = off_cm = off_wm = 0
@@ -202,6 +203,11 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
             a = area(tb[i])
             ov = [(j, inter(tb[i], hb[j])) for j in range(len(hb))]
             main = [j for j, o in ov if a > 0 and o / a > 0.3]
+            if not main and a > 0:
+                # A word read exactly, in a box that is much smaller than the truth box (a lone x-height letter whose truth box spans the
+                # line), is a box-geometry difference, not a miss: it joins the 'box' class with no character errors.
+                pad = 0.25 * (tb[i][3] - tb[i][1])
+                main = [j for j in range(len(hb)) if hx[j] == text and tb[i][0] - pad <= (hb[j][0] + hb[j][2]) / 2 <= tb[i][2] + pad and tb[i][1] - pad <= (hb[j][1] + hb[j][3]) / 2 <= tb[i][3] + pad][:1]
             used.update(main)
             h = tb[i][3] - tb[i][1]
             err = n
@@ -251,6 +257,7 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
                     wrong_words.append((tf.stem, text, hx[best] if main else "", c))
             page_cls[c] += err
             page_chars += n
+            all_words.append([tf.stem, i, text, hx[best] if main else "", c, err, round(h, 1)])
             if c in ("matched", "box") and err > 0 and sub_ops is not None:
                 pol = polarity(img, tb[i]) if img is not None else "?"
                 for op in sub_ops[:n]:
@@ -302,7 +309,7 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
         "extra": {"chars": extra_chars, "words": extra_words, "by": {k: v for k, v in sorted(extras.items())}},
         "missed_slices": {a: dict(b) for a, b in miss.items()}, "examples": dict(examples), "kinds": dict(kinds), "breaks": dict(breaks.most_common(12)), "order_only": order_only / max(tot_words, 1),
         "slices": {n: {k: v for k, v in sorted(t.items())} for n, t in (("height", by_h), ("polarity", by_pol), ("conf", by_conf), ("font", by_font), ("template", by_tpl), ("category", by_cat), ("shape", by_shape))},
-        "confusions": [[a, b, n] for (a, b), n in confusions.most_common(25)], "pages": page_rows,
+        "all_words": all_words, "confusions": [[a, b, n] for (a, b), n in confusions.most_common(25)], "pages": page_rows,
     }
 
 
