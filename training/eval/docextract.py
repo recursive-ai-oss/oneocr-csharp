@@ -75,11 +75,15 @@ def item_name(d: dict) -> str:
 
 
 def score_page(ex: dict, res: dict, acc: dict) -> None:
+    score_assembled(ex, assemble(res, ex["texts"], ex["boxes"]), acc)
+
+
+def score_assembled(ex: dict, a: dict, acc: dict) -> None:
+    """Scores an assembled page (the shape `assemble` returns; the C# extractor writes the same shape)."""
     truth = ex["truth"]
     partial = bool(ex["meta"].get("partial"))
     known = ex.get("known")
     role_known = ex["roles"] != -100
-    a = assemble(res, ex["texts"], ex["boxes"])
     acc["doc"].append(DOC_TYPES.index(a["documentType"]) == ex["doc"])
 
     def counted(words) -> bool:  # CORD: only predictions touching annotated words can be false positives
