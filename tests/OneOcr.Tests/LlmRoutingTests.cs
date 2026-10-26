@@ -39,14 +39,14 @@ public class LlmRoutingTests
         new(path, value, GroundingState.Grounded, conf, null,
             [.. words.Select(w => new LlmWordRef("x", 0, Index(page, w), w, page.Words[Index(page, w)].Box))], [], Source: OcrSource.Ocr);
 
-    private sealed class Scripted(string json, float min, GroundedField[] fields, GroundedField[]? others = null) : ILocalFieldExtractor
+    private sealed class Scripted(string json, float min, GroundedField[] fields, GroundedField[]? others = null, string[]? mapped = null) : ILocalFieldExtractor
     {
         public int Calls { get; private set; }
 
         public LocalFieldResult? TryExtract(IReadOnlyList<OcrPage> pages, string jsonSchema)
         {
             Calls++;
-            return new LocalFieldResult(json, fields, min, others);
+            return new LocalFieldResult(json, fields, min, others, mapped);
         }
     }
 
@@ -256,7 +256,40 @@ public class LlmRoutingTests
     }
 
     [Fact]
-    public async Task The_injection_set_with_a_local_model_flags_the_printed_value_cases_and_changes_nothing_else()
+    public async Task The_injection_set_with_a_local_model_flags_the_printed_value_cases_and_changes_nothing_else() =>
+        await InjectionWithLocalModel(null);
+
+    [Fact]
+    public async Task The_same_cases_are_flagged_when_the_model_declares_which_properties_it_has_classes_for() =>
+        await InjectionWithLocalModel(["/vendor", "/invoice", "/total", "/due"]);
+
+    [Fact]
+    public async Task A_property_the_local_model_has_no_class_for_is_not_a_role_conflict_but_a_mapped_one_still_is()
+    {
+        OcrPage page = Page();
+        string wrong = "{\"data\":{\"invoice\":" + GroundingSupport.V("\"427.50\"", [GroundingSupport.Id(page, "427.50")])
+            + ",\"total\":" + GroundingSupport.V("\"427.50\"", [GroundingSupport.Id(page, "427.50")]) + "}}";
+        // The local model reads 427.50 as the total. "total" is a property it has a class for; "invoice" is not.
+        Scripted x = new("{}", 0.95f, [Local(page, "/total", "427.50", 0.95f, "427.50")], null, ["/total"]);
+        (LlmReadResult r, _, _) = await Run(page, Opts(x, LlmRouting.LlmOnly), new ScriptedHandler().Then(GroundingSupport.Shape("openai", wrong)).Then(GroundingSupport.Shape("openai", wrong)));
+        Assert.Equal(GroundingState.Grounded, r.Fields.Single(static f => f.Path == "/invoice").State);
+        Assert.Equal(GroundingState.Grounded, r.Fields.Single(static f => f.Path == "/total").State);
+
+        // The local model reads the words as a field outside the schema: the unmapped property is still left alone, a mapped one is not.
+        Scripted y = new("{}", 0.95f, [], [Local(page, "class:BT-9", "427.50", 0.95f, "427.50")], ["/total"]);
+        (LlmReadResult r2, _, _) = await Run(page, Opts(y, LlmRouting.LlmOnly), new ScriptedHandler().Then(GroundingSupport.Shape("openai", wrong)).Then(GroundingSupport.Shape("openai", wrong)));
+        Assert.Equal(GroundingState.Grounded, r2.Fields.Single(static f => f.Path == "/invoice").State);
+        Assert.Equal(GroundingState.RoleConflict, r2.Fields.Single(static f => f.Path == "/total").State);
+    }
+
+    [Fact]
+    public void Array_indices_are_left_out_of_mapped_paths()
+    {
+        Assert.Equal("/lines/qty", RoleCheck.StripIndices("/lines/12/qty"));
+        Assert.Equal("/total", RoleCheck.StripIndices("/total"));
+    }
+
+    private static async Task InjectionWithLocalModel(string[]? mapped)
     {
         foreach (InjectionCase c in InjectionSet.Cases)
         {
@@ -266,7 +299,7 @@ public class LlmRoutingTests
                 Local(page, "/vendor", "ACME Supplies Ltd", 0.97f, "ACME", "Supplies", "Ltd"),
                 Local(page, "/invoice", "INV-2201", 0.96f, "INV-2201"),
                 Local(page, "/total", "427.50", 0.95f, "427.50"),
-            ]);
+            ], null, mapped);
             var h = new ScriptedHandler().Then(GroundingSupport.Shape("openai", c.Compromised(page)));
             using var http = new HttpClient(h);
             using var client = new LlmClient(GroundingSupport.Provider("openai", http), GroundingSupport.Options());

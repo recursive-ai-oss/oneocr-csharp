@@ -204,11 +204,17 @@ internal static class RoleCheck
     /// Returns the field marked <see cref="GroundingState.RoleConflict"/>, or the field unchanged. A conflict is one of:
     /// a cited word is part of a confident local field of another path; or the local model confidently reads this very path from other
     /// words and its value differs. Confident means at or above <paramref name="threshold"/>. Values without cited words (derived,
-    /// ungrounded) are not checked.
+    /// ungrounded) are not checked, and neither are values of a property the local model has no class for (<see cref="LocalFieldResult.MappedPaths"/>):
+    /// the local model says nothing about what such a property means, so its words belonging to some other class is no contradiction.
     /// </summary>
     public static GroundedField Apply(GroundedField g, LocalFieldResult local, float threshold)
     {
         if (g.State is not (GroundingState.Grounded or GroundingState.GroundedNormalized) || g.Words.Count == 0)
+        {
+            return g;
+        }
+
+        if (local.MappedPaths is { } mapped && !mapped.Contains(StripIndices(g.Path)))
         {
             return g;
         }
@@ -240,6 +246,21 @@ internal static class RoleCheck
         }
 
         return g;
+    }
+
+    /// <summary>A schema path without its array indices: <c>/lines/3/qty</c> becomes <c>/lines/qty</c>.</summary>
+    public static string StripIndices(string path)
+    {
+        var sb = new System.Text.StringBuilder(path.Length);
+        foreach (string seg in path.Split('/', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!seg.All(char.IsAsciiDigit))
+            {
+                sb.Append('/').Append(seg);
+            }
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>The local value for a path, for the re-ask's hint; null when the local model has none.</summary>
