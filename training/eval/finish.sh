@@ -36,6 +36,8 @@ if [ -d "${ONEOCR_GEN:-/nonexistent}/crops/dev/finder" ]; then
   extra+=(--extra "gen_dev=$ONEOCR_GEN/crops/dev/finder" --extra "gen_calib=$ONEOCR_GEN/crops/calib/finder")
   calg=("$o/hyps/gen_calib.hyps.jsonl:${GEN_WEIGHT:-1}"); genalso=",gen_dev"
 fi
+# held-out phone-style word crops (gen/make_phone_lines.sh), when PHONE_SET names them
+if [ -d "${PHONE_SET:-/nonexistent}" ]; then extra+=(--extra "phone_tune=$PHONE_SET"); genalso="$genalso,phone_tune"; fi
 uv run python -m eval.model_hyps --device cpu --checkpoint "$ck" --sets-dir "$ONEOCR_PREV/data/lines-v4" --bench-dir "$BENCH_LINES" --out "$o/hyps" "${extra[@]}" | tail -2
 uv run python -m eval.calibrate fit --hyps "$o/hyps/calib.hyps.jsonl" "$o/hyps/calib_receipt.hyps.jsonl" "$o/hyps/calib6.hyps.jsonl" "${cal7[@]}" "${calg[@]}" \
   "$o/hyps/calib_cord.hyps.jsonl:${CORD_WEIGHT:-8}" --out "$o/calibration.json"
