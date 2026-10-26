@@ -7,7 +7,7 @@ seed: 20268901
 charset: data/charset-v1.txt
 fonts: data/fonts.yaml
 sets:
-  mq_train: { n: 300000, fonts: train, books: train, degrade: rcpt, families: &rfam [courierprime, cutivemono, sharetechmono, anonymouspro, firamono, inconsolata, notosansmono, ptmono, sourcecodepro, spacemono, cousine, specialelite, robotocondensed, ubuntucondensed, oswald, arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans], mix: &mq { mask: 0.5, qty: 0.5 }, single_script: true }
+  mq_train: { n: 120000, fonts: train, books: train, degrade: rcpt, families: &rfam [courierprime, cutivemono, sharetechmono, anonymouspro, firamono, inconsolata, notosansmono, ptmono, sourcecodepro, spacemono, cousine, specialelite, robotocondensed, ubuntucondensed, oswald, arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans], mix: &mq { mask: 0.5, qty: 0.5 }, single_script: true }
   mask_val: { n: 3000, fonts: heldout, books: heldout, degrade: rcpt, families: &hfam [jetbrainsmono, robotomono, ubuntumono, karla, cabin, alegreyasans, ptsansnarrow], mix: { mask: 1.0 }, single_script: true }
   qty_val: { n: 3000, fonts: heldout, books: heldout, degrade: rcpt, families: *hfam, mix: { qty: 1.0 }, single_script: true }
   mask_faint_val: { n: 2000, fonts: heldout, books: heldout, degrade: faint, families: *hfam, mix: { mask: 1.0 }, single_script: true }
