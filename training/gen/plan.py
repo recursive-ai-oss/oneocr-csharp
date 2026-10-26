@@ -466,6 +466,67 @@ _TOTAL_LABELS = [
 ]
 
 
+_MASK_LEADS = ["CARD", "Card", "CARD NO", "Card No:", "ACCT", "Acct #", "Account", "VISA", "Visa", "MC", "MASTERCARD", "AMEX", "Debit", "Credit", "PAN", "Card #", "XXXX", "Card Number:", "Ref"]
+_QTY_WORDS = ["QTY", "Qty", "qty", "QTY:", "Qty:", "Quantity", "Item", "ITEM", "Pcs", "PCS"]
+
+
+def mask_line(rng: np.random.Generator, s: Sampler) -> str:
+    """A masked card or account number as receipts print it: a run of mask marks (`*`, `X`, `x`, `•`) of varied length, often cut into
+    groups of four by spaces or dashes, ending in the last two to four digits, sometimes behind a label. The marks look alike and
+    are easy to read as a row of dots, so runs and group sizes vary widely."""
+    mark = str(rng.choice(["*", "*", "*", "X", "X", "x", "•"]))
+    d = s._digits
+    tail = d(int(rng.choice([2, 3, 4, 4, 4])))
+    form = rng.random()
+    if form < 0.4:  # one run
+        body = mark * int(rng.integers(3, 17)) + tail
+    elif form < 0.75:  # groups of four
+        sep = str(rng.choice([" ", " ", "-"]))
+        groups = [mark * 4] * int(rng.integers(1, 4))
+        body = sep.join(groups + [tail])
+    elif form < 0.9:  # separated mark and tail, ends with the digits only
+        body = mark * int(rng.integers(4, 13)) + str(rng.choice(["", " ", "-", "/"])) + tail
+    else:  # masked middle of a longer number
+        body = d(int(rng.choice([4, 6]))) + mark * int(rng.integers(4, 9)) + tail
+    if rng.random() < 0.3:
+        body = str(rng.choice(_MASK_LEADS)) + str(rng.choice([" ", " ", ""])) + body
+    return body
+
+
+def qty_line(rng: np.random.Generator, s: Sampler, books) -> str:
+    """An item count as receipts print it: `2x`, `2 x`, `x2`, `2 @ 1.99`, `QTY 2`, alone or in front of an item name and a price."""
+    d = s._digits
+    n = str(int(rng.choice([1, 2, 2, 3, 3, 4, 5, 6, 10, 12, 24])))
+    cur = str(rng.choice(["", "", "$", "€", "£"]))
+    price = d(int(rng.integers(1, 3))) + str(rng.choice([".", ","])) + d(2)
+    form = int(rng.integers(0, 9))
+    glue = "" if rng.random() < 0.5 else " "
+    if form == 0:
+        core = n + glue + str(rng.choice(["x", "X"]))
+    elif form == 1:
+        core = str(rng.choice(["x", "X"])) + glue + n
+    elif form == 2:
+        core = f"{n} @ {cur}{price}"
+    elif form == 3:
+        core = f"{n}@{cur}{price}"
+    elif form == 4:
+        core = str(rng.choice(_QTY_WORDS)) + str(rng.choice([" ", " ", ""])) + n
+    elif form == 5:
+        core = f"{n} {rng.choice(['x', 'X'])} {cur}{price}"
+    elif form == 6:
+        core = f"{n}{rng.choice(['x', 'X'])}{glue}{cur}{price}"
+    else:
+        core = n + glue + str(rng.choice(["x", "X", "@"]))
+    if form in (0, 1, 7, 8) and rng.random() < 0.8:  # the count in front of an item name, as item rows print it
+        w, _t = books.window(rng, short=True)
+        w = " ".join(w.split()[: int(rng.integers(1, 3))])
+        q = rng.random()
+        w = w.upper() if q < 0.5 else w.title() if q < 0.8 else w
+        core = core + " " + w if form != 1 else core + " " + w
+        if rng.random() < 0.4:
+            core += " " + cur + price
+    return core
+
 def figures_line(rng: np.random.Generator, s: Sampler) -> str:
     """Digits, prices, totals, tax lines, dates and codes: the text whose misreads change what a document says. One to four tokens;
     about a third carry a label word (Total, VAT 20%, ...), the rest are the figures alone, as word crops of a receipt are."""
@@ -624,6 +685,14 @@ def plan_shard(job) -> list[dict]:
                 else:
                     toks.append(s.receipt_token())
             text, src = " ".join(toks), "synthetic:receipt"
+            file = _pick_font(rng, fams, set(text) - {" "})
+        elif kind in ("mask", "qty"):
+            file = _pick_font(rng, fams, set())
+            if file is None:
+                continue
+            s = Sampler(charset, cov.of(file), rng)
+            text = mask_line(rng, s) if kind == "mask" else qty_line(rng, s, books)
+            src = f"synthetic:{kind}"
             file = _pick_font(rng, fams, set(text) - {" "})
         elif kind == "receipt2":
             # the words of a till receipt as the reader gets them: round amounts in both separator conventions, item counts, label
