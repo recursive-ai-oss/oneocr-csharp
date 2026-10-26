@@ -584,7 +584,7 @@ same format.
 
 | Model | Role | Architecture | Size | Package |
 |---|---|---|---|---|
-| `crnn-v0` 0.6.0 | Line recognizer: 622 classes (Latin, Greek, Cyrillic, punctuation, currency), per-script calibrated confidence | convolutions, 2-layer BiLSTM, CTC; 2.5 M parameters | 5.0 MB | `.Models` |
+| `crnn-v0` 0.6.2 | Line recognizer: 622 classes (Latin, Greek, Cyrillic, punctuation, currency), per-script calibrated confidence | convolutions, 2-layer BiLSTM, CTC; 2.5 M parameters | 5.0 MB | `.Models` |
 | `dbnet-lite-v1` 0.2.2 | Page detector: text lines (oriented), page orientation, layout classes | DBNet-style, 0.7 M parameters; [spec](docs/spec/detector-v1.md) | 1.4 MB | `.Models` |
 | `charlm-v1` | Character n-gram model for word breaks and optional beam search; [spec](docs/spec/char-lm-v1.md) | interpolated Kneser–Ney, Latin + Greek + Cyrillic | 1.4 MB | `.Models` |
 | `docextract-v0` | Invoice and receipt word tagger; [spec](docs/spec/docextract-v0.md) | character-CNN word embedding, 2-D position embedding, small transformer | about 4 MB | `.Models.Documents` |
