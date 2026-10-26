@@ -1,14 +1,14 @@
 # Fine-tune of the production recognizer on masked card numbers and item-count prefixes: crnn-r3's mix and guards unchanged, plus 8 lines
-# per batch of exact-truth mask/quantity lines (configs/lines-u89.yaml; production share 56 -> 48). Starts from ${ONEOCR_BASE}.
-# ${ONEOCR_U89} holds the rendered lines-u89 sets; the other variables are as in crnn-r3.yaml.
-name: crnn-u89
+# per batch of exact-truth mask/quantity lines (configs/lines-masks.yaml; production share 56 -> 48). Starts from ${ONEOCR_BASE}.
+# ${ONEOCR_MASKS} holds the rendered lines-masks sets; the other variables are as in crnn-r3.yaml.
+name: crnn-masks
 seed: 89
 init_from: ${ONEOCR_BASE}
 arch: crnn-v0
 charset: data/charset-v1.txt
 line_set: configs/lines-v4.yaml
 data_dir: ${ONEOCR_PREV}/data/lines-v4
-run_dir: ${ONEOCR_HOME}/runs/crnn-u89
+run_dir: ${ONEOCR_HOME}/runs/crnn-masks
 main_override:
   p: { resample: 0.5, resample2: 0.25 }
   ranges: { tilt_deg: [0.0, 0.3] }
@@ -37,7 +37,7 @@ sources:
   - { name: ui-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
   - { name: tight-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/tight_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
   - { name: gen-receipt-engine, kind: crops, dir: "${ONEOCR_GEN}/crops/train/finder", per_batch: 12, provenance: "receipt photos generated with Google Gemini 3.1 Flash Image, transcribed by Anthropic Claude Sonnet; engine line crops (gen/receipt_photos.py)" }
-  - { name: mask-qty, kind: pack, dir: "${ONEOCR_U89}/data/lines-u89/clean/mq_train", line_set: configs/lines-u89.yaml, side: rcpt, per_batch: 8, provenance: "exact-truth synthetic (configs/lines-u89.yaml)" }
+  - { name: mask-qty, kind: pack, dir: "${ONEOCR_MASKS}/data/lines-masks/clean/mq_train", line_set: configs/lines-masks.yaml, side: rcpt, per_batch: 8, provenance: "exact-truth synthetic (configs/lines-masks.yaml)" }
   - { name: cord-train, kind: crops, dir: "${ONEOCR_FT}/data/cord-lines/train/finder", per_batch: 12, provenance: "CORD v2 train annotations, CC BY 4.0" }
 extra_val:
   receipt_synth: ${ONEOCR_FT}/data/lines-v5/val
@@ -46,8 +46,8 @@ extra_val:
   tight: ${ONEOCR_FT}/data/lines-v5/tight_val
   cord_dev: ${ONEOCR_FT}/data/cord-lines/val/finder
   gen_dev: ${ONEOCR_GEN}/crops/dev/finder
-  mask: ${ONEOCR_U89}/data/lines-u89/mask_val
-  qty: ${ONEOCR_U89}/data/lines-u89/qty_val
+  mask: ${ONEOCR_MASKS}/data/lines-masks/mask_val
+  qty: ${ONEOCR_MASKS}/data/lines-masks/qty_val
   phone: ${ONEOCR_HOME}/data/phone-lines/phone-tune/finder
   figures: ${ONEOCR_V6}/data/lines-v6/figures_val
   small: ${ONEOCR_V6}/data/lines-v6/small_val

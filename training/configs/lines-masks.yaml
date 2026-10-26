@@ -1,8 +1,8 @@
 # Masked card numbers and item-count prefixes of till receipts (`****1234`, `XXXX XXXX 1234`, `2x`, `2 @ 1.99`, `QTY 2`), alone and before item
 # words. The reader turned runs of mask marks into rows of dots and glued or dropped the count marks, so these forms get their own
 # exact-truth lines: families, books and degradation draws follow lines-r1 (training families for training, held-out families, books and
-# the faint end for validation). Render with CFG=configs/lines-u89.yaml gen/make_lines_r1.sh OUT.
-name: lines-u89
+# the faint end for validation). Render with CFG=configs/lines-masks.yaml gen/make_lines_r1.sh OUT.
+name: lines-masks
 seed: 20268901
 charset: data/charset-v1.txt
 fonts: data/fonts.yaml
