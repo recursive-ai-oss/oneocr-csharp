@@ -32,6 +32,15 @@ public sealed class OcrOptions
     public bool Deskew { get; init; } = true;
 
     /// <summary>
+    /// Whether to look for a better whole-page angle when the first reading is weak. Default true. Photographs taken with the camera
+    /// turned by 10 to 30 degrees are beyond <see cref="Deskew"/>; when under 60% of a page's text is read confidently, the page is read
+    /// again turned by -30 to +30 degrees in steps of 10, then 5 degrees either side of the best, and the angle with the most
+    /// confidently read text is kept if it clearly beats the first reading. The angle is reported in <see cref="OcrPage.SkewDegrees"/>
+    /// and a diagnostic says so. Pages that read well are not read twice; a weak page costs up to eight more readings.
+    /// </summary>
+    public bool SearchAngle { get; init; } = true;
+
+    /// <summary>
     /// Whether to drop words that are noise read as text (specks, scan grain and edges). Default true. Two kinds go: unsure words
     /// that sit in lines much smaller than the page's own text (calibrated confidence under 0.5, and a line both under 60% of the
     /// height of the page's confidently read lines and under 12 pixels; in lines under 8 pixels, unless it is read with 0.99; pages

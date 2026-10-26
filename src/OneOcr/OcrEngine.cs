@@ -248,7 +248,7 @@ public sealed class OcrEngine
         decoding.Validate(_limits);
         if (decoding.Mode != CtcDecoding.Beam)
         {
-            return BuildPage(image, 0, null, maxDegreeOfParallelism, includeChars: false, orient: true, deskew: true, new JunkParameters(), respace: true, digits: true, separators: true, cancellationToken).ToText();
+            return BuildPage(image, 0, null, maxDegreeOfParallelism, includeChars: false, orient: true, deskew: true, new JunkParameters(), respace: true, digits: true, separators: true, searchAngle: true, cancellationToken).ToText();
         }
 
         string[] texts = [];
@@ -298,7 +298,7 @@ public sealed class OcrEngine
         ArgumentNullException.ThrowIfNull(image);
         options ??= new OcrOptions();
         options.Validate();
-        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, cancellationToken);
+        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken);
     }
 
     /// <summary>Like <see cref="Ocr(Image, OcrOptions?, CancellationToken)"/>, on a thread-pool thread: the same code runs, so the page is identical.</summary>
@@ -335,7 +335,7 @@ public sealed class OcrEngine
             }
 
             ArgumentNullException.ThrowIfNull(image);
-            pages.Add(BuildPage(image, checked(options.PageIndex + pages.Count), options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, cancellationToken));
+            pages.Add(BuildPage(image, checked(options.PageIndex + pages.Count), options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken));
         }
 
         return pages;
@@ -349,7 +349,7 @@ public sealed class OcrEngine
     public Task<IReadOnlyList<OcrPage>> OcrAsync(IEnumerable<Image> images, OcrOptions? options = null, CancellationToken cancellationToken = default) =>
         Task.Run(() => Ocr(images, options, cancellationToken), cancellationToken);
 
-    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, CancellationToken cancellationToken)
+    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
     {
         long pixels = (long)image.Width * image.Height;
         if (pixels > _limits.MaxImagePixels)
@@ -366,7 +366,7 @@ public sealed class OcrEngine
             long t = StageClock.Start();
             image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
             StageClock.Stop("1 decode+gray copy", t);
-            return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, junk, respace, digits, separators, cancellationToken);
+            return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, junk, respace, digits, separators, searchAngle, cancellationToken);
         }
         finally
         {
@@ -380,7 +380,7 @@ public sealed class OcrEngine
 
     // Turns and straightens the page (see PagePreparation), reads it, and puts the result in the frame the caller asked about.
     private OcrPage ReadPrepared(
-        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, CancellationToken cancellationToken)
+        Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
     {
         var evidence = new OrientationEvidence();
         PreparedPage prepared = PagePreparation.Prepare(
@@ -395,12 +395,59 @@ public sealed class OcrEngine
             long t = StageClock.Start();
             OcrPage finished = prepared.Finish(page);
             StageClock.Stop("9 frame map", t);
+            if (searchAngle && prepared.Source is { } source && PageAngleSearch.IsWeak(finished, out _) && (finished.Words.Count > 0 || PageAngleSearch.HasInk(source)))
+            {
+                finished = SearchAngles(finished, source, pageIndex, dpi, degree, includeChars, junk, respace, digits, separators, cancellationToken);
+            }
+
             return finished;
         }
         finally
         {
             prepared.Release();
         }
+    }
+
+    // The angle search (see PageAngleSearch): the page is read again turned by other whole-page angles and the best reading is kept.
+    private OcrPage SearchAngles(
+        OcrPage first, SearchSource source, int pageIndex, double? dpi, int degree, bool includeChars, JunkParameters? junk, bool respace, bool digits, bool separators,
+        CancellationToken cancellationToken)
+    {
+        OcrPage? ReadAt(int slope)
+        {
+            var frame = new PageFrame(source.FrameWidth, source.FrameHeight, source.FrameQuarter, slope);
+            long canvas = (long)frame.DeskewedWidth * frame.DeskewedHeight;
+            if (canvas > _limits.MaxImagePixels)
+            {
+                return null;
+            }
+
+            Gray8[] turned = _pixels.Rent(canvas);
+            try
+            {
+                byte background = PageRotation.Background(PixelSpans.AsBytes(source.Pixels.AsSpan(0, source.Width * source.Height)));
+                PageRotation.Deskew(source.Pixels, source.Width, source.Height, frame.Sin, frame.Cos, background, turned, frame.DeskewedWidth, frame.DeskewedHeight, degree, cancellationToken);
+                OcrPage page = PageReader.Read(
+                    _recognizer, _limits, _pixels, _masks, _resizers, _detector, turned, frame.DeskewedWidth, frame.DeskewedHeight, pageIndex, dpi, degree, includeChars,
+                    null, turn: false, null, cancellationToken, null, junk, respace, digits, separators);
+                var notes = new List<string>(source.Notes);
+                return frame.MapPage(page, notes);
+            }
+            finally
+            {
+                _pixels.Return(turned);
+            }
+        }
+
+        (OcrPage page, int? angle) = PageAngleSearch.Search(first, ReadAt, cancellationToken);
+        if (angle is int a)
+        {
+            var diagnostics = new List<string>(page.Diagnostics) { PageAngleSearch.Note(a) };
+            return new OcrPage(
+                page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, page.KeyValues, diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees);
+        }
+
+        return page;
     }
 
     /// <summary>One text line of a page as the line finder sees it, with the crop the recognizer reads and its greedy reading.</summary>

@@ -13,8 +13,9 @@ The steps run in this order, each on the 8-bit gray page:
 3. **Skew**: the tilt of the text lines is estimated on the turned page.
 4. **Deskew**: when the tilt is large enough to act on, the page is turned by it on a larger canvas, with bilinear sampling.
 5. The turned and straightened page is read as usual; every box is then carried back to the input image (below).
+6. **Angle search** (only when the first reading is weak, below): the page is read again at other whole-page angles and the best reading is kept.
 
-`OcrOptions.DetectOrientation` and `OcrOptions.Deskew` (both default true) switch steps 1–2 and 3–4 off (with a detector, `DetectOrientation = false` also stops the head from turning the page). A page that needs neither
+`OcrOptions.DetectOrientation`, `OcrOptions.Deskew` and `OcrOptions.SearchAngle` (all default true) switch steps 1–2, 3–4 and 6 off (with a detector, `DetectOrientation = false` also stops the head from turning the page). A page that needs neither
 (no turn, tilt under 0.3°) is read from the very same pixels as with both switched off, so its text is the same.
 
 ## Ink grid
@@ -95,6 +96,31 @@ The detector's quarter turn is reported as it always was: the page model is in t
 page's), `Orientation` stays 0 and a diagnostic names the turn and the head's confidence. Deskew, when it acts, is carried back to
 that turned frame by the mapping below (so boxes get quads there) and reported in `SkewDegrees`. A page with neither a confident
 turn nor a tilt is detected once, exactly as without the orientation step.
+
+## Angle search
+
+Photographs taken with the camera turned by 10 to 30 degrees are beyond the skew estimate (±15°) and the per-line tilt reading; the
+page reads as garbage. The search costs nothing on pages that read well.
+
+- **Trigger.** After the first reading (steps 1–5, mapped to the frame the caller gets), let *confident* words be those with
+  calibrated confidence ≥ 0.9. The reading is weak when characters in confident words make up less than **0.6** of all characters
+  of all words (a page without words counts as weak only when at least 0.2% of its pixels are ink, so a blank page is not searched). Pages that are not weak are never read again.
+- **Score** of a reading: the sum, over its confident words in reading order, of `confidence · (number of UTF-16 code units of the
+  text)`, accumulated in double precision.
+- **Candidates.** The page as it was before step 4 (turned upright, not straightened) is turned by a slope `k / 1024` exactly as in
+  Deskew, with `k` taken from the table for 5°, 10°, … 35°: `90, 181, 274, 373, 477, 591, 717` (round(1024·tan a)). The search is coarse to fine:
+  1. 10°, then −10°, 20°, −20°, 30°, −30° (positive slopes first), each read like the first reading (detection, lines, recognition,
+     reading order, the same options) and mapped back through the frame of the candidate;
+  2. if one of these won, 5° either side of the winner (the smaller magnitude first).
+  A candidate whose canvas would exceed `OcrLimits.MaxImagePixels` is skipped.
+- **Winner.** A candidate replaces the best so far only if its score is strictly greater, and the first candidate must beat the first
+  reading's score times **1.1**; ties therefore keep the earlier (smaller-angle, positive-sign) reading. If none wins, the first
+  reading is the result unchanged.
+- **Result.** The winning page's boxes and quads are in the input frame (the turn is part of the frame, so quads are produced by the
+  mapping below), `SkewDegrees` is the candidate's angle (`atan(k/1024)`), and a diagnostic says the page was read at several angles.
+  A weak page costs at most 8 more readings.
+
+Every reading is an ordinary page reading, so the search is bit-identical on every path and degree like the rest.
 
 ## Mapping back
 
