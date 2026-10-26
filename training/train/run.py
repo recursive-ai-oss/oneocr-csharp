@@ -81,9 +81,11 @@ def augment_real(x: torch.Tensor, widths: torch.Tensor, g: torch.Generator) -> t
     f = f + torch.randn(f.shape, generator=g, device=dev) * u(0.0, 0.03).view(b, 1, 1, 1)
     f = f.clamp(0, 1) * 255.0
     outs, ws = [], []
+    scale = u(0.85, 1.15).tolist()  # one transfer for the batch: a per-sample .item() on the GPU stalls the stream 140 times a step
+    wl = widths.tolist()
     for i in range(b):
-        wi = int(widths[i])
-        nw = max(4, int(round(wi * float(u(0.85, 1.15)[i]))))
+        wi = int(wl[i])
+        nw = max(4, int(round(wi * scale[i])))
         outs.append(torch.nn.functional.interpolate(f[i : i + 1, :, :, :wi], size=(f.shape[2], nw), mode="bilinear", align_corners=False))
         ws.append(nw)
     return pad_group(outs, ws)
@@ -261,9 +263,10 @@ def main() -> None:
                 gx, gw, _ = degrade(gx, gw, sd, gen)
             else:
                 gx, gw = augment_real(gx, gw, gen)
+            gl = gw.tolist()
             for k in range(gx.shape[0]):
-                imgs.append(gx[k : k + 1, :, :, : int(gw[k])].float())
-                ws.append(int(gw[k]))
+                imgs.append(gx[k : k + 1, :, :, : int(gl[k])].float())
+                ws.append(int(gl[k]))
             tl += gt
         x, widths = pad_group(imgs, ws)
         x = x.round().clamp(0, 255)
