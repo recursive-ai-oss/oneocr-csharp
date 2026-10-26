@@ -58,7 +58,7 @@ internal static class TiltedLines
     /// the caller then takes the axis-aligned path.
     /// </summary>
     public static bool TryInkBoxes(
-        Detection.DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<StripLine> result, int leaf)
+        Detection.DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<StripLine> result, int leaf, bool? pageIsDarkInk = null)
     {
         if (line.Axis is not { } a || threshold < 0 || !IsTilted(a))
         {
@@ -87,7 +87,7 @@ internal static class TiltedLines
             }
 
             var boxes = new List<LineBox>(1);
-            DetectorLines.InkBoxes(new Detection.DetectedLine(0, 0, sw, sh, line.Score), strip.AsSpan(0, sw * sh), sw, sh, threshold, inkIsBright, boxes);
+            LocalInk? local = DetectorLines.InkBoxes(new Detection.DetectedLine(0, 0, sw, sh, line.Score), strip.AsSpan(0, sw * sh), sw, sh, threshold, inkIsBright, boxes, pageIsDarkInk);
             foreach (LineBox b in boxes)
             {
                 var ink = new LineBox(u0 + b.X, v0 + b.Y, b.Width, b.Height);
@@ -96,7 +96,7 @@ internal static class TiltedLines
                 var box = new LineBox(
                     (int)Math.Round(cx - (ink.Width / 2.0), MidpointRounding.ToEven), (int)Math.Round(cy - (ink.Height / 2.0), MidpointRounding.ToEven),
                     ink.Width, ink.Height);
-                result.Add(new StripLine(box, leaf, frame with { Ink = ink }));
+                result.Add(new StripLine(box, leaf, frame with { Ink = ink }, local));
             }
 
             return boxes.Count > 0;

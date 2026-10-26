@@ -38,6 +38,11 @@ internal static partial class PageReader
             }
         }
 
+        if (InkTooNarrow(maxU - minU + 1, to - from, ink.Height))
+        {
+            maxU = -1;
+        }
+
         (double left, double top, double right, double bottom) = maxU < 0 ? (ua, ink.Y, ub, ink.Bottom) : (minU, minV, maxU + 1, maxV + 1);
         (OcrBox box, OcrQuad quad) = FrameRect(tilt, left, top, right, bottom);
         IReadOnlyList<OcrChar> chars = [];

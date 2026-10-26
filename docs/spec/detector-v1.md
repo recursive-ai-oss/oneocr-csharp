@@ -67,6 +67,34 @@ Reading a line along its axis:
 
 **Sampling.** The value at a page point `(px, py)` (pixel `(x, y)` covers `[x, x+1)`) is bilinear between the four pixel centres around it: `fx = px - 0.5`, `x0 = floor(fx)`, `wx = fx - x0`, likewise `y`; neighbours outside the page repeat the edge pixel; `top = p00*(1-wx) + p10*wx`, `bottom = p01*(1-wx) + p11*wx`, `value = top*(1-wy) + bottom*wy` in double precision, rounded half up to a byte. No fused multiply-add is used, so the bytes are the same on every platform.
 
+## Ink on camera photos (page reader, any detector version)
+
+The ink inside a detected line (the ink band, the line's ends, the word rectangles) is found with the page's Otsu threshold: ink is the
+smaller class. On a photo whose light falls off across the page one threshold cannot fit every line, and a line the threshold does not
+fit loses its ends or its words. The page reader therefore binarizes lines of **camera photos** by itself. A page is a camera photo when
+the detector's noise estimate `sigma` (see the page-conditional threshold below) is above `0.1`; screenshots and clean renders have flat colours,
+and pages without a noise estimate (a model without the rule) are never treated as photos. On every other page nothing here applies and the
+output is unchanged.
+
+On a photo, for each detected line (axis-aligned rectangle, or the straightened strip of a line read along its axis):
+
+1. **Line threshold.** Let `H` be the histogram of the line's gray values and `(t, bright)` Otsu's threshold over `H` with ink as the smaller class.
+   The line uses `(t, dark ink)` instead of the page's when
+   - the page reads ink as bright, at least half of the page's detected lines read ink as dark by their own Otsu threshold, and this line does too
+     (the page threshold was fixed by the dark majority of a shadowed photo; a dark-mode screen has bright ink in most lines and keeps the page's reading); or
+   - the page reads ink as dark, more than half of the line's pixels are at or below the page's threshold (the threshold lies inside the line's
+     paper), and the line's own reading is dark ink with `t` different from the page's.
+
+   The line's own reading is used only when it is credible: the pixels at or below `t` are at least 1.5% of the line, and the mean gray of the
+   rest exceeds the mean of those by at least 40. Otherwise the page's threshold stands. The threshold then serves the ink band, the line's ends and
+   the word rectangles of that line.
+2. **Line ends.** After the ink band is found, an end of the line's ink that is more than 0.8 of the band's height short of the detected
+   rectangle's end (left or right, along the line) is moved to the detector's end. Print at the end of a line is where blur and uneven light leave
+   it faintest, and a crop that stops there loses the words.
+3. **Word rectangles.** On every page: when the ink found inside a word's aligned extent is narrower than a quarter of the extent (and the extent is
+   at least half the line's height), the word's rectangle is the aligned extent over the line's rows, as when no ink is found. A rectangle of a pixel or
+   two otherwise tears the word out of its line in reading order.
+
 ## Evaluation order and memory
 
 As for v0, every output value is an independent sum, so a port may evaluate whole or in bands. The C# reader keeps the v0 banded stages; the stride-16 branch runs on whole stride-16 maps (a quarter of the stride-8 map's size), `p16` is kept until the branch has consumed it, and stage 2's channel means are taken before stage 2 is dropped. On an A4 page at the 0.2.0 widths the scratch in use at once peaks at 24.3 MB at degree 1 (22.8 MB for v0 at its own widths).
