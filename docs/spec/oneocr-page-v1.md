@@ -146,6 +146,14 @@ of PDF fragments:
   that crosses all of them (paragraphs that end at the same height) would cut the columns into slices read left, right, left,
   right. Consecutive bands that share an empty vertical stripe of at least 1.25 em are therefore merged back into one section,
   which is then cut into its columns. A section that would be a table is not merged.
+- Narrow gutters (`LayoutParameters.Soft*`). Print gutters are about one em of the font, a little over the measured text height, so
+  a gutter of 1.25 text heights is missed by a pixel or two on tightly set pages and more on blurred scans, and the page was read
+  row by row across its columns (the cells of one line joined by tabs). When a region has no stripe of 1.25 text heights and no
+  fragment of any of its lines crosses a stripe of at least 0.5 text heights, and the region has at least 10 distinct lines, it is
+  cut there into columns if every column has at least 5 distinct lines and the widest quarter of its fragments is at least 12
+  text heights wide (full lines of running text; a column of bullets, labels or table cells is not). These columns skip the
+  label, table, sidebar and tied-row rules and are read one after the other, top to bottom. Regions that already had a stripe of
+  1.25 text heights are cut exactly as before.
 - Screens and forms (`ReadingOrder.Sections.cs`). When a region has empty vertical stripes and is not a table, three rules
   decide whether the columns are the structure, in this order:
   1. *Header row*: the topmost band is read first, whole, when it is at most 2.5 em tall, has at least two fragments, spans at

@@ -16,6 +16,24 @@ internal static class LayoutParameters
     /// <summary>An empty vertical stripe at least this wide, crossing every fragment of a region, separates columns.</summary>
     internal const double ColumnGutterEm = 1.25;
 
+    /// <summary>
+    /// A narrower empty stripe than <see cref="ColumnGutterEm"/> still separates columns when it runs clear through a region of text
+    /// with many lines and every column it leaves is a column of running text (see <see cref="SoftColumnLines"/> and
+    /// <see cref="SoftColumnWidthEm"/>). Print gutters are about one em of the font, which is a little over the measured text height,
+    /// so a stripe of 1.25 text heights misses the gutters of tightly set pages by a pixel or two, more so on blurred scans, and the
+    /// page was then read row by row across its columns. A stripe that no fragment of a dozen lines touches is not a gap between words.
+    /// </summary>
+    internal const double SoftGutterEm = 0.5;
+
+    /// <summary>A region needs at least this many distinct lines before a narrow stripe can separate its columns.</summary>
+    internal const int SoftMinLines = 10;
+
+    /// <summary>Every column cut at a narrow stripe has at least this many lines ...</summary>
+    internal const int SoftColumnLines = 5;
+
+    /// <summary>... and the widest quarter of its fragments are at least this many em wide (full lines of running text, not a list of labels or cells).</summary>
+    internal const double SoftColumnWidthEm = 12;
+
     /// <summary>An empty horizontal band at least this tall separates blocks.</summary>
     internal const double BlockGapEm = 0.5;
 
@@ -356,7 +374,18 @@ internal static partial class ReadingOrder
             bool firstIsStandalone = false;
             double ms = Median(reg.Select(i => f[i].Size).ToArray());
             List<int[]>? groups = Partition(f, reg, true, LayoutParameters.ColumnGutterEm * ms);
-            if (groups is not null && LabelBlocks(f, groups) is { } blocks)
+            bool narrowCut = false;
+            if (groups is null && SoftColumns(f, reg, ms) is { } narrow)
+            {
+                groups = narrow;
+                narrowCut = true;
+            }
+
+            if (narrowCut)
+            {
+                // Columns of running text: no label, table or sidebar reading applies to them.
+            }
+            else if (groups is not null && LabelBlocks(f, groups) is { } blocks)
             {
                 groups = blocks;
             }
@@ -385,7 +414,7 @@ internal static partial class ReadingOrder
                     groups = MergeFieldCells(f, MergeColumnRuns(f, groups, ms), ms, standalone);
                 }
             }
-            else
+            else if (!narrowCut)
             {
                 (groups, firstIsStandalone) = ChooseCut(f, reg, groups, ms);
             }
@@ -409,6 +438,50 @@ internal static partial class ReadingOrder
         }
 
         return leaves;
+    }
+
+    // Columns separated by a stripe narrower than a full gutter, for a region of many lines whose columns are all running text.
+    // Null when there is no such stripe or the groups it leaves are not all columns of text.
+    private static List<int[]>? SoftColumns(List<OrderFragment> f, int[] reg, double ms)
+    {
+        if (reg.Length < 2 * LayoutParameters.SoftMinLines || DistinctLineCount(f, reg) < LayoutParameters.SoftMinLines)
+        {
+            return null;
+        }
+
+        List<int[]>? groups = Partition(f, reg, true, LayoutParameters.SoftGutterEm * ms);
+        if (groups is null)
+        {
+            return null;
+        }
+
+        foreach (int[] g in groups)
+        {
+            var widths = new double[g.Length];
+            for (int i = 0; i < g.Length; i++)
+            {
+                widths[i] = (f[g[i]].X1 - f[g[i]].X0) / Math.Max(ms, 1e-6);
+            }
+
+            Array.Sort(widths);
+            if (DistinctLineCount(f, g) < LayoutParameters.SoftColumnLines || widths[(int)(0.75 * (widths.Length - 1))] < LayoutParameters.SoftColumnWidthEm)
+            {
+                return null;
+            }
+        }
+
+        return groups;
+    }
+
+    private static int DistinctLineCount(List<OrderFragment> f, int[] reg)
+    {
+        var lines = new HashSet<int>();
+        foreach (int id in reg)
+        {
+            lines.Add(f[id].Line);
+        }
+
+        return lines.Count;
     }
 
     private static int DistinctLines(List<OrderFragment> f, int[] reg)
