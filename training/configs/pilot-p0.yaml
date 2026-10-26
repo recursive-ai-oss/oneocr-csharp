@@ -1,0 +1,30 @@
+# Capacity pilot (p0): one design trained from random initialisation for 40k steps on the production mix (the sources of crnn-v10, the adaptive
+# stream drawn uniformly), identical for every design except the model and, for the attention model, the learning rate. Selection is on val only;
+# the pilot is judged on final.pt. ${ONEOCR_HOME} is this run's state directory, ${ONEOCR_PREV} the production run's data, ${ONEOCR_FT} the earlier
+# fine-tune stage's data, ${ONEOCR_V6} the lines-v6 sets.
+name: pilot-p0
+seed: 85
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_PREV}/data/lines-v4
+run_dir: ${ONEOCR_HOME}/runs/pilot-p0
+main_override:
+  p: { resample: 0.5, resample2: 0.25 }
+  ranges: { tilt_deg: [0.0, 0.3] }
+sources:
+  - { name: adaptive, kind: pack, dir: "${ONEOCR_V6}/data/lines-v6/clean/adapt_train", line_set: configs/lines-v6.yaml, side: adapt, per_batch: 12, provenance: "exact-truth synthetic (configs/lines-v6.yaml)" }
+  - { name: receipt-synth, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/train", line_set: configs/lines-v5.yaml, side: receipt, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: gap-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/gaps_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: ui-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: tight-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/tight_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: cord-train, kind: crops, dir: "${ONEOCR_FT}/data/cord-lines/train/finder", per_batch: 12, provenance: "CORD v2 train annotations, CC BY 4.0" }
+train:
+  steps: 40000
+  batch: 128
+  lr: 0.002
+  warmup: 1000
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 4000
+  ckpt_every: 2000
