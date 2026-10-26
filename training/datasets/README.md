@@ -8,6 +8,7 @@ Pinned, reproducible fetches of the standard document datasets used for training
 | DocLayNet (layout) | 1.0.0 core | CDLA-Permissive-1.0 | `python3 fetch_doclaynet.py` |
 | PubLayNet (layout) | 1.0.0: val + train shard 0 | annotations CDLA-Permissive-1.0, images PMC Open Access terms | `python3 fetch_publaynet.py` |
 | UNLV-ISRI | not fetched | unclear | see `LICENCES.md` |
+| Generated receipt photos | not fetched; generated and transcribed locally | see `LICENCES.md` | `gen/receipt_photos.py` reads a local directory |
 
 `LICENCES.md` has the verdict for each, with the quoted clauses and sources. Read it before using PubLayNet images.
 
