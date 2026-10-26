@@ -32,5 +32,5 @@ Checked 2026-10-23 from each dataset's own licence text and the source collectio
 ## Generated receipt photos — usable for training and evaluation; not redistributed
 
 - What it is: receipt photographs generated with Google Gemini 3.1 Flash Image from short free-text prompts (store, occasion, setting, camera conditions; fictional receipts), and transcribed line by line by Anthropic Claude Sonnet. The transcription is the truth; photos it cannot read confidently are dropped, and lines it marks unsure are never used as labels.
-- Use is on the owner's decision for this data: the images and the transcriptions train and evaluate our own recognizer. The images, the transcriptions and the prompts stay on the worker and are not redistributed or published.
+- Use: the images and the transcriptions train and evaluate our own recognizer. The images, the transcriptions and the prompts stay on the training machine and are not redistributed or published.
 - Everything that reads these files (`gen/receipt_photos.py`) takes a local directory of images and a directory of label JSON; neither is tracked here. Splits are by image hash (`dev`, `calib`, `train`); `dev` is never trained on and `calib` fits the confidence map only.
