@@ -1,0 +1,30 @@
+# Interface and web text lines rendered by Chromium (gen/ui_lines.py). One page holds `rows_per_page` rows; device-pixel ratio and
+# anti-aliasing are drawn once per page, everything else per row.
+charset: data/charset-v1.txt
+rows_per_page: 40
+expected_keep: 0.9            # share of rows that survive the read-back and ink checks (sets the number of pages for --n)
+page_width: 1800              # css px
+max_chars: 120                # the widths the recognizer is trained for
+max_width: 1600               # px at the 32 px output height
+min_ink_h: 5                  # device px; smaller ink is not a readable line
+dpr: [1, 1, 1, 1.25, 1.5, 1.5, 2, 2]            # repeated entries weight a value
+aa: { grayscale: 0.6, subpixel: 0.4 }
+css_px: [9, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 16, 16, 18, 20, 24, 28]   # font size in css px (device size = css x dpr)
+mix: { ui: 0.30, gap: 0.08, tight: 0.12, book: 0.14, numtext: 0.06, figures: 0.06, uiword: 0.10, sep: 0.06, numbers: 0.04, codes: 0.04 }
+themes: { light: 0.55, dark: 0.25, mid: 0.12, brand: 0.08 }
+contrast: [1.9, 17.0]         # WCAG contrast ratio of ink to background, log-uniform
+tint_ink: 0.25
+p_upper: 0.04
+p_italic: 0.08
+p_weight_variety: 0.45        # otherwise the regular weight
+p_letter_spacing: 0.25
+letter_spacing: [-0.03, 0.12] # em
+p_underline: 0.06
+p_ligatures: 0.25             # browsers ligate fi, fl by default; most rows switch it off
+pad_y: [2, 10]                # css px around the line inside its row
+pad_x: [4, 24]
+gap_y: [0, 6]                 # css px between rows: small gaps leave slivers of the neighbouring row inside the crop
+p_rule: 0.2                   # a 1 px rule between rows (outside the row, so it can fall inside a crop but not in the ink box)
+# crop geometry: ink box plus margins in units of the ink height, as the library's finder cuts (vertical 0.18-0.32, horizontal 0.35-0.65)
+p_broad: 0.15
+p_tight_ends: 0.10
