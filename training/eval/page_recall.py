@@ -2,7 +2,7 @@
 
     uv run python -m eval.page_recall --truth DIR --hyp DIR [--hyp DIR ...]
 
-TRUTH/<id>.json carries "text"; HYP/<id>.txt is the reading. Uses the benchmark scorer's page function, so the numbers are the ones its
+TRUTH/<id>.json carries "text" (or TRUTH/<id>.txt is the text); HYP/<id>.txt is the reading. Uses the benchmark scorer's page function, so the numbers are the ones its
 `score` command reports (receipts have partial truth, so recall is the judged pair there).
 """
 
@@ -22,10 +22,10 @@ KEYS = ["char_errors", "word_errors", "order_errors", "ref_chars", "ref_words", 
 def totals(truth: Path, hyp: Path) -> dict:
     a = [0] * 7
     n = 0
-    for tf in sorted(truth.glob("*.json")):
-        t = json.loads(tf.read_text(encoding="utf-8"))
+    for tf in sorted(truth.glob("*.json")) or sorted(truth.glob("*.txt")):
+        text = json.loads(tf.read_text(encoding="utf-8"))["text"] if tf.suffix == ".json" else tf.read_text(encoding="utf-8")
         h = hyp / (tf.stem + ".txt")
-        r = score_page(t["text"], h.read_text(encoding="utf-8") if h.exists() else "")
+        r = score_page(text, h.read_text(encoding="utf-8") if h.exists() else "")
         for k, key in enumerate(KEYS):
             a[k] += r[key]
         n += 1
