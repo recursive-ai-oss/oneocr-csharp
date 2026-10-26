@@ -315,4 +315,50 @@ public class ReadingOrderTests
 
         Assert.Equal(expected, Read([.. strips]));
     }
+
+    // A word of the test columns: names its column, row and place; lengths 3 to 6 so that word gaps do not line up from row to row.
+    private static string ColumnWord(int column, int row, int word) =>
+        $"{(char)('a' + column)}{row:x}{word}".PadRight(3 + ((row + (2 * word) + column) % 4), 'x');
+
+    // Column pitch: the widest row of any column, plus a gutter of 0.9 of the text height (9 of 10).
+    private static readonly double Pitch = Enumerable.Range(0, 3).SelectMany(c => Enumerable.Range(0, 12).Select(r => ColumnRow(c, r))).Max(t => t.Split(' ').Sum(w => 6.0 * w.Length) + (8.0 * 4)) + 9;
+
+    private static string ColumnRow(int column, int row) => string.Join(' ', Enumerable.Range(0, 5).Select(w => ColumnWord(column, row, w)));
+
+    [Fact]
+    public void ColumnsWithATightGutterAreReadColumnByColumn()
+    {
+        // Three columns of twelve lines whose gutters are 0.9 of the text height: narrower than the usual 1.25, but empty through every
+        // line of the region and each column is running text. They are read one after the other, not row by row across the page.
+        var strips = new List<OrderStrip>();
+        var expected = new List<string>();
+        for (int c = 0; c < 3; c++)
+        {
+            for (int r = 0; r < 12; r++)
+            {
+                strips.Add(Line(20 + (c * Pitch), 20 + (r * 16), ColumnRow(c, r)));
+                expected.Add(ColumnRow(c, r));
+            }
+        }
+
+        Assert.Equal(string.Join(' ', expected), Read([.. strips]));
+    }
+
+    [Fact]
+    public void ABulletColumnIsNotACutAtANarrowStripe()
+    {
+        // A bullet and its text 0.9 of the height apart on twelve lines: the narrow stripe is empty all the way down, but the bullets
+        // are not a column of text, so each bullet is still read with its line.
+        var strips = new List<OrderStrip>();
+        var expected = new List<string>();
+        for (int r = 0; r < 12; r++)
+        {
+            string text = ColumnRow(0, r);
+            strips.Add(Line(20, 20 + (r * 16), "o"));
+            strips.Add(Line(20 + 6 + 9, 20 + (r * 16), text));
+            expected.Add("o " + text);
+        }
+
+        Assert.Equal(string.Join(' ', expected), Read([.. strips]));
+    }
 }
