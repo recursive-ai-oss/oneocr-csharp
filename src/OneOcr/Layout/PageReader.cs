@@ -196,9 +196,12 @@ internal static partial class PageReader
                     var words = new List<OcrWord>(lines[k].Words.Count);
                     foreach (RecognizedWord w in lines[k].Words)
                     {
+                        // A line the page's binarization does not fit is boxed with its own.
+                        int lineThreshold = strips[index].Local?.Threshold ?? threshold;
+                        bool lineBright = strips[index].Local?.InkIsBright ?? inkIsBright;
                         words.Add(strips[index].Tilt is { } along
-                            ? MakeTiltedWord(w, page, width, height, threshold, inkIsBright, along, crops[index], images[k].Width, includeChars)
-                            : MakeWord(w, page, width, height, threshold, inkIsBright, ink, crops[index], images[k].Width, includeChars));
+                            ? MakeTiltedWord(w, page, width, height, lineThreshold, lineBright, along, crops[index], images[k].Width, includeChars)
+                            : MakeWord(w, page, width, height, lineThreshold, lineBright, ink, crops[index], images[k].Width, includeChars));
                     }
 
                     read[index] = new OrderStrip
@@ -297,6 +300,11 @@ internal static partial class PageReader
             }
         }
 
+        if (InkTooNarrow(maxX - minX + 1, to - from, ink.Height))
+        {
+            maxX = -1;
+        }
+
         OcrBox box = maxX < 0 ? new OcrBox(xa, ink.Y, xb, ink.Bottom) : new OcrBox(minX, minY, maxX + 1, maxY + 1);
         IReadOnlyList<OcrChar> chars = [];
         if (includeChars)
@@ -322,6 +330,13 @@ internal static partial class PageReader
 
         return new OcrWord(w.Text, box, w.Confidence, w.RawConfidence, OcrSource.Ocr, chars);
     }
+
+    // Ink of a word that spans less than a quarter of the word's aligned extent is not the word's ink: the text there is lighter than the
+    // threshold (blurred print in a brightly lit part of a photo) and only a few pixels pass, which would make a box of a pixel or two
+    // and tear the word out of its line. The aligned extent is used instead. Extents shorter than half the line's height (a lone
+    // dot or comma between wide gaps) keep their ink.
+    private static bool InkTooNarrow(int inkWidth, int extent, int lineHeight) =>
+        inkWidth > 0 && extent * 2 >= lineHeight && inkWidth * 4 < extent;
 
     private static string SkipNote(LineBox ink, OcrLimits limits) =>
         $"A line at x {ink.X}, y {ink.Y} ({ink.Width} by {ink.Height} pixels) was skipped: scaled to the model's input height it would be wider than OcrLimits.MaxLineWidth ({limits.MaxLineWidth}).";
