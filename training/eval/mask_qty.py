@@ -21,6 +21,7 @@ from models import build
 from models.crnn import greedy_decode
 from train.data import LineSet, edit_distance, to_input
 
+DEVICE = "cpu"
 MASK = re.compile(r"[*Xx•#]{3,}")
 QTY = re.compile(r"^(\d{1,3}\s?[xX@]|[xX]\s?\d{1,3}\b|(?i:qty|quantity)[:\s]*\d)|\b\d{1,3}\s?@\s?\S*\d")
 
@@ -32,7 +33,7 @@ def read(model, data: LineSet, charset: list[str], idx: list[int]) -> dict[int, 
     for s in range(0, len(order), 128):
         b = order[s : s + 128]
         x, widths = data.batch(b)
-        logits = model(to_input(x, "cuda"), widths).float().cpu()
+        logits = model(to_input(x, DEVICE), widths).float().cpu()
         for k, i in enumerate(b):
             out[i] = greedy_decode(logits[k, : model.out_len(int(widths[k]))], charset)
     return out
@@ -43,9 +44,12 @@ def main() -> None:
     ap.add_argument("--checkpoint", required=True)
     ap.add_argument("--sets", required=True, help="name=DIR,name=DIR")
     ap.add_argument("--errors")
+    ap.add_argument("--device", default="cpu")
     a = ap.parse_args()
-    ck = torch.load(a.checkpoint, map_location="cuda", weights_only=False)
-    model = build(ck["config"]).cuda().eval()
+    global DEVICE
+    DEVICE = a.device
+    ck = torch.load(a.checkpoint, map_location=a.device, weights_only=False)
+    model = build(ck["config"]).to(a.device).eval()
     model.load_state_dict(ck["model"])
     for spec in a.sets.split(","):
         name, d = spec.split("=", 1)
