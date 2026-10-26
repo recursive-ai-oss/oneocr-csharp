@@ -70,6 +70,28 @@ if (t1 != t4 || t1.Split('\n').Length != 3)
     return 1;
 }
 
+// The async twins run the same code: same text and page, and a cancelled token ends the task as cancelled.
+if (await page.ToTextAsync(engine) != t1 || OcrPageJson.ToJson([await engine.OcrAsync(page)]) != OcrPageJson.ToJson([engine.Ocr(page)])
+    || engine.Ocr([page, page]).Count != 2)
+{
+    Console.Error.WriteLine("async twins disagree with sync");
+    return 1;
+}
+
+using (var cancelled = new System.Threading.CancellationTokenSource())
+{
+    cancelled.Cancel();
+    try
+    {
+        await engine.OcrAsync(page, null, cancelled.Token);
+        Console.Error.WriteLine("cancelled token was ignored");
+        return 1;
+    }
+    catch (OperationCanceledException)
+    {
+    }
+}
+
 // The page detector: a random-weight one finds lines, regions and an orientation; the page is the same at every degree.
 OcrEngine withDetector = engine.WithDetector(new System.IO.MemoryStream(TestDetectorModels.Random(TestDetectorModels.Small, 4)));
 OcrPage d1 = withDetector.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 1 }), d4 = withDetector.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 4 });
@@ -93,6 +115,15 @@ string b1 = engine.ToText(page, beam, 1), b4 = engine.WithDecoding(beam).ToText(
 if (b1 != b4 || b1.Split('\n').Length != 3)
 {
     Console.Error.WriteLine("beam decoding disagrees across degrees");
+    return 1;
+}
+
+// Word breaks from pixels and a word model: the page is the same at every degree, and the switch turns the step off.
+OcrEngine spaced = engine.WithWordModel(OneOcr.Decoding.CharLanguageModel.Parse(TestLm.Build("smoke", alphabet, [string.Concat(alphabet.Take(4)), string.Concat(alphabet.Skip(2).Take(5))], 3)));
+string s1 = OcrPageJson.ToJson([spaced.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 1 })]), s4 = OcrPageJson.ToJson([spaced.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 4 })]);
+if (!spaced.HasWordModel || engine.HasWordModel || s1 != s4 || spaced.Ocr(page, new OcrOptions { FixWordSpacing = false }).Blocks.Count == 0)
+{
+    Console.Error.WriteLine("word spacing disagrees across degrees");
     return 1;
 }
 

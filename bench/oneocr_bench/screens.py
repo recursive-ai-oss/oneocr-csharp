@@ -164,7 +164,7 @@ body{background:var(--bg);color:var(--fg);font-family:'%(fam)s';font-size:%(fs)s
 .top{display:flex;align-items:center;gap:22px;padding:12px 20px;background:var(--bar);border-bottom:1px solid var(--line)}
 .top .logo{font-weight:700;font-size:1.2em;margin-right:12px;color:var(--acc)} .top .usr{margin-left:auto}
 .blue .top .logo,.blue .top{color:#fff} .blue .top .logo{color:#fff}
-.main{display:flex}.side{width:190px;padding:16px 14px;border-right:1px solid var(--line);min-height:%(h)spx}
+.main{display:flex}.side{width:190px;padding:16px 14px;border-right:1px solid var(--line);%(sidemin)s}
 .side div{padding:7px 10px;border-radius:6px}.side div.on{background:var(--card);font-weight:700}
 .content{flex:1;padding:22px 28px}
 h1{font-size:1.7em;margin:0 0 .4em}h2{font-size:1.25em;margin:.8em 0 .4em}p{margin:0 0 .8em}
@@ -186,7 +186,10 @@ th{background:var(--card);font-size:.9em}.bar2{display:flex;align-items:center}.
 """
 
 
-def screen_html(rng: random.Random, fam: str, w: int, h: int, paras) -> tuple[str, dict]:
+def screen_html(rng: random.Random, fam: str, w: int, h: int, paras, fit_sidebar: bool = False) -> tuple[str, dict]:
+    """`fit_sidebar` makes the sidebar column as tall as the space under the top bar. The frozen sets were generated
+    with the sidebar as tall as the whole viewport, which always overflowed and was rejected, so they hold no sidebar
+    pages; the default keeps their generation unchanged."""
     theme = rng.choice(list(THEMES))
     th = THEMES[theme]
     fs = rng.choice([12, 13, 14, 15, 16])
@@ -202,12 +205,12 @@ def screen_html(rng: random.Random, fam: str, w: int, h: int, paras) -> tuple[st
         side = '<div class="side">' + "".join(f'<div class="{"on" if i == 0 else ""}">{e(s)}</div>' for i, s in enumerate(items)) + "</div>"
     vars_ = ";".join(f"--{k}:{v}" for k, v in th.items())
     doc = (f'<!doctype html><html><head><meta charset="utf-8"><style>{font_css(fam)}'
-           f'{CSS % dict(fam=fam, fs=fs, w=w, h=h)}</style></head>'
+           f'{CSS % dict(fam=fam, fs=fs, w=w, h=h, sidemin=(f'min-height:{h - 72}px' if fit_sidebar else f'min-height:{h}px'))}</style></head>'
            f'<body class="{theme}" style="{vars_}"><div id="app">{top}<div class="main">{side}<div class="content">{body}</div></div></div></body></html>')
     return doc, {"theme": theme, "template": tmpl.__name__[2:], "font_px": fs, "sidebar": bool(side)}
 
 
-def render(count: int, seed: int, out, set_name: str, paras) -> list[dict]:
+def render(count: int, seed: int, out, set_name: str, paras, fit_sidebar: bool = False) -> list[dict]:
     from playwright.sync_api import sync_playwright
 
     from .render import write_page
@@ -223,7 +226,7 @@ def render(count: int, seed: int, out, set_name: str, paras) -> list[dict]:
             for attempt in range(40):
                 rng = random.Random(f"{set_name}:{seed}:{i}:{attempt}")
                 w, h = rng.choice(VIEWPORTS)
-                doc, info = screen_html(rng, fam, w, h, paras)
+                doc, info = screen_html(rng, fam, w, h, paras, fit_sidebar)
                 ctx = browser.new_context(viewport={"width": w, "height": h}, device_scale_factor=scale)
                 page = ctx.new_page()
                 src = out / "page.html"

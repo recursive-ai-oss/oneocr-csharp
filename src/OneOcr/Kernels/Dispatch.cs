@@ -58,4 +58,42 @@ internal static class Dispatch
 
         return path;
     }
+
+    /// <summary>
+    /// Whether the CPU itself offers AVX2 and FMA, asked with CPUID rather than through <c>IsSupported</c>: a NativeAOT binary compiled
+    /// for a lower x86-64 level answers <c>false</c> to the latter on every machine. False on other architectures.
+    /// </summary>
+    public static bool CpuHasAvx2Fma()
+    {
+        if (!X86Base.IsSupported)
+        {
+            return false;
+        }
+
+        (int maxLeaf, _, _, _) = X86Base.CpuId(0, 0);
+        if (maxLeaf < 7)
+        {
+            return false;
+        }
+
+        // Leaf 1 ECX: bit 12 FMA, bit 27 OSXSAVE (the OS saves the wide registers), bit 28 AVX. Leaf 7 EBX: bit 5 AVX2.
+        (_, _, int ecx1, _) = X86Base.CpuId(1, 0);
+        (_, int ebx7, _, _) = X86Base.CpuId(7, 0);
+        const int fma = 1 << 12, osxsave = 1 << 27, avx = 1 << 28, avx2 = 1 << 5;
+        return (ecx1 & (fma | osxsave | avx)) == (fma | osxsave | avx) && (ebx7 & avx2) != 0;
+    }
+
+    /// <summary>A sentence for the user when <paramref name="used"/> is the scalar path on a CPU that could run AVX2; otherwise null.</summary>
+    public static string? SlowPathNotice(KernelPath used)
+    {
+        if (used != KernelPath.Scalar || !CpuHasAvx2Fma())
+        {
+            return null;
+        }
+
+        return "The scalar kernel path is running although this CPU supports AVX2 and FMA; OCR is far slower (about 100 times for a NativeAOT binary) " +
+            "but gives the same text. A NativeAOT app published below x86-64-v3 does this: set <IlcInstructionSet>x86-64-v3</IlcInstructionSet> " +
+            "(or x86-64-v4 for AVX-512) in the app project. The RecursiveAI.OneOcr package sets v3 for x64 publishes unless you set your own. " +
+            "Turning the instruction sets off with DOTNET_EnableAVX2=0 or DOTNET_EnableHWIntrinsic=0 has the same effect.";
+    }
 }

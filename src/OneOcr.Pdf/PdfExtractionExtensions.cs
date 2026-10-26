@@ -48,4 +48,42 @@ public static class PdfExtractionExtensions
     public static Receipt ExtractReceipt(
         this PdfPage page, OcrEngine engine, DocumentExtractor? extractor = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
         (extractor ?? OneOcr.DefaultExtractor).ExtractReceipt(page.Ocr(engine, options, cancellationToken), 0, cancellationToken);
+
+    /// <summary>Like <see cref="ExtractInvoice(PdfPage, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The invoice; fields not found are null.</returns>
+    public static Task<Invoice> ExtractInvoiceAsync(this PdfPage page, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ExtractInvoice(page, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ExtractInvoice(PdfPage, OcrEngine, DocumentExtractor?, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="engine">The recognizer.</param>
+    /// <param name="extractor">The extractor; <see cref="OneOcr.DefaultExtractor"/> when null.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The invoice; fields not found are null.</returns>
+    public static Task<Invoice> ExtractInvoiceAsync(
+        this PdfPage page, OcrEngine engine, DocumentExtractor? extractor = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ExtractInvoice(page, engine, extractor, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ExtractReceipt(PdfPage, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The receipt; fields not found are null.</returns>
+    public static Task<Receipt> ExtractReceiptAsync(this PdfPage page, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ExtractReceipt(page, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ExtractReceipt(PdfPage, OcrEngine, DocumentExtractor?, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="engine">The recognizer.</param>
+    /// <param name="extractor">The extractor; <see cref="OneOcr.DefaultExtractor"/> when null.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The receipt; fields not found are null.</returns>
+    public static Task<Receipt> ExtractReceiptAsync(
+        this PdfPage page, OcrEngine engine, DocumentExtractor? extractor = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ExtractReceipt(page, engine, extractor, options, cancellationToken), cancellationToken);
 }

@@ -33,7 +33,7 @@ internal static partial class PageReader
     public static OcrPage Read(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, BufferPool<byte> masks, ResizerPool resizers, IPageDetector? detector,
         Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, PageDetection? first, bool turn,
-        FoundStrips? found, CancellationToken cancellationToken, (int Level, bool InkIsBright)? known = null)
+        FoundStrips? found, CancellationToken cancellationToken, (int Level, bool InkIsBright)? known = null, JunkParameters? junk = null, bool respace = true, bool digits = true, bool separators = true)
     {
         if (detector is null)
         {
@@ -43,7 +43,7 @@ internal static partial class PageReader
             List<StripLine> cut = TableStructure.SplitStrips(strips.Strips, ruled, PixelSpans.AsBytes(gray.AsSpan(0, width * height)), width, height, strips.Threshold, strips.InkIsBright);
             return ReadStrips(
                 recognizer, limits, pixelPool, resizers, gray, width, height, cut, strips.Threshold, strips.InkIsBright, [], [], ruled, pageIndex, dpi, degree, includeChars,
-                cancellationToken);
+                junk, respace, digits, separators, cancellationToken);
         }
 
         LocatedPage located = DetectorLines.Locate(detector, gray, width, height, pixelPool, resizers, degree, cancellationToken, first, turn, known);
@@ -58,7 +58,7 @@ internal static partial class PageReader
             StageClock.Stop("8b split strips", clock);
             return ReadStrips(
                 recognizer, limits, pixelPool, resizers, located.Gray, located.Width, located.Height, cut, located.Threshold, located.InkIsBright,
-                located.Regions, located.Notes, ruled, pageIndex, dpi, degree, includeChars, cancellationToken);
+                located.Regions, located.Notes, ruled, pageIndex, dpi, degree, includeChars, junk, respace, digits, separators, cancellationToken);
         }
         finally
         {
@@ -69,7 +69,7 @@ internal static partial class PageReader
     private static OcrPage ReadStrips(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, ResizerPool resizers, Gray8[] gray, int width, int height,
         List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<string> notes, List<RuleGrid> grids, int pageIndex, double? dpi, int degree,
-        bool includeChars, CancellationToken cancellationToken)
+        bool includeChars, JunkParameters? junk, bool respace, bool digits, bool separators, CancellationToken cancellationToken)
     {
         int count = checked(width * height);
         var diagnostics = new List<string>(notes);
@@ -115,7 +115,9 @@ internal static partial class PageReader
         for (int index = 0; index < strips.Count; index++)
         {
             LineBox ink = strips[index].Box;
-            crops[index] = LinePreprocessor.CropBox(ink, typical, width, height);
+            crops[index] = strips[index].Tilt is { } tilted
+                ? LinePreprocessor.CropBoxInFrame(tilted.Ink, typical)
+                : LinePreprocessor.CropBox(ink, typical, width, height);
             LineBox crop = crops[index];
             // A strip far wider than tall (a rule, a photo's edge) would be wider than the model's limit once scaled to its input height;
             // it is left out with a note instead of failing the page.
@@ -161,13 +163,30 @@ internal static partial class PageReader
                 {
                     int index = queue[first + k].Index;
                     long c0 = StageClock.Start();
-                    pixels[k] = LinePreprocessor.Prepare(page, width, crops[index], modelHeight, pixelPool, resizers, out int cropWidth);
+                    pixels[k] = strips[index].Tilt is { } tilt
+                        ? TiltedLines.Prepare(page, width, height, tilt, crops[index], modelHeight, pixelPool, resizers, out int cropWidth)
+                        : LinePreprocessor.Prepare(page, width, crops[index], modelHeight, pixelPool, resizers, out cropWidth);
                     images[k] = new LineImage(pixels[k], cropWidth);
                     StageClock.Stop("8c line crops", c0);
                 }
 
                 long r0 = StageClock.Start();
-                LineWords[] lines = recognizer.RecognizeWordsGroup(images, cancellationToken, includeChars);
+                LineWords[] lines = recognizer.RecognizeWordsGroup(images, cancellationToken, withChars: true);
+                for (int k = 0; k < lineCount && respace; k++)
+                {
+                    lines[k] = recognizer.Resegment(lines[k], PixelSpans.AsBytes(pixels[k].AsSpan(0, images[k].Width * modelHeight)), images[k].Width, modelHeight);
+                }
+
+                for (int k = 0; k < lineCount && separators; k++)
+                {
+                    lines[k] = SeparatorGlyphs.Apply(lines[k], PixelSpans.AsBytes(pixels[k].AsSpan(0, images[k].Width * modelHeight)), images[k].Width, modelHeight);
+                }
+
+                for (int k = 0; k < lineCount && digits; k++)
+                {
+                    lines[k] = DigitContext.Apply(lines[k]);
+                }
+
                 StageClock.Stop("8d recognize", r0);
                 r0 = StageClock.Start();
                 for (int k = 0; k < lineCount; k++)
@@ -177,7 +196,9 @@ internal static partial class PageReader
                     var words = new List<OcrWord>(lines[k].Words.Count);
                     foreach (RecognizedWord w in lines[k].Words)
                     {
-                        words.Add(MakeWord(w, page, width, height, threshold, inkIsBright, ink, crops[index], images[k].Width, includeChars));
+                        words.Add(strips[index].Tilt is { } along
+                            ? MakeTiltedWord(w, page, width, height, threshold, inkIsBright, along, crops[index], images[k].Width, includeChars)
+                            : MakeWord(w, page, width, height, threshold, inkIsBright, ink, crops[index], images[k].Width, includeChars));
                     }
 
                     read[index] = new OrderStrip
@@ -204,6 +225,13 @@ internal static partial class PageReader
         }
 
         ParallelRun.For(groups.Count, degree, ReadGroup, cancellationToken);
+
+        // Noise is removed before ordering, so lines, blocks, tables and text are built from what is left.
+        int junkWords = junk is null ? 0 : JunkFilter.Apply(read, junk);
+        if (junkWords > 0)
+        {
+            diagnostics.Add($"{junkWords} word(s) read from specks, grain or stray marks were dropped as noise; pass OcrOptions.DropNoise = false to keep them.");
+        }
 
         var ordered = new List<OrderStrip>(strips.Count);
         for (int i = 0; i < read.Length; i++)
@@ -410,7 +438,7 @@ internal static partial class PageReader
             chars += w.Text.Length;
         }
 
-        return new OcrLine(text, words, cellStarts, box, (float)(weighted / chars), OcrSource.Ocr);
+        return new OcrLine(text, words, cellStarts, box, (float)(weighted / chars), OcrSource.Ocr, Quad: EnclosingQuad(words));
     }
 
     private static OcrBlock MakeBlock(OrderBlock block, List<OcrLine> lines)

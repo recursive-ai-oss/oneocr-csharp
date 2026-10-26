@@ -390,7 +390,7 @@ public class WordTests
             Assert.Equal(w.RawConfidence, w.Confidence);
         }
 
-        Assert.Throws<ArgumentNullException>(() => engine.Ocr(null!));
+        Assert.Throws<ArgumentNullException>(() => engine.Ocr((Image)null!));
         Assert.Empty(engine.Ocr(Image.FromPixels<Gray8>(Enumerable.Repeat(new Gray8(255), 300 * 200).ToArray(), 300, 200)).Words);
     }
 

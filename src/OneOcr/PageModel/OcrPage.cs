@@ -158,7 +158,7 @@ public sealed record OcrLine(
 public sealed record OcrBlock(
     OcrBlockRole Role, bool IsTable, OcrBox Box, IReadOnlyList<OcrLine> Lines, float Confidence, OcrSource Source = OcrSource.Ocr, OcrQuad? Quad = null);
 
-/// <summary>A layout region with a role, as found by a layout model. The local pipeline does not fill regions yet.</summary>
+/// <summary>A layout region with a role, as found by a layout model. The local pipeline fills regions where the page detector reports them; without a detector the list is empty.</summary>
 /// <param name="Role">What the region is.</param>
 /// <param name="Box">The region's box.</param>
 /// <param name="Confidence">Probability that the role is right, 0 to 1.</param>

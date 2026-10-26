@@ -112,7 +112,7 @@ FILL = """([blocks, limit, sel]) => {
 }"""
 
 
-def render(count: int, seed: int, out, set_name: str) -> tuple[list[dict], str]:
+def render(count: int, seed: int, out, set_name: str, kinds: list[str] | None = None) -> tuple[list[dict], str]:
     from playwright.sync_api import sync_playwright
 
     paras = load_paragraphs()
@@ -125,7 +125,7 @@ def render(count: int, seed: int, out, set_name: str) -> tuple[list[dict], str]:
             pid = f"p{i + 1:03d}"
             rng = random.Random(f"{set_name}:{seed}:{i}")
             fam = fams[i % len(fams)]
-            kind = KINDS[i % len(KINDS)]
+            kind = (kinds or KINDS)[i % len(kinds or KINDS)]
             fs = rng.choice([9.5, 10, 10.5, 11]) * 96 / 72
             m = rng.choice([16, 20, 24]) * 96 / 25.4
             nc = {"article2": 2, "article3": 3, "mixed": 2}.get(kind, 1)

@@ -1,0 +1,34 @@
+# Detector 0.2.3: continue dbnet-021 for receipt word recall. One-character lines (item counts, currency signs) got a core of one or two
+# cells and the decoder drops components under two cells, so they were never found: the core now keeps a minimum short side
+# (min_core) and small cores weigh more in the probability loss (small_weight). CORD receipts weigh more and are also seen at larger
+# scale (headings, thin print). A one-character word at the end of a receipt line (the item count) is its own training line: the
+# longer line's shrunk core started inside it, so it was never labelled as text. Same architecture and post-processing rule as 0.2.1.
+name: dbnet-023b
+seed: 7
+size: 1024
+scale: [0.7, 1.15]
+rot_p: 0.25
+min_core: 6.0
+small_weight: 3.0
+datasets_root: ${ONEOCR_DATASETS}
+run_dir: ${ONEOCR_HOME}/runs/dbnet-023b
+init_from: ${ONEOCR_INIT}
+model: {orient16: true, layout16_blocks: 4, widths: [32, 72, 176, 288], depths: [2, 3, 6, 4], fpn: 48, text: 32, layout: 96, layout16: 160}
+sources:
+  - {name: doclaynet, weight: 0.35, label_source: "DocLayNet 1.0.0 layout boxes + extra-archive text cells (CDLA-Permissive-1.0)"}
+  - {name: publaynet, weight: 0.1, label_source: "PubLayNet 1.0.0 layout boxes, CC0/CC BY articles only (annotations CDLA-Permissive-1.0)"}
+  - {name: pages, weight: 0.2, dir: "${ONEOCR_PAGES}", cache: "${ONEOCR_HOME}/cache/pages-{split}.json", label_source: "exact-truth synthetic pages (browser layout geometry)"}
+  - {name: cord, weight: 0.35, scale: [0.7, 1.6], split_ends: true, label_source: "CORD v2 train word quads (CC BY 4.0), grouped into lines; annotated rows only"}
+loss: {prob: 1.0, binary: 1.0, thresh: 10.0, layout_bce: 1.0, layout_dice: 2.0, orient: 0.3}
+train:
+  steps: 12000
+  batch: 12
+  lr: 0.0003
+  warmup: 200
+  weight_decay: 0.0001
+  workers: 20
+  log_every: 200
+  eval_every: 2000
+  ckpt_every: 500
+  val_pages: 150
+  max_minutes: 100

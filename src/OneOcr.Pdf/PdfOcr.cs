@@ -344,7 +344,7 @@ public static class PdfOcrExtensions
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
     /// <returns>The Markdown.</returns>
     public static string ToMarkdown(this PdfDocument document, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
-        Ocr(document, options, cancellationToken).ToMarkdown(markdown);
+        Ocr(document, options, cancellationToken).ToMarkdown(markdown, cancellationToken);
 
     /// <summary>Reads an open document with the given engine and writes it as Markdown, pages separated by a thematic break.</summary>
     /// <param name="document">The document.</param>
@@ -354,7 +354,7 @@ public static class PdfOcrExtensions
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
     /// <returns>The Markdown.</returns>
     public static string ToMarkdown(this PdfDocument document, OcrEngine engine, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
-        Ocr(document, engine, options, cancellationToken).ToMarkdown(markdown);
+        Ocr(document, engine, options, cancellationToken).ToMarkdown(markdown, cancellationToken);
 
     /// <summary>Like <see cref="Ocr(PdfDocument, OcrEngine, PdfOcrOptions?, CancellationToken)"/>, on a worker thread.</summary>
     /// <param name="document">The document.</param>
@@ -375,6 +375,94 @@ public static class PdfOcrExtensions
     public static Task<OcrPage> OcrAsync(
         this PdfPage page, OcrEngine engine, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
         Task.Run(() => Ocr(page, engine, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="Ocr(PdfPage, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The page model.</returns>
+    public static Task<OcrPage> OcrAsync(this PdfPage page, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Ocr(page, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ToText(PdfPage, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The text.</returns>
+    public static Task<string> ToTextAsync(this PdfPage page, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToText(page, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ToText(PdfPage, OcrEngine, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="engine">The recognizer.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The text.</returns>
+    public static Task<string> ToTextAsync(this PdfPage page, OcrEngine engine, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToText(page, engine, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ToMarkdown(PdfPage, MarkdownOptions?, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="markdown">Markdown options; null for the defaults.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The Markdown.</returns>
+    public static Task<string> ToMarkdownAsync(this PdfPage page, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToMarkdown(page, markdown, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ToMarkdown(PdfPage, OcrEngine, MarkdownOptions?, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="engine">The recognizer.</param>
+    /// <param name="markdown">Markdown options; null for the defaults.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The Markdown.</returns>
+    public static Task<string> ToMarkdownAsync(this PdfPage page, OcrEngine engine, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToMarkdown(page, engine, markdown, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="Ocr(PdfDocument, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="document">The document.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The pages.</returns>
+    public static Task<IReadOnlyList<OcrPage>> OcrAsync(this PdfDocument document, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Ocr(document, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ToText(PdfDocument, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="document">The document.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The text.</returns>
+    public static Task<string> ToTextAsync(this PdfDocument document, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToText(document, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ToText(PdfDocument, OcrEngine, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="document">The document.</param>
+    /// <param name="engine">The recognizer.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The text.</returns>
+    public static Task<string> ToTextAsync(this PdfDocument document, OcrEngine engine, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToText(document, engine, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ToMarkdown(PdfDocument, MarkdownOptions?, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="document">The document.</param>
+    /// <param name="markdown">Markdown options; null for the defaults.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The Markdown.</returns>
+    public static Task<string> ToMarkdownAsync(this PdfDocument document, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToMarkdown(document, markdown, options, cancellationToken), cancellationToken);
+
+    /// <summary>Like <see cref="ToMarkdown(PdfDocument, OcrEngine, MarkdownOptions?, PdfOcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same result.</summary>
+    /// <param name="document">The document.</param>
+    /// <param name="engine">The recognizer.</param>
+    /// <param name="markdown">Markdown options; null for the defaults.</param>
+    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="cancellationToken">Cancels between pages, regions and lines; the task then ends as cancelled.</param>
+    /// <returns>The Markdown.</returns>
+    public static Task<string> ToMarkdownAsync(this PdfDocument document, OcrEngine engine, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToMarkdown(document, engine, markdown, options, cancellationToken), cancellationToken);
 
     private static ReadOnlyMemory<byte> Serialize(PdfDocument document)
     {

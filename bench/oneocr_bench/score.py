@@ -228,6 +228,8 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink") -> dict:
             have_boxes = have_conf = False
         else:
             hw = json.loads(side.read_text())["words"]
+            if have_boxes and not (truth_dir / f"{t.stem}.json").exists():
+                have_boxes = False  # a truth without word boxes: no detection score for the set
             if have_boxes:
                 tb = [_aabb(w, key) for w in json.loads((truth_dir / f"{t.stem}.json").read_text())["words"]]
                 hb = [_aabb(w) for w in hw]

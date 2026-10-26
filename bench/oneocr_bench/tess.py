@@ -20,11 +20,12 @@ import os
 import platform
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .paths import data_dir
 from .score import score_dir
-from .sets import SETS, page_images, set_dir
+from .sets import SETS, category, is_receipts, page_images, set_dir
 
 
 def _loadavg() -> list[float]:
@@ -67,27 +68,41 @@ def tsv_to_sidecar(tsv: Path, out: Path) -> None:
     tsv.unlink()
 
 
-def main(set_name: str, models: list[str], psms: list[int], tess: str, results: str | None) -> None:
-    pages = page_images(set_name)
-    truth = set_dir(set_name) / "truth"
+def main(set_name: str, models: list[str], psms: list[int], tess: str, results: str | None, root: str | None = None,
+         jobs: int = 1, timing_runs: bool = True) -> None:
+    """`root` is an eval root holding <set>/pages and <set>/truth (default: the benchmark data directory). With `jobs` > 1 pages run in
+    several single-thread processes at once (the accuracy is the same; the times are not publishable). `timing_runs` False skips the
+    default-threading re-run, which exists only for timing. A (model, PSM) pair that already has its result file is not run again."""
+    base = Path(root).expanduser() / set_name if root else set_dir(set_name)
+    pages = sorted(p for p in (base / "pages").iterdir() if p.suffix in (".png", ".jpg"))
+    truth = base / "truth"
     res_dir = Path(results) if results else data_dir() / "results" / set_name
     res_dir.mkdir(parents=True, exist_ok=True)
     ver = subprocess.run([tess, "best", "--version"], check=False, capture_output=True, text=True)
     env_info = {"cpu": _cpu(), "cores": os.cpu_count(), "loadavg_before": _loadavg(),
                 "tesseract": (ver.stderr or ver.stdout).splitlines()[:1], "set": set_name,
-                "category": SETS[set_name].category, "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    key = "cer_recall" if set_name == "receipts-v1" else "cer"
+                "category": category(set_name), "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    key = "cer_recall" if is_receipts(set_name) else "cer"
     rows, loads_during = [], []
     for model in models:
         for psm in psms:
             hyp = res_dir / "hyp" / f"{model}-psm{psm}-1thread"
+            cache = res_dir / "rows" / f"{model}-psm{psm}.json"
+            if cache.exists() and json.loads(cache.read_text()).get("pages") == len(pages):
+                rows.append(json.loads(cache.read_text())["row"])
+                print(f"reused {cache.name}", flush=True)
+                continue
             hyp.mkdir(parents=True, exist_ok=True)
-            times, rss = [], []
-            for img in pages:
+
+            def one(img: Path, hyp=hyp, model=model, psm=psm) -> tuple[float, int]:
                 dt, kb = run_one(tess, model, psm, img, hyp / img.stem, True)
                 tsv_to_sidecar(hyp / f"{img.stem}.tsv", hyp / f"{img.stem}.json")
-                times.append(dt)
-                rss.append(kb)
+                return dt, kb
+
+            with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+                done = list(pool.map(one, pages))
+            times = [d[0] for d in done]
+            rss = [d[1] for d in done]
             loads_during.append(_loadavg()[0])
             s = score_dir(truth, hyp)
             row = {"model": model, "psm": psm, "1thread": {
@@ -96,6 +111,8 @@ def main(set_name: str, models: list[str], psms: list[int], tess: str, results: 
                 "wer_recall": s["wer_recall"], "f1": s["det"]["f1"] if s["det"] else None,
                 "precision": s["det"]["precision"] if s["det"] else None,
                 "recall": s["det"]["recall"] if s["det"] else None}}
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps({"pages": len(pages), "row": row}) + "\n")
             rows.append(row)
             print(json.dumps(row), flush=True)
 
@@ -104,24 +121,25 @@ def main(set_name: str, models: list[str], psms: list[int], tess: str, results: 
     for model in models:
         psm = best[model]
         row = next(r for r in rows if r["model"] == model and r["psm"] == psm)
-        hyp = res_dir / "hyp" / f"{model}-psm{psm}-default"
-        hyp.mkdir(parents=True, exist_ok=True)
-        times, rss = [], []
-        for img in pages:
-            dt, kb = run_one(tess, model, psm, img, hyp / img.stem, False)
-            (hyp / f"{img.stem}.tsv").unlink()
-            times.append(dt)
-            rss.append(kb)
-        loads_during.append(_loadavg()[0])
-        row["default"] = {"s_per_page": sum(times) / len(times), "max_s": max(times), "peak_rss_mb": max(rss) / 1024}
-        row["thread_outputs_identical"] = all(
-            (res_dir / "hyp" / f"{model}-psm{psm}-1thread" / f"{p.stem}.txt").read_bytes() == (hyp / f"{p.stem}.txt").read_bytes()
-            for p in pages)
-        link = data_dir() / "results" / f"best-{model}" / set_name
-        link.parent.mkdir(parents=True, exist_ok=True)
-        if link.is_symlink() or link.exists():
-            link.unlink()
-        link.symlink_to(res_dir / "hyp" / f"{model}-psm{psm}-1thread")
+        sel = res_dir / "hyp" / f"{model}-psm{psm}-1thread"
+        if timing_runs:
+            hyp = res_dir / "hyp" / f"{model}-psm{psm}-default"
+            hyp.mkdir(parents=True, exist_ok=True)
+            times, rss = [], []
+            for img in pages:
+                dt, kb = run_one(tess, model, psm, img, hyp / img.stem, False)
+                (hyp / f"{img.stem}.tsv").unlink()
+                times.append(dt)
+                rss.append(kb)
+            loads_during.append(_loadavg()[0])
+            row["default"] = {"s_per_page": sum(times) / len(times), "max_s": max(times), "peak_rss_mb": max(rss) / 1024}
+            row["thread_outputs_identical"] = all((sel / f"{p.stem}.txt").read_bytes() == (hyp / f"{p.stem}.txt").read_bytes() for p in pages)
+        if root is None:
+            link = data_dir() / "results" / f"best-{model}" / set_name
+            link.parent.mkdir(parents=True, exist_ok=True)
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            link.symlink_to(sel)
     env_info.update(loadavg_during=loads_during, loadavg_after=_loadavg())
     (res_dir / "tesseract.json").write_text(json.dumps({"env": env_info, "pages": len(pages), "rows": rows, "best_psm": best,
                                                          "selected_by": key}, indent=1) + "\n")

@@ -1,6 +1,6 @@
 namespace OneOcr;
 
-/// <summary>Per-call options of <see cref="OcrEngine.Ocr"/>. Everything has a default.</summary>
+/// <summary>Per-call options of <see cref="OcrEngine.Ocr(OneImage.Image, OcrOptions?, CancellationToken)"/>. Everything has a default.</summary>
 public sealed class OcrOptions
 {
     /// <summary>
@@ -30,6 +30,56 @@ public sealed class OcrOptions
     /// <see cref="OcrPage.SkewDegrees"/>; tilts under about 0.3 degrees are left alone, so an upright page reads exactly as before.
     /// </summary>
     public bool Deskew { get; init; } = true;
+
+    /// <summary>
+    /// Whether to look for a better whole-page angle when the first reading is weak. Default true. Photographs taken with the camera
+    /// turned by 10 to 30 degrees are beyond <see cref="Deskew"/>; when under 60% of a page's text is read confidently, the page is read
+    /// again turned by -30 to +30 degrees in steps of 10, then 5 degrees either side of the best, and the angle with the most
+    /// confidently read text is kept if it clearly beats the first reading. The angle is reported in <see cref="OcrPage.SkewDegrees"/>
+    /// and a diagnostic says so. Pages that read well are not read twice; a weak page costs up to eight more readings.
+    /// </summary>
+    public bool SearchAngle { get; init; } = true;
+
+    /// <summary>
+    /// Whether to drop words that are noise read as text (specks, scan grain and edges). Default true. Two kinds go: unsure words
+    /// that sit in lines much smaller than the page's own text (calibrated confidence under 0.5, and a line both under 60% of the
+    /// height of the page's confidently read lines and under 12 pixels; in lines under 8 pixels, unless it is read with 0.99; pages
+    /// with fewer than three confidently read lines are left alone), and words made only of dots, commas, colons, semicolons and
+    /// quotes that are read with confidence under 0.9. Dashes, bullets and middle dots are never dropped. The number dropped is
+    /// reported in the page's diagnostics.
+    /// </summary>
+    public bool DropNoise { get; init; } = true;
+
+    /// <summary>
+    /// Whether to decide the spaces between words from the line's pixels as well as from the network. Default true. A space the
+    /// network put inside a number or date, or between two letters where the ink is continuous, is taken out when the pieces
+    /// only make sense joined (for the letters: when the engine has a word model, see <see cref="OcrEngine.WithWordModel"/>);
+    /// a space is added where the line has an empty stretch far wider than its letter gaps. Only spaces change, never characters.
+    /// </summary>
+    public bool FixWordSpacing { get; init; } = true;
+
+    /// <summary>
+    /// Whether to read the letter <c>O</c> as the digit <c>0</c> inside identifiers and dates. Default true. In a word of at least
+    /// three digits, a run of letters and digits (the pieces between punctuation) that holds only digits and capital <c>O</c>s,
+    /// with at least one of each, has its <c>O</c>s read as <c>0</c>: <c>ACC-71O3O5</c> becomes <c>ACC-710305</c> and
+    /// <c>2020-04-O7</c> becomes <c>2020-04-07</c>. Words with other letters inside the run (<c>CO2</c>, <c>COVID19</c>) and
+    /// short strings (<c>O2</c>) are left as read. Together with <see cref="FixSeparators"/> it is the only step after recognition that changes a character; set it to
+    /// false to keep exactly what the network read.
+    /// </summary>
+    public bool FixDigitLookalikes { get; init; } = true;
+
+    /// <summary>
+    /// Whether to read the middle dot, the bullet and the vertical bar between words from their pixels. Default true. A
+    /// one-character word between two words that the network read as a hyphen or another small mark, and whose ink is a small round
+    /// blob at the middle height of the line's letters, becomes <c>·</c> (small) or <c>•</c> (large); one read as
+    /// <c>I</c>, <c>l</c>, <c>1</c> or <c>!</c> whose ink is a thin bar taller than every other mark of the line becomes <c>|</c>.
+    /// Box and confidence are kept, and words with more than one character, words at the ends of a line and hyphens or dashes
+    /// inside words are never touched. Set it to false to keep exactly what the network read.
+    /// </summary>
+    public bool FixSeparators { get; init; } = true;
+
+    /// <summary>Replaces the noise filter's thresholds; used to tune them. Null uses the defaults.</summary>
+    internal global::OneOcr.Layout.JunkParameters? JunkTuning { get; init; }
 
     internal void Validate()
     {

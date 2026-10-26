@@ -191,6 +191,37 @@ class Sampler:
             return str(rng.choice(["#", "No.", "No", "", "T"])) + d(int(rng.integers(2, 9)))
         return str(rng.choice(["Rp", "Rp.", "$", "€", "£", "IDR", "-", "*", "+", "=", ":", "(", ")"]))
 
+    def amount_token(self) -> str:
+        """A printed amount of the kinds receipts show: grouped with `.` or `,`, often round (ending 000 or 500), with a `.00` tail, a
+        trailing minus (discounts), a currency prefix, or a bare item count. Zeros are frequent on purpose: runs of zeros are where
+        the reader drops or invents characters."""
+        rng = self.rng
+        d = self._digits
+        r = rng.random()
+        if r < 0.12:
+            return d(1) if rng.random() < 0.7 else d(2)
+        n = int(rng.integers(3, 8))
+        body = d(n)
+        if rng.random() < 0.55:
+            body = body[:-3] + str(rng.choice(["000", "500", "000"]))
+        if body[0] == "0":
+            body = str(rng.choice(list("123456789"))) + body[1:]
+        sep = str(rng.choice([",", ".", ""], p=[0.4, 0.4, 0.2]))
+        if sep and len(body) > 3:
+            body = body[:-3] + sep + body[-3:]
+            if len(body) > 7 and rng.random() < 0.5:
+                body = body[:-7] + sep + body[-7:]
+        if rng.random() < 0.18:
+            body += ("," if sep == "." else ".") + str(rng.choice(["00", "00", d(2)]))
+        t = rng.random()
+        if t < 0.1:
+            body += "-"
+        elif t < 0.17:
+            body = "-" + body
+        elif t < 0.3:
+            body = str(rng.choice(["Rp", "Rp.", "$", "IDR", "@"])) + (" " if rng.random() < 0.4 else "") + body
+        return body
+
     def numbers_line(self) -> str:
         return " ".join(self.number() for _ in range(int(self.rng.integers(1, 5))))
 
@@ -299,6 +330,154 @@ def tight_cells(rng: np.random.Generator, s: Sampler, books) -> tuple[list[str],
         words = words + ["a"]
     g = float(rng.uniform(0.12, 0.4))
     return words, [float(np.clip(g + rng.normal(0, 0.03), 0.1, 0.45)) for _ in words[1:]], "tight"
+
+
+_NUM_LABELS = ["No.", "No.-", "Ref.", "Ref", "Order", "Invoice", "Total", "Due", "Paid", "Tel", "Qty", "Page", "Item"]
+
+
+def numtext_line(rng: np.random.Generator, s: Sampler, books) -> str:
+    """Running text with figures that carry their own punctuation (1,234.56, 03/01/2008, No.-63894, 14:18) at ordinary word spacing.
+    A negative example for the separator lines: a comma, slash, point or hyphen inside a number or after an abbreviation must not
+    become a space just because separators and items elsewhere are set apart."""
+    toks: list[str] = []
+    for _ in range(int(rng.integers(3, 9))):
+        r = rng.random()
+        if r < 0.35:
+            w, _t = books.window(rng, short=True)
+            toks += w.split()[: int(rng.integers(1, 4))]
+        elif r < 0.55:
+            toks.append(s.receipt_token())
+        elif r < 0.65:  # an amount with thousands separators, as invoices print it
+            cur = str(rng.choice(["$", "\u20ac", "\u00a3", "EUR ", ""]))
+            toks.append(f"{cur}{int(rng.integers(1, 999)):d},{s._digits(3)}{rng.choice(['.', ','])}{s._digits(2)}")
+        elif r < 0.75:
+            toks.append(s.number())
+        elif r < 0.85:
+            toks.append(s.code())
+        else:
+            lab = str(rng.choice(_NUM_LABELS))
+            toks.append(lab + s._digits(int(rng.integers(4, 7))) if lab.endswith("-") else lab)
+            if not lab.endswith("-"):
+                toks.append(s._digits(int(rng.integers(3, 7))))
+    return " ".join(toks)
+
+
+_SEPARATORS = ["\u00b7", "\u2022", "|"]
+_META_UNITS = [" min read", " views", " comments", " replies", " likes", " items", " MB", " KB", " min", " h ago", " days ago", "%"]
+
+
+def _meta_item(rng: np.random.Generator, s: Sampler, books) -> str:
+    """One piece of metadata as a byline, breadcrumb, footer or card caption carries it."""
+    k = int(rng.integers(0, 8))
+    d = s._digits
+    if k == 0:
+        return f"{rng.choice(_MONTHS)} {int(rng.integers(1, 29))}, {int(rng.integers(1990, 2031))}"
+    if k == 1:
+        return f"{int(rng.integers(1, 29))} {rng.choice(_MONTHS)} {int(rng.integers(1990, 2031))}"
+    if k == 2:
+        return d(int(rng.integers(1, 5)))  # a bare number, e.g. the "9" of an issue line "2021 \u00b7 9"
+    if k == 3:
+        return f"{d(int(rng.integers(1, 4)))}{rng.choice(_META_UNITS)}"
+    if k == 4:
+        return f"v{d(1)}.{d(int(rng.integers(1, 3)))}" + (f".{d(1)}" if rng.random() < 0.4 else "")
+    if k == 5:
+        return f"{rng.choice(['$', '\u20ac', '\u00a3', ''])}{int(rng.integers(1, 9999)):,}"
+    w, _t = books.window(rng, short=True)
+    t = " ".join(w.split()[: int(rng.integers(1, 3))]).strip(",.;:!?")
+    return t.title() if rng.random() < 0.6 else t
+
+
+def sep_cells(rng: np.random.Generator, s: Sampler, books) -> tuple[list[str], list[float], str]:
+    """Metadata items divided by a middle dot, bullet or bar ("2021 \u00b7 9", "Oct 3, 2021 | 5 min read"). The separator is a cell of
+    its own, so the label has a space on each side as the page truth does; the gap on each side is 0.1-0.35 em (set tight, where the
+    recognizer merged the dot into the number and read it as a hyphen) or 0.35-1.2 em (ordinary spacing)."""
+    n = int(rng.integers(2, 5))
+    sep = str(rng.choice(_SEPARATORS, p=[0.5, 0.25, 0.25]))
+    mixed = rng.random() < 0.15  # a few lines change separator mid-line
+    narrow = rng.random() < 0.5
+    lo, hi = (0.1, 0.35) if narrow else (0.35, 1.2)
+    cells: list[str] = []
+    gaps: list[float] = []
+    for i in range(n):
+        cells.append(_meta_item(rng, s, books))
+        if i < n - 1:
+            cells.append(str(rng.choice(_SEPARATORS)) if mixed else sep)
+            gaps += [float(rng.uniform(lo, hi)), float(rng.uniform(lo, hi))]
+    return cells, gaps, "sep"
+
+
+_UI_WORDS = [
+    *["Show", "Hide", "Send", "Save", "Apply", "Cancel", "Billing", "Orders", "Messages", "Settings", "Profile", "Activity", "Reports", "Invoices"],  # noqa: E501
+    *["Fieldnote", "Notifications", "Email", "Emails", "Filter", "Filters", "Sort", "Details", "Display", "Style", "Slide", "Mobile", "Little"],  # noqa: E501
+    *["Login", "Sign in", "Sign up", "Logout", "Help", "Support", "Inbox", "Drafts", "Sent", "Trash", "Spam", "Archive", "Labels", "Calendar"],  # noqa: E501
+    *["Files", "Folders", "Upload", "Download", "Share", "Invite", "Members", "Teams", "Plans", "Pricing", "Status", "Active", "Pending", "Paid"],  # noqa: E501
+    *["Overdue", "Total", "Subtotal", "Shipping", "Address", "Phone", "Name", "Search", "Select", "Selected", "Close", "Open", "Next", "Previous"],  # noqa: E501
+    *["Install", "Update", "Delete", "Edit", "View", "Continue", "Submit", "Reset", "Confirm", "Allow", "Deny", "Enable", "Disable", "Clear all"],  # noqa: E501
+]  # fmt: skip
+
+
+def uiword_cells(rng: np.random.Generator, s: Sampler, books) -> tuple[list[str], list[float], str]:
+    """Short interface labels in mixed case: one to three words in sentence case, lower case, title case or capitals, so the case of a
+    word has to be read from its letter shapes at 8-12 px. Half the words come from book text and carry i, l or s (the letters that
+    small light-on-dark type turns into 1, 5 or each other); some labels sit beside a count or a step."""
+    words: list[str] = []
+    for _ in range(int(rng.integers(1, 4))):
+        if rng.random() < 0.45:
+            words.append(str(rng.choice(_UI_WORDS)).lower())
+            continue
+        w = "Billing"
+        for _try in range(6):
+            b, _t = books.window(rng, short=True)
+            cand = (b.split() or ["home"])[0].strip(',.;:!?"\u201c\u201d\u2018\u2019()').lower()
+            if cand and (rng.random() < 0.5 or any(c in cand for c in "ils")):
+                w = cand
+                break
+        words.append(w)
+    text = " ".join(words)
+    r = rng.random()
+    text = text[:1].upper() + text[1:] if r < 0.5 else text if r < 0.75 else text.title() if r < 0.88 else text.upper()
+    if rng.random() < 0.18:  # a count or a step beside the label
+        d = s._digits
+        extra = str(rng.choice([f"({d(int(rng.integers(1, 3)))})", d(int(rng.integers(1, 3))), f"{d(1)} of {d(1)}", f"{d(1)}/{d(1)}"]))
+        text = f"{text} {extra}" if rng.random() < 0.7 else f"{extra} {text}"
+    return [text], [], "uiword"
+
+
+_TOTAL_LABELS = [
+    *["Total", "TOTAL", "Subtotal", "SUB TOTAL", "Tax", "TAX", "VAT", "VAT 20%", "Tax 10%", "Service", "Discount", "Change"],
+    *[
+        "Cash",
+        "Card",
+        "Visa",
+        "Amount due",
+        "Balance",
+        "Qty",
+        "Price",
+        "Amount",
+        "No.",
+        "Invoice",
+        "Date",
+        "Tel",
+        "Rp",
+        "IDR",
+        "USD",
+        "EUR",
+    ],
+]
+
+
+def figures_line(rng: np.random.Generator, s: Sampler) -> str:
+    """Digits, prices, totals, tax lines, dates and codes: the text whose misreads change what a document says. One to four tokens;
+    about a third carry a label word (Total, VAT 20%, ...), the rest are the figures alone, as word crops of a receipt are."""
+    toks: list[str] = []
+    if rng.random() < 0.33:
+        toks.append(str(rng.choice(_TOTAL_LABELS)))
+    for _ in range(int(rng.choice([1, 1, 1, 2, 2, 3]))):
+        r = rng.random()
+        toks.append(
+            s.receipt_token() if r < 0.45 else s.number() if r < 0.75 else s.code() if r < 0.9 else s._digits(int(rng.integers(3, 14)))
+        )
+    return " ".join(toks)
 
 
 _VI_KEEP = {0x1A0, 0x1A1, 0x1AF, 0x1B0, 0x102, 0x103, 0xC2, 0xE2, 0xCA, 0xEA, 0xD4, 0xF4}
@@ -417,11 +596,11 @@ def plan_shard(job) -> list[dict]:
         if kind == "book":
             text, src = books.window(rng)
             file = _pick_font(rng, fams, set(text) - {" "})
-        elif kind in ("gap", "ui", "tight"):
+        elif kind in ("gap", "ui", "tight", "sep", "uiword"):
             file = _pick_font(rng, fams, set())
             if file is None:
                 continue
-            make = {"gap": gap_cells, "ui": ui_cells, "tight": tight_cells}[kind]
+            make = {"gap": gap_cells, "ui": ui_cells, "tight": tight_cells, "sep": sep_cells, "uiword": uiword_cells}[kind]
             cells, gaps, layout = make(rng, Sampler(charset, cov.of(file), rng), books)
             text, src = " ".join(c.strip() for c in cells), f"synthetic:{kind}-{layout}"
             # a line stays within the widths the recognizer is trained for
@@ -446,14 +625,46 @@ def plan_shard(job) -> list[dict]:
                     toks.append(s.receipt_token())
             text, src = " ".join(toks), "synthetic:receipt"
             file = _pick_font(rng, fams, set(text) - {" "})
+        elif kind == "receipt2":
+            # the words of a till receipt as the reader gets them: round amounts in both separator conventions, item counts, label
+            # words with their colon, item words in the printers' capitals (extends "receipt" with the confusions measured on CORD)
+            file = _pick_font(rng, fams, set())
+            if file is None:
+                continue
+            s = Sampler(charset, cov.of(file), rng)
+            toks = []
+            for _ in range(int(rng.choice([1, 1, 1, 2, 2, 3]))):
+                r = rng.random()
+                if r < 0.42:
+                    toks.append(s.amount_token())
+                elif r < 0.52:
+                    toks.append(s.receipt_token())
+                elif r < 0.62:
+                    toks.append(str(rng.choice(_TOTAL_LABELS)) + str(rng.choice(["", ":", ":"])))
+                else:
+                    w, _t = books.window(rng, short=True)
+                    w = " ".join(w.split()[: int(rng.integers(1, 3))])
+                    q = rng.random()
+                    toks.append(w.upper() if q < 0.5 else w.title() if q < 0.8 else w)
+            text, src = " ".join(toks), "synthetic:receipt2"
+            file = _pick_font(rng, fams, set(text) - {" "})
         else:
             file = _pick_font(rng, fams, set())
             if file is None:
                 continue
             s = Sampler(charset, cov.of(file), rng)
-            text = {"numbers": s.numbers_line, "codes": s.codes_line, "rare": s.rare, "pseudo": s.pseudo_line}[kind]()
+            if kind == "figures":
+                text = figures_line(rng, s)
+            elif kind == "numtext":
+                text = numtext_line(rng, s, books)
+            else:
+                text = {"numbers": s.numbers_line, "codes": s.codes_line, "rare": s.rare, "pseudo": s.pseudo_line}[kind]()
             src = f"synthetic:{kind}"
         text = unicodedata.normalize("NFC", " ".join(text.split()))
+        # `single_script`: a line's letters come from one script, as on a printed receipt (each word of a line is drawn from its own book
+        # window, so a line could mix Latin and Cyrillic words, which teaches look-alike letters to stand for each other)
+        if spec.get("single_script") and len({cs.script_of(c) for c in text if c.isalpha()}) > 1:
+            continue
         # every character must be a charset class that the chosen font can draw (generated strings use literal symbols like "№")
         if not text or file is None or text in seen or text in banned or not set(text) - {" "} <= cov.of(file):
             continue
@@ -469,8 +680,12 @@ def plan_shard(job) -> list[dict]:
         broad = rng.random() < 0.15  # a minority of crops with margins far from the finder's convention
         vm = [rng.uniform(0.0, 0.45) if broad else rng.uniform(0.18, 0.32) for _ in range(2)]
         hm = [rng.uniform(0.05, 1.0) if broad else rng.uniform(0.35, 0.65) for _ in range(2)]
+        # `tight_ends`: the share of crops whose side margins are each 0-0.2 (of the finder's 0.5), so the first and last letters sit
+        # almost at the crop edge, as they do when the detector's box is ink-narrowed; keeps readers from dropping an end letter
+        if rng.random() < spec.get("tight_ends", 0.0):
+            hm = [rng.uniform(0.0, 0.2) for _ in range(2)]
         extra = (
-            {"cells": [c.strip() for c in cells], "gaps": [round(g, 2) for g in gaps]} if kind in ("gap", "ui", "tight") and gaps else {}
+            {"cells": [c.strip() for c in cells], "gaps": [round(g, 2) for g in gaps]} if kind in ("gap", "ui", "tight", "sep") and gaps else {}  # noqa: E501
         )
         out.append({
             "id": f"{name}-{shard:03d}{len(out):05d}",

@@ -1,6 +1,29 @@
 # oneocr
 
-The command-line tool for fine-tuning a OneOcr recognizer on your own documents.
+The command-line tool: read pages with the local engine (`ocr`), and fine-tune a OneOcr recognizer on your own documents (`train`, `eval`, `review`).
+
+```
+oneocr ocr --in page.png                      # text to stdout
+oneocr ocr --in scans/ --out text/ --json     # one .txt and one .page.json (the page model) per image
+```
+
+`ocr` reads PNG and JPEG with the bundled models and never touches the network. `--degree N` caps the threads (default min(4, cores)); the text does not depend on it.
+
+### Starting fast: publish it NativeAOT
+
+The tool is AOT-clean. `dotnet tool install` gives a framework-dependent app that JIT-compiles on every start, which costs about 300 ms
+before the first page is read. For batch jobs and scripts that start the process often, publish a native executable instead:
+
+```
+dotnet publish src/OneOcr.Tool -c Release -r linux-x64      # or win-x64, osx-arm64, linux-arm64
+dotnet publish src/OneOcr.Tool -c Release -r linux-x64 -p:IlcInstructionSet=x86-64-v4   # AVX-512 machines
+```
+
+A native binary is compiled for one instruction-set level. The default for x64 is AVX2 + FMA (`x86-64-v3`, any x86-64 CPU since about
+2015); older CPUs refuse to start it. Do not publish x64 below that level: the reader would run its exact scalar path, about a hundred times
+slower. `x86-64-v4` uses the AVX-512 kernels on machines that have them. Output is identical at every level.
+
+The same applies to your own apps that reference `RecursiveAI.OneOcr`: set `PublishAot` and an `IlcInstructionSet` of at least `x86-64-v3`.
 
 ```
 dotnet tool install RecursiveAI.OneOcr.Tool

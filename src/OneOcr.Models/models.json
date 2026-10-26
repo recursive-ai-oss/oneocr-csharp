@@ -4,20 +4,29 @@
     {
       "name": "crnn-v0",
       "role": "recognizer",
-      "version": "0.5.0",
+      "version": "0.6.2",
       "container": 1,
-      "bytes": 5042780,
-      "sha256": "8943cd8808264e731124b0bcbf7288a982312049f32355ecb9257fb6b5244754",
-      "asset": "crnn-v0-0.5.0.onm"
+      "bytes": 5045596,
+      "sha256": "73ed99cb2dac118d8a217ad5f5bddc42a29f94d148f447869be91a4d658753f0",
+      "asset": "crnn-v0-0.6.2.onm"
     },
     {
       "name": "dbnet-lite-v1",
       "role": "detector",
-      "version": "0.2.0",
+      "version": "0.2.2",
       "container": 1,
-      "bytes": 1370248,
-      "sha256": "b25041984b9f702ecdb930573664711749cf22cb95a6c3c2d943ae0fb9cdfe43",
-      "asset": "dbnet-lite-v1-0.2.0.onm"
+      "bytes": 1370632,
+      "sha256": "19e1adb9e57863e0d59988b60938621cec48bc38ce57172fdab4a1cd1e0e2cae",
+      "asset": "dbnet-lite-v1-0.2.2.onm"
+    },
+    {
+      "name": "charlm-v1",
+      "role": "language-model",
+      "version": "1.0.0",
+      "container": 0,
+      "bytes": 1421911,
+      "sha256": "38c190e804f17f54244cfb16cc03cc7dba30d13aa4cb5b6540a71e068bdd68b5",
+      "asset": "charlm-v1.bin"
     }
   ]
 }

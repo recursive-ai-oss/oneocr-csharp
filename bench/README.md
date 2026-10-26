@@ -258,22 +258,28 @@ Accuracy mode runs `OneOcr.Bench run --words 1 --pagejson 1`, scores with the be
 `OUT/accuracy.json`; `--timing` writes `OUT/timing.json`. Both then rewrite `OUT/gate.md` and `OUT/gate.json`; the speed section
 appears once a timing run exists. Accuracy is not timing-sensitive and can run under `nice` when the machine is quiet.
 
-- **Quality verdict**, per category: ours must beat Tesseract best-of on CER, WER and reading order, where the baseline for each
-  metric is the best PSM for that metric of `tessdata_best` (the second table under *Tesseract 5.3.4 baselines*). Clean print may
-  tie: an error within 0.2 percentage points above the baseline counts as a tie and passes. Receipts are judged on recall-CER and
-  recall-WER (CORD truth is partial); their order is shown, not judged. Tesseract fast is shown beside it.
+- **Quality verdict**, per category and metric: ours against the **best value any measured engine reaches**. With
+  `--competitors DIR` (a frozen competitor-results directory, below) the candidates are Tesseract best-of (the best PSM for that metric of
+  `tessdata_best`, the second table under *Tesseract 5.3.4 baselines*) and every gated competitor configuration; the table names the
+  engine that holds the best value, keeps Tesseract best and fast in their own columns, and a second table lists every engine. Without
+  `--competitors` the baseline is Tesseract best-of alone. Win means strictly lower error; clean print may tie, an error within 0.2
+  percentage points above the baseline passes as a tie. Receipts are judged on recall-CER and recall-WER (CORD truth is partial); their
+  order is shown, not judged.
 - **Calibration verdict**: ECE (15 bins) ≤ 0.05. On receipts ECE is an upper bound; ECE-m is shown next to it.
 - **Detection**: ink-box F1@0.5 of ours, and of the selected Tesseract runs rescored with the same scorer.
 - **Speed and memory** (`--timing` only), two parts so each fits a timing window:
   - `--timing --model M [--detector D]` times our engine per set at degree 1 and at the default degree min(4, cores): one process per run,
     three runs, mean of the runs (whole-process ms/page with start and model load included, page-only ms as information, peak RSS).
-    Writes `timing.json`.
+    Writes `timing.json`. The timed process is the shipped command line, `oneocr ocr` (src/OneOcr.Tool), published NativeAOT for the host
+    (`dotnet publish -r <rid>`, no JIT warm-up). x64 is compiled for AVX-512 (`x86-64-v4`) when the host has it, else AVX2 + FMA (`x86-64-v3`);
+    `--isa` overrides, and `timing.json` and `gate.md` record the level and the binary's hash. Accuracy mode still runs `OneOcr.Bench`, which
+    writes the word-box sidecars; its text and page JSON are byte-identical to the tool's.
   - `--timing --tess-timing` (no model needed) times Tesseract the same way: stock `tessdata_best` and `tessdata_fast` at the PSM `tess` selected
     for that set (read from `--tess-results`), one process per page, `OMP_THREAD_LIMIT` 1 and the default degree, three runs, mean ms/page and
     peak RSS from `wait4`. Writes `tess-timing.json`, merged per set (`--sets` runs a few sets per window; `--pages N` takes the first N pages).
   - The report pairs them: degree 1 against one Tesseract thread, the default degree against the same number of threads. Speed passes when
     ours is faster than `tessdata_fast`; slower than fast but faster than best with the quality row won is an *exception*; memory passes when
-    RSS is below both. Each file records CPU, cores, and load before, after every run and after.
+    peak RSS at the default degree is at most 300 MB (degree 1 is shown for information). Each file records CPU, cores, and load before, after every run and after.
 - **The lock**: Either `--timing` mode exits with status 75 and does nothing else unless the lock file (`~/WORKER-BENCH.lock`, env `ONEOCR_LOCK`)
   names one of its own ancestor processes as `pid=` (the one exception: `--tess-timing --pages 2` or fewer runs as a smoke test while no lock file exists). Claim it in the job's shell, so it is released however the job ends:
 
@@ -486,3 +492,25 @@ uv run python -m oneocr_bench score ~/oneocr/eval/bench-v1/clean300-v1 OUTPUT_DI
   `ONEOCR_BENCH_DIR`. Checked on the worker with nothing written to the published copy: the Tesseract outputs for `clean300-v1` give
   CER 0.2427 %, WER 0.7300 %, order 0.7394 % (best, PSM 11) and 0.2586 % / 0.8329 % / 0.8517 % (fast, PSM 6), the numbers in the
   baseline table above.
+
+## A sealed set
+
+The bench-v2 pages have been looked at while the engine was developed, so they are a development set. For quality claims a
+second set is cut once, with the same recipes, scorer and category sizes (30 / 40 / 40 / 40 / 40 / 100), and is not looked at,
+scored against or tuned on until a release check.
+
+- **Recipes.** Each category is rendered like its `-v1` set from a seed that is not in this repository (`gen --seed N --out DIR` is
+  the public seed override; `seal build ROOT --seeds FILE` reads six seeds from a private file and renders all categories).
+  Fonts are the same seven held-out families. `--avoid-text DIR` drops every Gutenberg passage that shares an eight-word run
+  with a truth under an earlier eval root, so the sealed prose is new text; `seal verify` reports any such run or any identical
+  page image as a failure.
+- **What is real.** Nothing in it is a photograph or a scan. Prose is public-domain text, truth is browser geometry or our own
+  transform of it, and `degraded`, `phone` and `receipts` are simulated captures. `receipts-v1` is synthetic text from
+  `receipts_synth.py` (stores, items, tax, totals, card lines; faint thermal ink; the phone simulation on a taller canvas),
+  because every CORD v2 split has been used for training or tuning, so no unseen CORD receipts exist. Synthetic receipts
+  have full truth, so recall-CER equals CER on them; they do not test the dataset's printer, paper or photo variety.
+- **Layout.** `<set>/pages`, `<set>/truth`, `<set>/MANIFEST.json`, `SEALED.json` (what each category is made of) and `SHA256SUMS`,
+  all read-only.
+- **Check and run.** `seal verify ROOT --avoid-text <earlier eval roots>` checks hashes, truth structure, image sizes, ink boxes
+  against pixels and overlap with earlier sets, printing counts only. `gate --sealed ROOT [--dry-run]` is the usual gate on that
+  root; its `gate.md` is headed as sealed. `--dry-run` lists the files and runs nothing.

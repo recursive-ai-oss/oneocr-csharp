@@ -140,6 +140,16 @@ public sealed partial class DocumentExtractor
         return new ExtractionResult<T>(value ?? throw new ArgumentException("The type reads an object as null.", nameof(typeInfo)), used, ex, notes, page);
     }
 
+    /// <summary>Asynchronous <see cref="Extract{T}(OcrPage, JsonTypeInfo{T}, int, CancellationToken)"/>: runs the same local work on the thread pool.</summary>
+    /// <typeparam name="T">The caller's type.</typeparam>
+    /// <param name="page">The page.</param>
+    /// <param name="typeInfo">Type information from a <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.</param>
+    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The value, and per field its words, box and confidence.</returns>
+    public Task<ExtractionResult<T>> ExtractAsync<T>(OcrPage page, JsonTypeInfo<T> typeInfo, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Extract(page, typeInfo, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+
     // Writes "name": value for one property when the field's text reads as the property's type; otherwise says why not.
     private static bool WriteValue(Utf8JsonWriter w, JsonPropertyInfo p, ExtractedField field, NumberStyle style, DateOrder order, out string? problem)
     {

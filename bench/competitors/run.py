@@ -14,14 +14,19 @@ entry point and recognising it; model load is reported on its own.
 
 Variants (names from each project's public documentation):
   paddle: v5-mobile = PP-OCRv5_mobile_det + PP-OCRv5_mobile_rec, v5-server = PP-OCRv5_server_det + PP-OCRv5_server_rec,
+          v5-mobile-en = PP-OCRv5_mobile_det + en_PP-OCRv5_mobile_rec, v5-server-en = PP-OCRv5_server_det + en_PP-OCRv5_mobile_rec,
           v6-default = the package's default pipeline (PP-OCRv6_medium).
+          The multilingual v5 recognizers leave out the spaces between words on small or degraded lines ("stillamiable,still");
+          the project's documentation describes the English v5 recognizer as the one that fixes omitted spaces, so the -en
+          variants are the fair English rows. The multilingual rows stay for reference.
   doctr:  default = ocr_predictor() with no arguments; mobile = db_mobilenet_v3_large + crnn_mobilenet_v3_small.
 Paddle's document orientation, unwarping and text-line orientation steps are switched off (the sets are upright);
 docTR keeps its documented defaults. Paddle runs with enable_mkldnn=False because the default (oneDNN) path
 raises an error with the pinned paddlepaddle on the worker.
 
-Paddle returns text lines, so its word boxes are made by cutting each line box in proportion to the character
-counts of its words. docTR returns word boxes.
+Paddle's word boxes are its own (the documented return_word_box option: one box per token, which are joined into whitespace-
+separated words); a line without them falls back to cutting the line box in proportion to the character counts of its words.
+docTR returns word boxes.
 """
 
 from __future__ import annotations
@@ -33,6 +38,22 @@ import platform
 import resource
 import time
 from pathlib import Path
+
+
+def join_tokens(tokens: list, boxes: list) -> list[dict]:
+    """Paddle's per-token boxes to whitespace-separated words: tokens are joined until one is blank or ends in a space (", ")."""
+    words, cur, box = [], "", None
+    for tok, b in zip(tokens, boxes):
+        piece = str(tok).strip()
+        if piece:
+            cur += piece
+            box = list(map(float, b)) if box is None else [min(box[0], b[0]), min(box[1], b[1]), max(box[2], b[2]), max(box[3], b[3])]
+        if (not piece or str(tok)[-1:].isspace()) and cur:
+            words.append({"text": cur, "box": box})
+            cur, box = "", None
+    if cur:
+        words.append({"text": cur, "box": box})
+    return words
 
 
 def load_paddle(variant: str, threads: int, det_side: int):
@@ -48,27 +69,34 @@ def load_paddle(variant: str, threads: int, det_side: int):
         kw |= dict(text_detection_model_name="PP-OCRv5_mobile_det", text_recognition_model_name="PP-OCRv5_mobile_rec")
     elif variant == "v5-server":
         kw |= dict(text_detection_model_name="PP-OCRv5_server_det", text_recognition_model_name="PP-OCRv5_server_rec")
+    elif variant == "v5-mobile-en":
+        kw |= dict(text_detection_model_name="PP-OCRv5_mobile_det", text_recognition_model_name="en_PP-OCRv5_mobile_rec")
+    elif variant == "v5-server-en":
+        kw |= dict(text_detection_model_name="PP-OCRv5_server_det", text_recognition_model_name="en_PP-OCRv5_mobile_rec")
     elif variant != "v6-default":
         raise SystemExit(f"unknown paddle variant {variant}")
     ocr = PaddleOCR(**kw)
 
     def run(path: Path):
-        res = list(ocr.predict(str(path)))[0].json
+        res = list(ocr.predict(str(path), return_word_box=True))[0].json
         res = res.get("res", res)
-        lines = []
-        for text, box in zip(res["rec_texts"], res["rec_boxes"]):
-            if str(text).strip():
-                lines.append((str(text), [float(v) for v in box]))
         out_lines, words = [], []
-        for text, (x0, y0, x1, y1) in lines:
-            out_lines.append(text)
-            toks = text.split()
+        tw, tb = res.get("text_word") or [], res.get("text_word_boxes") or []
+        for i, (text, box) in enumerate(zip(res["rec_texts"], res["rec_boxes"])):
+            if not str(text).strip():
+                continue
+            out_lines.append(str(text))
+            if i < len(tw) and i < len(tb) and len(tw[i]) == len(tb[i]) and tw[i]:
+                words += join_tokens(tw[i], tb[i])
+                continue
+            x0, y0, x1, y1 = (float(v) for v in box)
+            toks = str(text).split()
             total = sum(len(t) for t in toks) + max(len(toks) - 1, 0)  # spaces count as one character
             x = x0
-            for i, t in enumerate(toks):
+            for j, t in enumerate(toks):
                 w = (x1 - x0) * len(t) / total
                 words.append({"text": t, "box": [round(x, 1), y0, round(x + w, 1), y1]})
-                x += w + ((x1 - x0) / total if i < len(toks) - 1 else 0)
+                x += w + ((x1 - x0) / total if j < len(toks) - 1 else 0)
         return out_lines, words
 
     return run
