@@ -120,7 +120,9 @@ public sealed record TextDisagreement(
 /// <param name="Fields">Each value found, by schema path, with its words and <see cref="GroundedField.Confidence"/>. Under <see cref="LlmRouting.LocalFirst"/> a schema value is kept locally only when it is listed here at or above <see cref="LlmReadOptions.ConfidenceThreshold"/>; an empty list means the extractor only offers a whole-document result judged by <paramref name="MinConfidence"/>.</param>
 /// <param name="MinConfidence">The lowest confidence among the fields; for an extractor that lists no <paramref name="Fields"/>, the whole result is kept under <see cref="LlmRouting.LocalFirst"/> when this reaches <see cref="LlmReadOptions.ConfidenceThreshold"/>.</param>
 /// <param name="OtherFields">Optional: fields the local model found that the schema does not ask for (<see cref="GroundedField.Path"/> names the field, not a schema path). The role check uses their words.</param>
-public sealed record LocalFieldResult(string Json, IReadOnlyList<GroundedField> Fields, float MinConfidence, IReadOnlyList<GroundedField>? OtherFields = null);
+/// <param name="MappedPaths">Optional: the schema properties the local model has a class for, found or not, as paths with array indices left out (<c>/lines/description</c>). The role check only judges a model value for a property in this set; a property the local model has no class for cannot contradict it. Null means every property is judged.</param>
+public sealed record LocalFieldResult(
+    string Json, IReadOnlyList<GroundedField> Fields, float MinConfidence, IReadOnlyList<GroundedField>? OtherFields = null, IReadOnlyCollection<string>? MappedPaths = null);
 
 /// <summary>
 /// A local extraction model for <see cref="LlmOutputs.Json"/>. <see cref="DocumentFieldExtractor"/> plugs in the shipped and custom extraction models;

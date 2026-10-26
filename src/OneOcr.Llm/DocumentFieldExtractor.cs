@@ -56,7 +56,9 @@ public sealed class DocumentFieldExtractor(DocumentExtractor extractor) : ILocal
 
         float min = run.Fields.Count == 0 ? 0f : run.Fields.Min(static f => f.Confidence);
         var others = run.Others();
-        return new LocalFieldResult(System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan), run.Fields, min, others);
+        var mapped = new HashSet<string>(StringComparer.Ordinal);
+        run.CollectMapped(root, "", mapped);
+        return new LocalFieldResult(System.Text.Encoding.UTF8.GetString(buffer.WrittenSpan), run.Fields, min, others, mapped);
     }
 
     private sealed class Run
@@ -96,6 +98,31 @@ public sealed class DocumentFieldExtractor(DocumentExtractor extractor) : ILocal
         }
 
         public List<GroundedField> Fields { get; } = [];
+
+        // The schema properties some class of the model answers to (found on this page or not), with array indices left out.
+        public void CollectMapped(SNode n, string path, HashSet<string> into, string leafName = "")
+        {
+            switch (n)
+            {
+                case SObject so:
+                    foreach ((string name, SNode child) in so.Props)
+                    {
+                        CollectMapped(child, path + "/" + GroundedSchema.Escape(name), into, name);
+                    }
+
+                    break;
+                case SArray sa:
+                    CollectMapped(sa.Items, path, into, leafName);
+                    break;
+                case SLeaf leaf:
+                    if (Candidates(leafName, leaf.Description).Any())
+                    {
+                        into.Add(path);
+                    }
+
+                    break;
+            }
+        }
 
         // Fields of the model that no schema property took, for the role check.
         public IReadOnlyList<GroundedField> Others() =>

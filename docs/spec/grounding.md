@@ -250,6 +250,12 @@ the local reading, using only fields the local model holds at `ConfidenceThresho
 - the local model reads **this path** from other words (none shared with the citation) and its value, compared after normalization,
   is different.
 
+Only a property the local model has a class for is judged (`LocalFieldResult.MappedPaths`: the schema paths, array indices left out, that
+some class of the model answers to, whether or not it found a value on this page). For a property with no class the local model says
+nothing about what it means, so its cited words belonging to another class is no contradiction and the value stays as grounding left it.
+A local extractor that gives no set is taken to have a class for every property. `DocumentFieldExtractor` fills the set with the
+properties its name, description and alias matching maps to a class.
+
 The field then gets state **`RoleConflict`** (a state of its own rather than a flag on `Grounded`, so code that trusts `Grounded`
 cannot overlook it). It keeps its words and boxes, has confidence 0 and a note saying what the local model reads. It counts like
 `Ungrounded` for the re-ask (the hint is the local value), for the check after the re-ask, and for `UngroundedPolicy`. The check costs
