@@ -48,11 +48,19 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--prune", action="store_true", help="remove the failing lines (labels and images) from the set")
     a = ap.parse_args()
     root = Path(a.data)
     rows = [json.loads(x) for x in (root / "labels.jsonl").read_text(encoding="utf-8").splitlines() if x]
     rows = rows[: a.limit] if a.limit else rows
     bad = [(r["id"], why) for r in rows if (why := check_row(root, r))]
+    if a.prune and bad:
+        gone = {i for i, _ in bad}
+        keep = [x for x in (root / "labels.jsonl").read_text(encoding="utf-8").splitlines() if x and json.loads(x)["id"] not in gone]
+        (root / "labels.jsonl").write_text("".join(x + "\n" for x in keep), encoding="utf-8")
+        for i in gone:
+            (root / "images" / f"{i}.png").unlink(missing_ok=True)
+        (root / "pruned_by_check.json").write_text(json.dumps(sorted(bad)), encoding="utf-8")
     share = round(len(bad) / max(1, len(rows)), 4)
     print(json.dumps({"checked": len(rows), "failed": len(bad), "failed_share": share, "examples": bad[:10]}, indent=1))
     sys.exit(1 if len(bad) > 0.01 * len(rows) else 0)

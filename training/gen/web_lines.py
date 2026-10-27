@@ -543,7 +543,8 @@ def process_page(job: dict) -> dict:
     ua = f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{br.version} Safari/537.36 {job['ua_suffix']}"
     mobile = vp[0] < 500
     ctx = br.new_context(viewport={"width": vp[0], "height": vp[1]}, device_scale_factor=dpr, user_agent=ua, locale="en-US",
-                         reduced_motion="reduce", is_mobile=mobile, has_touch=mobile)  # fmt: skip
+                         reduced_motion="reduce", is_mobile=mobile, has_touch=mobile,
+                         bypass_csp=True)  # the substitute font is injected as a data URI  # fmt: skip
     page = ctx.new_page()
     page.route("**/*", lambda route: route.abort() if route.request.resource_type in ("image", "media") else route.continue_())
     try:
@@ -827,6 +828,35 @@ def sheet(root: Path, path: Path, n: int, seed: int) -> None:
     canvas.save(path)
 
 
+def merge(base: Path, extra: Path, only: str) -> None:
+    """Replaces one publisher's pages and lines in a finished set with those of a re-render of just that publisher (texts are capped
+    per publisher, so publishers do not interact)."""
+    import shutil
+
+    for split in ("train", "heldout"):
+        lab = base / split / "labels.jsonl"
+        keep = [x for x in lab.read_text(encoding="utf-8").splitlines() if x and json.loads(x)["publisher"] != only] if lab.exists() else []
+        for img in (base / split / "images").glob(f"{only}-*.png") if (base / split / "images").exists() else []:
+            img.unlink()
+        new = []
+        if (extra / split / "labels.jsonl").exists():
+            new = [x for x in (extra / split / "labels.jsonl").read_text(encoding="utf-8").splitlines() if x]
+            (base / split / "images").mkdir(parents=True, exist_ok=True)
+            for img in (extra / split / "images").glob("*.png"):
+                shutil.copy2(img, base / split / "images" / img.name)
+        lab.write_text("".join(x + "\n" for x in keep + new), encoding="utf-8")
+    pages = [x for x in (base / "pages.jsonl").read_text(encoding="utf-8").splitlines() if x and json.loads(x)["publisher"] != only]
+    pages += [x for x in (extra / "pages.jsonl").read_text(encoding="utf-8").splitlines() if x]
+    (base / "pages.jsonl").write_text("".join(x + "\n" for x in pages), encoding="utf-8")
+    run = json.loads((base / "run.json").read_text(encoding="utf-8"))
+    run["merged"] = run.get("merged", []) + [{"publisher": only, "run": json.loads((extra / "run.json").read_text(encoding="utf-8"))}]
+    for split in ("train", "heldout"):
+        run["lines"][split] = sum(1 for _ in (base / split / "labels.jsonl").open(encoding="utf-8"))
+        run["labels_sha256"][split] = hashlib.sha256((base / split / "labels.jsonl").read_bytes()).hexdigest()
+    (base / "run.json").write_text(json.dumps(run, indent=1, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps(run["lines"]))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -840,12 +870,19 @@ def main() -> None:
     r.add_argument("--limit-pages", type=int)
     r.add_argument("--only", help="comma-separated publisher ids")
     r.add_argument("--debug-dir", help="write annotated screenshots of the pages here")
+    mg = sub.add_parser("merge")
+    mg.add_argument("--base", required=True)
+    mg.add_argument("--extra", required=True)
+    mg.add_argument("--publisher", required=True)
     sh = sub.add_parser("sheet")
     sh.add_argument("--data", required=True)
     sh.add_argument("--out", required=True)
     sh.add_argument("--n", type=int, default=60)
     sh.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
+    if a.cmd == "merge":
+        merge(Path(a.base), Path(a.extra), a.publisher)
+        return
     if a.cmd == "sheet":
         sheet(Path(a.data), Path(a.out), a.n, a.seed)
         return
