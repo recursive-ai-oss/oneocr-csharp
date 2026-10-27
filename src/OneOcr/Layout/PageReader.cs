@@ -18,7 +18,7 @@ internal static partial class PageReader
 
     // Most line pixels (the sum of the widths, about four per step of the recurrence) in one group: the group holds the sequences of
     // all its lines at once, so this bounds the memory a group needs.
-    private const int MaxGroupWidth = 2048;
+    private const int MaxGroupWidth = 16384;
 
     private static readonly double[] CommonResolutions = [72, 96, 150, 200, 300, 400, 600];
 
@@ -172,6 +172,8 @@ internal static partial class PageReader
 
                 long r0 = StageClock.Start();
                 LineWords[] lines = recognizer.RecognizeWordsGroup(images, cancellationToken, withChars: true);
+                StageClock.Stop("r0 network+split (group)", r0);
+                long respaceClock = StageClock.Start();
                 for (int k = 0; k < lineCount && respace; k++)
                 {
                     lines[k] = recognizer.Resegment(lines[k], PixelSpans.AsBytes(pixels[k].AsSpan(0, images[k].Width * modelHeight)), images[k].Width, modelHeight);
@@ -187,6 +189,7 @@ internal static partial class PageReader
                     lines[k] = DigitContext.Apply(lines[k]);
                 }
 
+                StageClock.Stop("r5 resegment+glyphs+digits", respaceClock);
                 StageClock.Stop("8d recognize", r0);
                 r0 = StageClock.Start();
                 for (int k = 0; k < lineCount; k++)

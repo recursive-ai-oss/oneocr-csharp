@@ -281,8 +281,10 @@ public sealed class LineRecognizer
                 float[] input = _pool.Rent(gray.Length);
                 try
                 {
+                    long clock = StageClock.Start();
                     CrnnForward.NormalizeInto(gray, new ModelInputView(_model.Input.Mean, _model.Input.Std, _model.Input.Invert), input);
                     current[i] = CrnnForward.ConvStack(_model, _path, 1, _pool, input, width, _limits, null, out steps[i], cancellationToken);
+                    StageClock.Stop("r1 conv stack", clock);
                 }
                 finally
                 {
@@ -322,6 +324,7 @@ public sealed class LineRecognizer
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     Array.Clear(y);
+                    long lstmClock = StageClock.Start();
                     try
                     {
                         CrnnForward.BiLstmGroup(_model.Lstm[l], _path, _pool, x, t, y, _model.Hidden, cancellationToken);
@@ -332,16 +335,21 @@ public sealed class LineRecognizer
                         throw;
                     }
 
+                    StageClock.Stop("r2 lstm", lstmClock);
                     ReturnAll(x);
                     (x, y) = (y, x);
                 }
 
                 for (int k = 0; k < m; k++)
                 {
+                    long fcClock = StageClock.Start();
                     float[] logits = CrnnForward.Classify(_model, _path, _pool, x[k]!, t[k]);
+                    StageClock.Stop("r3 classifier", fcClock);
                     try
                     {
+                        fcClock = StageClock.Start();
                         results[live[k]] = SplitWords(logits, t[k], lines[live[k]].Width, withChars);
+                        StageClock.Stop("r4 softmax+words", fcClock);
                     }
                     finally
                     {

@@ -29,8 +29,10 @@ internal static class GroupBench
             images[i] = new LineImage(px, wi);
         }
 
+        OneOcr.StageClock.Enabled = true;
         var single = new List<double>();
         var group = new List<double>();
+        Dictionary<string, double> stages = [];
         for (int rep = -2; rep < repeat; rep++)
         {
             long t0 = Stopwatch.GetTimestamp();
@@ -40,9 +42,11 @@ internal static class GroupBench
             }
 
             double a = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+            OneOcr.StageClock.Take();
             t0 = Stopwatch.GetTimestamp();
             recognizer.RecognizeWordsGroup(images, CancellationToken.None, false);
             double b = Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+            stages = OneOcr.StageClock.Take();
             if (rep >= 0)
             {
                 single.Add(a);
@@ -53,6 +57,11 @@ internal static class GroupBench
         single.Sort();
         group.Sort();
         Console.WriteLine($"{lines} lines of ~{width}: one by one {single[single.Count / 2]:F1} ms, as a group {group[group.Count / 2]:F1} ms");
+        foreach (var (k, v) in stages.OrderBy(x => x.Key, StringComparer.Ordinal))
+        {
+            Console.WriteLine($"  {k,-20} {v,8:F1} ms (last group run)");
+        }
+
         return 0;
     }
 }
