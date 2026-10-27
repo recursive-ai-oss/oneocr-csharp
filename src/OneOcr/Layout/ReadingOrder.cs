@@ -22,8 +22,10 @@ internal static class LayoutParameters
     /// <see cref="SoftColumnWidthEm"/>). Print gutters are about one em of the font, which is a little over the measured text height,
     /// so a stripe of 1.25 text heights misses the gutters of tightly set pages by a pixel or two, more so on blurred scans, and the
     /// page was then read row by row across its columns. A stripe that no fragment of a dozen lines touches is not a gap between words.
+    /// The bar is 0.4: a page whose gutter measured 0.46 text heights (word boxes are ink extents, a little short of the print) was a
+    /// pixel below 0.5 with one detector and above it with another, and its columns flipped.
     /// </summary>
-    internal const double SoftGutterEm = 0.5;
+    internal const double SoftGutterEm = 0.4;
 
     /// <summary>
     /// Columns whose gutter has a few words in it (a stray word or speck on a scan, justified lines that run a few pixels into the next
@@ -45,6 +47,15 @@ internal static class LayoutParameters
 
     /// <summary>... and are at most this many times as wide as each other (a wider group has a gutter missing in it).</summary>
     internal const double RobustColumnRatio = 1.6;
+
+    /// <summary>
+    /// When no upright gutter is found, gutters that lean are tried: the column edges move sideways by this much per unit of height
+    /// (a skew of about a seventh of a degree) ...
+    /// </summary>
+    internal const double RobustShearStep = 0.0025;
+
+    /// <summary>... up to this many steps either way (about 0.7 degrees; a page is deskewed before it is read, and a lean is what the estimate leaves).</summary>
+    internal const int RobustShearSteps = 5;
 
     /// <summary>A line that crosses such a stripe is a header or footer of its region when at most this many other lines lie above or below it ...</summary>
     internal const int RobustMarginLines = 5;
@@ -432,7 +443,15 @@ internal static partial class ReadingOrder
                 groups = AbsorbSpecks(f, reg, groups, ms);
             }
 
-            bool narrowCut = false;
+            // A speck at the edge of the page that stands clear of the text is cut off on its own: it is neither a column nor a reason to
+            // read the rest in bands, and the text it leaves is cut into columns in its turn.
+            bool narrowCut = groups is not null && IsEdgeSpeck(f, reg, groups, ms);
+            if (groups is null && PeelMargins(f, reg, ms) is { } peeled)
+            {
+                groups = peeled;
+                narrowCut = true;
+            }
+
             if (groups is null && SoftColumns(f, reg, ms) is { } narrow)
             {
                 groups = narrow;
@@ -540,6 +559,36 @@ internal static partial class ReadingOrder
     // A group of a fragment or two in a region of many is a speck of noise (or a stray mark in the margin) that happens to stand
     // clear of the columns on both sides, not a column: left as a group of its own it breaks the reading of the columns on either
     // side of it (it looks like a column embedded between parts of another). It joins the nearer neighbour. Null when no cut is left.
+    // A region of many lines with no full-gutter cut: a running header or footer is cut off first (see MarginBands), so that the narrow
+    // cuts below do not take a footer at the left for the end of the left column. Null when there is none.
+    private static List<int[]>? PeelMargins(List<OrderFragment> f, int[] reg, double ms)
+    {
+        if (reg.Length < 2 * LayoutParameters.RobustMinLines || DistinctLineCount(f, reg) < LayoutParameters.RobustMinLines || MarginBands(f, reg, ms) is not { } margins)
+        {
+            return null;
+        }
+
+        (int[] head, int[] body, int[] foot) = margins;
+        if (DistinctLineCount(f, body) < LayoutParameters.RobustMinLines)
+        {
+            return null;
+        }
+
+        var groups = new List<int[]>(3);
+        if (head.Length > 0)
+        {
+            groups.Add(head);
+        }
+
+        groups.Add(body);
+        if (foot.Length > 0)
+        {
+            groups.Add(foot);
+        }
+
+        return groups;
+    }
+
     private static List<int[]>? AbsorbSpecks(List<OrderFragment> f, int[] reg, List<int[]> groups, double ms)
     {
         if (groups.Count < 3 || reg.Length < LayoutParameters.SpeckMinFragments)
@@ -583,6 +632,26 @@ internal static partial class ReadingOrder
         }
 
         return kept.Count >= 2 ? kept : null;
+    }
+
+    // Whether the full-gutter cut only splits a speck (see AbsorbSpecks) off the edge of a region of many fragments.
+    private static bool IsEdgeSpeck(List<OrderFragment> f, int[] reg, List<int[]> groups, double ms)
+    {
+        if (groups.Count != 2 || reg.Length < LayoutParameters.SpeckMinFragments)
+        {
+            return false;
+        }
+
+        int max = Math.Min(LayoutParameters.SpeckMaxFragments, (int)(LayoutParameters.SpeckShare * reg.Length));
+        int[] small = groups[0].Length <= groups[1].Length ? groups[0] : groups[1];
+        int[] rest = ReferenceEquals(small, groups[0]) ? groups[1] : groups[0];
+        if (small.Length > max)
+        {
+            return false;
+        }
+
+        double top = small.Min(id => f[id].Top), bottom = small.Max(id => f[id].Bot);
+        return top - rest.Min(id => f[id].Top) >= LayoutParameters.SpeckInsideEm * ms && rest.Max(id => f[id].Bot) - bottom >= LayoutParameters.SpeckInsideEm * ms;
     }
 
     private static int DistinctLineCount(List<OrderFragment> f, int[] reg)

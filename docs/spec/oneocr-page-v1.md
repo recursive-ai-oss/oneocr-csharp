@@ -149,18 +149,26 @@ of PDF fragments:
 - Narrow gutters (`LayoutParameters.Soft*`). Print gutters are about one em of the font, a little over the measured text height, so
   a gutter of 1.25 text heights is missed by a pixel or two on tightly set pages and more on blurred scans, and the page was read
   row by row across its columns (the cells of one line joined by tabs). When a region has no stripe of 1.25 text heights and no
-  fragment of any of its lines crosses a stripe of at least 0.5 text heights, and the region has at least 10 distinct lines, it is
+  fragment of any of its lines crosses a stripe of at least 0.4 text heights, and the region has at least 10 distinct lines, it is
   cut there into columns if every column has at least 5 distinct lines and the widest quarter of its fragments is at least 12
   text heights wide (full lines of running text; a column of bullets, labels or table cells is not). These columns skip the
   label, table, sidebar and tied-row rules and are read one after the other, top to bottom. Regions that already had a stripe of
-  1.25 text heights are cut exactly as before.
+  1.25 text heights are cut exactly as before. The bar is 0.4 and not higher because word boxes are ink extents, a little short of
+  the print: a page whose gutter measured 0.46 text heights was just under 0.5 with one detector and over it with another, and
+  its columns flipped. A stripe that nothing in a dozen lines touches is not a gap between words, so the lower bar costs no
+  false cuts on the tune sets.
 - Gutters with a few words in them (`LayoutParameters.Robust*`, `ReadingOrder.Columns.cs`). On scans a stray word, a speck read as a
   word, or a justified line that runs a few pixels into the next column keeps every stripe from being empty. When a region of at
   least 30 distinct lines still has no cut after the narrow-gutter rule, the words of the region are swept left to right counting
   how many cover each position. A stripe is a run, inside the text (not at its margins) and at least 0.2 text heights wide, where
   at most a tenth of the peak count (at least one word) lies, and where the mean count over the 3 text heights on each side is at
   least a quarter of the peak (text stands up to it on both sides; the ragged right edge of long lines, with a few longer lines
-  reaching beyond, is not a gutter). Its position is the middle of the longest run at the lowest count. Words are assigned to
+  reaching beyond, is not a gutter). Its position is the middle of the longest run at the lowest count. If no stripe leads to a cut,
+  the sweep is repeated with the words' positions sheared, x minus k times the height of the word's centre, for k = 0.0025 to
+  0.0125 in steps of 0.0025, both signs, least lean first (a skew of up to 0.7 degrees: a page is deskewed before it is read, and
+  the estimate leaves a little lean, so the gutter is clear along its slant but no vertical stripe is empty from top to
+  bottom). The first k that gives columns is used; the upright reading is always tried first, so pages that had columns keep
+  them. Words are assigned to
   columns by their centres, and a fragment that runs across a stripe is cut between its words. The columns must pass the same
   running-text test as above (5 lines, widest quarter at least 12 text heights) and be at most 1.6 times as wide as each other
   (a wider group has a gutter missing in it); if not, the stripe with the most words in it is dropped and the rest tried again,
@@ -169,8 +177,10 @@ of PDF fragments:
   the earlier rules are cut as before.
   *Header and footer.* Before the stripes are sought, a band of at most 5 distinct lines at the top (bottom) of the region, set
   off from the rest by an empty band of one text height (fragments of any region, not only of one detector region), is read
-  before (after) the columns when it spans at least 60% of the region's width and its fragments fill at most 40% of that width on
-  each line (a footer of a few labels, not the first lines of two columns). A line with words on both sides of a stripe is also a
+  before (after) the columns when its fragments fill at most 40% of the region's width on each line and it either spans at
+  least 60% of that width or is a single line (a footer of a few labels, or a page footer at the left, not the first lines of two
+  columns). A region of at least 30 lines that has no cut at 1.25 text heights has such a band cut off first, before the
+  narrow-gutter rule, so that a footer at the left is not taken for the end of the left column. A line with words on both sides of a stripe is also a
   header (footer) when at most 5 lines lie above (below) it, or a tenth of the lines when an empty band of half a text height sets
   it off from the lines below (above); every fragment from there outwards, within half a text height of the line, goes with it.
   The header and footer groups are cut as ordinary regions.
@@ -178,7 +188,10 @@ of PDF fragments:
   two others in a region of at least 30 fragments (a mark in the margin, a noise word) is not a column when it lies inside the
   vertical extent of the nearer neighbour, at least 2 text heights from its top and bottom: it joins that neighbour. Without
   this it looks like a column embedded between parts of another and the page is read in bands. A menu item at the top of a screen
-  is not inside anything and stays a group.
+  is not inside anything and stays a group. When the cut leaves only two groups, one of them such a speck at the edge of the
+  region (a mark in the left or right margin), the speck is cut off on its own and the text is cut into columns in its turn,
+  skipping the band reading that a group embedded in another would bring: with it, the paragraph gaps two columns share cut the
+  page in slices (left slice, right slice, next left slice).
 - Screens and forms (`ReadingOrder.Sections.cs`). When a region has empty vertical stripes and is not a table, three rules
   decide whether the columns are the structure, in this order:
   1. *Header row*: the topmost band is read first, whole, when it is at most 2.5 em tall, has at least two fragments, spans at
