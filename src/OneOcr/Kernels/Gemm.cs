@@ -619,10 +619,10 @@ internal static unsafe partial class Gemm
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static Vector128<float> Reduce4Avx512(Vector512<float> a0, Vector512<float> a1, Vector512<float> a2, Vector512<float> a3)
     {
-        // [a0 q0+q2, a0 q1+q3, a1 q0+q2, a1 q1+q3] where q0..q3 are the quarters of 4 lanes.
+        // Each accumulator is four quarters of four lanes; this holds (quarter 0 + quarter 2) and (quarter 1 + quarter 3) of a0, then of a1.
         Vector512<float> s01 = Avx512F.Add(Avx512F.Shuffle4x128(a0, a1, 0x44), Avx512F.Shuffle4x128(a0, a1, 0xEE));
         Vector512<float> s23 = Avx512F.Add(Avx512F.Shuffle4x128(a2, a3, 0x44), Avx512F.Shuffle4x128(a2, a3, 0xEE));
-        // x quarter r = (q0+q2) + (q1+q3) of accumulator r.
+        // Quarter r of x is the sum of those two for accumulator r.
         Vector512<float> x = Avx512F.Add(Avx512F.Shuffle4x128(s01, s23, 0x88), Avx512F.Shuffle4x128(s01, s23, 0xDD));
         Vector512<float> y = Avx512F.Add(x, Avx512F.Permute4x32(x, 0xEE));
         Vector512<float> z = Avx512F.Add(y, Avx512F.Permute4x32(y, 0x55));
