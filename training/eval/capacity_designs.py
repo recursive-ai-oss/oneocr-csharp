@@ -41,6 +41,8 @@ DESIGNS: dict[str, dict] = {
     "A1 crnn wide": crnn(list(zip([48, 96, 192, 192, 256, 256], S4, strict=True)), 256),
     # stride 2 and wider, sized for the latency limit
     "A2 crnn stride 2, wide": crnn(list(zip([32, 64, 128, 160, 224, 224], S2, strict=True)), 256),
+    # latency-neutral candidate: the budget moves from the recurrent layers to the late convolutions (cheap, the height is 4 or 2 there)
+    "Bp crnn conv 32/64/112/128/256/256, LSTM 128": crnn(list(zip([32, 64, 112, 128, 256, 256], S4, strict=True)), 128),
     "B1 svtr-lite wide": {
         "arch": "svtr-lite",
         "stem": [48, 96],
