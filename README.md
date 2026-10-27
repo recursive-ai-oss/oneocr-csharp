@@ -584,9 +584,10 @@ same format.
 
 | Model | Role | Architecture | Size | Package |
 |---|---|---|---|---|
-| `crnn-v0` 0.6.2 | Line recognizer: 622 classes (Latin, Greek, Cyrillic, punctuation, currency), per-script calibrated confidence | convolutions, 2-layer BiLSTM, CTC; 2.5 M parameters | 5.0 MB | `.Models` |
+| `crnn-v0` 0.6.3 | Line recognizer: 622 classes (Latin, Greek, Cyrillic, punctuation, currency), per-script calibrated confidence | convolutions, 2-layer BiLSTM, CTC; 2.5 M parameters | 5.0 MB | `.Models` |
 | `dbnet-lite-v1` 0.2.2 | Page detector: text lines (oriented), page orientation, layout classes | DBNet-style, 0.7 M parameters; [spec](docs/spec/detector-v1.md) | 1.4 MB | `.Models` |
 | `charlm-v1` | Character n-gram model for word breaks and optional beam search; [spec](docs/spec/char-lm-v1.md) | interpolated Kneser–Ney, Latin + Greek + Cyrillic | 1.4 MB | `.Models` |
+| `wordfreq-v2` | Word frequencies that take back a space the recognizer put inside a word; [spec](docs/spec/word-lm-v1.md) | counts of 219 k Latin-script words | 1.3 MB | `.Models` |
 | `docextract-v0` | Invoice and receipt word tagger; [spec](docs/spec/docextract-v0.md) | character-CNN word embedding, 2-D position embedding, small transformer | about 4 MB | `.Models.Documents` |
 
 Training-data attributions and font licences are in
@@ -602,17 +603,22 @@ committed to the repository.
 - **Recognizer.** Text lines rendered from public-domain books (Project Gutenberg) in 77 open font
   families (SIL OFL, Apache-2.0 and Ubuntu Font Licence), in Latin, Greek and Cyrillic, then degraded
   (blur, noise, JPEG, low resolution, faint ink, perspective, uneven light) with exact ground
-  truth; plus word crops of the CORD v2 receipts training split with its labels and synthetic
-  receipt and interface text. Held-out font families and held-out books form the evaluation sets.
+  truth; plus word crops of the CORD v2 receipts training split with its labels, synthetic
+  receipt and interface text, text lines cut from screenshots of public-domain US federal web pages
+  (labels from the page's own text), and photos of receipts generated with an image model and
+  transcribed by a language model (see Labels). Held-out font families, held-out books and
+  held-out web sites form the evaluation sets.
 - **Detector.** Page images and text-line boxes from DocLayNet and PubLayNet (only articles under
   CC0 and CC BY), CORD v2 word quads, and synthetic pages rendered in Chromium with exact word
   boxes.
 - **Extraction.** Generated invoices and receipts with exact field truth, plus CORD v2 training
   labels.
-- **Labels.** Only these may label data for shipped weights: exact-truth synthetic data,
-  dataset-provided labels (CORD, DocLayNet, PubLayNet) and permissively licensed open-weight
-  models. Commercial LLM APIs are never used to label training data for distributed weights; they
-  may appear only as benchmark rows for the LLM layer. Nobody hand-labels images.
+- **Labels.** Labels for shipped weights come from exact-truth synthetic data, text in the page
+  source, dataset-provided labels (CORD, DocLayNet, PubLayNet) and permissively licensed
+  open-weight models. The one exception is the generated receipt photos in the recognizer's
+  receipt fine-tune, which a commercial language model transcribed; it is listed in
+  THIRD-PARTY-NOTICES.md. Apart from that, commercial LLM APIs appear only as benchmark rows for
+  the LLM layer. Nobody hand-labels images.
 - **Clean room.** Other OCR systems were studied only through their papers, public documentation and
   the output of their released binaries. Their source code and model files were never read or used.
 

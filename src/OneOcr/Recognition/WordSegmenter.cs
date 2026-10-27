@@ -70,6 +70,12 @@ internal static class WordSegmenter
     /// <summary>A line needs this many network spaces before its median word gap is trusted.</summary>
     internal const int MinSpacesForGap = 4;
 
+    /// <summary>A vertical bar and its neighbour are two words when the empty stretch between them is at least <see cref="BarGap"/> pixels and <see cref="BarExtra"/> more than the line's usual letter gap.</summary>
+    internal const int BarGap = 5, BarExtra = 2;
+
+    /// <summary>A capital I fused to the word after it ("Iagree") is cut off when the stretch is at least <see cref="FusedIGap"/> pixels and <see cref="FusedIExtra"/> more than the line's usual letter gap.</summary>
+    internal const int FusedIGap = 4, FusedIExtra = 2;
+
     /// <summary>Lines whose strongest ink is fainter than this (distance from the background, 0..255) have no usable column profile and are left as read.</summary>
     internal const int MinContrast = 64;
 
@@ -174,6 +180,15 @@ internal static class WordSegmenter
             {
                 result[pair] = true;
             }
+            else if (IsBarPair(chars, pair) && span >= BarGap && span >= letterGap + BarExtra && MaySplit(chars, wasSpace, pair, allowBar: true))
+            {
+                // A vertical bar between menu items sits close to its neighbours; the network often leaves no space beside it.
+                result[pair] = true;
+            }
+            else if (frequencies is not null && span >= FusedIGap && span >= letterGap + FusedIExtra && FusedCapitalI(chars, wasSpace, pair, frequencies))
+            {
+                result[pair] = true;
+            }
         }
 
         // The line's usual word gap, when it has enough spaces to tell.
@@ -237,7 +252,7 @@ internal static class WordSegmenter
 
     // Whether a space may be inserted between characters p and p + 1. Both sides must be able to start or end a word, numbers
     // never lose digits to a space between them, and a mark that closes a sentence stays with the word before it.
-    private static bool MaySplit(IReadOnlyList<RecognizedChar> chars, bool[] wasSpace, int p)
+    private static bool MaySplit(IReadOnlyList<RecognizedChar> chars, bool[] wasSpace, int p, bool allowBar = false)
     {
         string a = chars[p].Text, b = chars[p + 1].Text;
         if (a.Length != 1 || b.Length != 1)
@@ -258,7 +273,7 @@ internal static class WordSegmenter
             return false;
         }
 
-        if (!(char.IsLetterOrDigit(r) || Opening.Contains(r)) || !(char.IsLetterOrDigit(l) || Closing.Contains(l)))
+        if (!(char.IsLetterOrDigit(r) || Opening.Contains(r) || (allowBar && r == '|')) || !(char.IsLetterOrDigit(l) || Closing.Contains(l) || (allowBar && l == '|')))
         {
             return false;
         }
@@ -274,6 +289,36 @@ internal static class WordSegmenter
         }
 
         return true;
+    }
+
+    // Exactly one of the two characters is a vertical bar (two bars in a row are one mark).
+    private static bool IsBarPair(IReadOnlyList<RecognizedChar> chars, int p) =>
+        (chars[p].Text == "|") != (chars[p + 1].Text == "|");
+
+    // Whether the break after character p cuts a capital I from the word after it: the network's word is "I" and lower-case letters,
+    // the rest is a common word of the frequency table and the whole is not a word of it ("Iagree", "Iam"; "Index" and "Ian" are).
+    private static bool FusedCapitalI(IReadOnlyList<RecognizedChar> chars, bool[] wasSpace, int p, WordFrequencyModel frequencies)
+    {
+        (int from, int to) = WordSpan(wasSpace, p, chars.Count);
+        if (from != p || chars[p].Text != "I" || to - p < 2)
+        {
+            return false;
+        }
+
+        var rest = new StringBuilder();
+        for (int i = p + 1; i <= to; i++)
+        {
+            string t = chars[i].Text;
+            if (t.Length != 1 || !char.IsAsciiLetterLower(t[0]))
+            {
+                return false;
+            }
+
+            rest.Append(t);
+        }
+
+        return TryJoined(frequencies, rest.ToString(), out int qr) && qr >= FrequencyWordQuarter
+            && !(TryJoined(frequencies, "i" + rest, out int qw) && qw >= FrequencyMinQuarter);
     }
 
     // The first and last character of the network's word that holds characters p and p + 1 (the span of the two words when a space

@@ -132,6 +132,7 @@ internal sealed class PageDetector : IPageDetector
         try
         {
             ReadOnlySpan<Gray8> source = page[..(width * height)];
+            long clock = StageClock.Start();
             if (nw != width || nh != height)
             {
                 scaled = pixels.Rent((long)nw * nh);
@@ -150,19 +151,29 @@ internal sealed class PageDetector : IPageDetector
                 source = scaled.AsSpan(0, nw * nh);
             }
 
+            StageClock.Stop("n1 detector resize", clock);
+            clock = StageClock.Start();
             double? sigma = _model.Postprocess.HasRule ? PageNoise.Sigma(source, nw, nh) : null;
+            StageClock.Stop("n2 page noise", clock);
+            clock = StageClock.Start();
             canvas = _floats.Rent((long)paddedW * paddedH);
             Normalize(source, nw, nh, paddedW, paddedH, _model.Input, canvas);
+            StageClock.Stop("n3 normalize", clock);
             if (scaled is not null)
             {
                 pixels.Return(scaled);
                 scaled = null;
             }
 
+            clock = StageClock.Start();
             DetectorMaps maps = DbNetForward.Run(_model, _path, degree, _floats, canvas, paddedH, paddedW, _limits, null, cancellationToken, pooledMaps: true);
+            StageClock.Stop("n4 network", clock);
             try
             {
-                return DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits, sigma);
+                clock = StageClock.Start();
+                PageDetection found = DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits, sigma);
+                StageClock.Stop("n5 map decode", clock);
+                return found;
             }
             finally
             {

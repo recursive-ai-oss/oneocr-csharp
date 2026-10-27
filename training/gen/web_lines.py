@@ -204,7 +204,8 @@ KEYS_JS = r"""() => {
     if (![...el.childNodes].some(n => n.nodeType === 3 && n.data.trim())) continue;
     const cs = getComputedStyle(el);
     const key = cs.fontFamily + '|' + cs.fontWeight + '|' + cs.fontStyle;
-    if (!keys.has(key)) { keys.set(key, {i: keys.size, family: cs.fontFamily, weight: cs.fontWeight, style: cs.fontStyle}); el.setAttribute('data-font-key', String(keys.size - 1)); }
+    if (!keys.has(key)) keys.set(key, {i: keys.size, family: cs.fontFamily, weight: cs.fontWeight, style: cs.fontStyle});
+    el.setAttribute('data-font-key', String(keys.get(key).i));
   }
   return [...keys.values()];
 }"""
@@ -277,7 +278,8 @@ EXTRACT_JS = r"""([W, H, css]) => {
     if (/rgba?\(\s*\d+,\s*\d+,\s*\d+,\s*0\s*\)/.test(cs.color) || cs.color === 'transparent') continue;
     const tf = cs.textTransform, fs = parseFloat(cs.fontSize);
     const key = cs.fontFamily + '|' + cs.fontWeight + '|' + cs.fontStyle;
-    if (!keys.has(key)) { keys.set(key, {i: keys.size, family: cs.fontFamily, weight: cs.fontWeight, style: cs.fontStyle}); el.setAttribute('data-font-key', String(keys.size - 1)); }
+    if (!keys.has(key)) keys.set(key, {i: keys.size, family: cs.fontFamily, weight: cs.fontWeight, style: cs.fontStyle});
+    el.setAttribute('data-font-key', String(keys.get(key).i));
     const fk = keys.get(key).i;
     const va = cs.verticalAlign;
     const sup = !!el.closest('sup,sub') || /^(super|sub|text-top|text-bottom)$/.test(va) || (/px$|%$/.test(va) && parseFloat(va) !== 0);
@@ -380,20 +382,39 @@ def page_draw(seed: int, url: str, cfg: dict) -> tuple[list, float, str]:
     return vp, float(dpr), aa
 
 
-def platform_fonts(cdp, keys: list[dict]) -> dict[int, list[str]]:
-    """Font families the browser actually used for one element of each (family, weight, style) key."""
+def platform_fonts(cdp, keys: list[dict], per_key: int = 40) -> dict[int, list[str]]:
+    """Font families the browser actually used, as the union over up to `per_key` elements of each (family, weight, style) key. An
+    element whose text is drawn by another element's font reports nothing, so one element is not enough. Empty = not established."""
     out: dict[int, list[str]] = {}
     cdp.send("DOM.enable")
     cdp.send("CSS.enable")
     root = cdp.send("DOM.getDocument", {"depth": 0})["root"]["nodeId"]
     for k in keys:
+        names: list[str] = []
         try:
-            nid = cdp.send("DOM.querySelector", {"nodeId": root, "selector": f'[data-font-key="{k["i"]}"]'})["nodeId"]
-            fonts = cdp.send("CSS.getPlatformFontsForNode", {"nodeId": nid})["fonts"] if nid else []
-            out[k["i"]] = [f["familyName"] for f in fonts]
-        except Exception:  # noqa: BLE001 - an element inside a shadow root: CSS list only
-            out[k["i"]] = []
+            ids = cdp.send("DOM.querySelectorAll", {"nodeId": root, "selector": f'[data-font-key="{k["i"]}"]'})["nodeIds"]
+            for nid in ids[:per_key]:
+                for f in cdp.send("CSS.getPlatformFontsForNode", {"nodeId": nid})["fonts"]:
+                    if f["familyName"] not in names:
+                        names.append(f["familyName"])
+        except Exception:  # noqa: BLE001 - an element inside a shadow root
+            pass
+        out[k["i"]] = names
     return out
+
+
+def load_allowlist(cfg: dict) -> list[str]:
+    """Normalised family-name prefixes of fonts whose licence was read from the family's own licence file (data/font_allowlist.yaml)."""
+    rows = yaml.safe_load((BASE / cfg["font_allowlist"]).read_text(encoding="utf-8"))["families"]
+    return sorted(norm_family(r["family"]) for r in rows)
+
+
+def font_allowed(platform_names: list[str], allow: list[str]) -> bool:
+    """True only when the browser reported at least one font and every reported font (minus the "(Fontations)" backend suffix and icon
+    fonts) starts with an allowlisted family. Unreported or unknown fonts are not allowed."""
+    names = [norm_family(n.replace("(Fontations)", "")) for n in platform_names]
+    names = [n for n in names if not n.startswith("fontawesome")]
+    return bool(names) and all(any(n.startswith(a) for a in allow) for n in names)
 
 
 # -------------------------------------------------------------------------------------------------------------------- lines
@@ -544,7 +565,7 @@ def cut_windows(job: dict, rec: dict, G: np.ndarray, s: float, vp: list, lines: 
 
     The detector sees a whole screenshot scaled to 1024 px on its long side, so a window is one viewport (what a screenshot of the
     site shows), not the 6000 px page. Lines that passed every check are positives with their DOM line box; every other line the DOM
-    holds (dropped for a covered neighbour, a charset or pixel check, a held-out font) is an ignore region, because the pixels there
+    holds (dropped for a covered neighbour, a charset or pixel check, a held-out font or one outside the font allowlist) is an ignore region, because the pixels there
     are text we could not verify, not background. A line cut by a window edge is ignored in that window too.
     """
     cfg = job["cfg"]["windows"]
@@ -659,6 +680,8 @@ def process_page(job: dict) -> dict:
     keyinfo = {k["i"]: k for k in res["keys"]}
     held = job["heldout"]
 
+    allow = job["allow"]
+
     def bad_font(k: int) -> bool:
         return font_is_held_out(keyinfo[k]["family"], fonts.get(k, []), held)
 
@@ -678,6 +701,8 @@ def process_page(job: dict) -> dict:
             drops["length_or_symbols"] += 1
         elif any(bad_font(w["fk"]) for w in ln["words"]):
             drops["heldout_font"] += 1
+        elif not all(font_allowed(fonts.get(w["fk"], []), allow) for w in ln["words"]):
+            drops["font_not_allowlisted"] += 1
         elif any(w["sup"] for w in ln["words"]):
             drops["superscript"] += 1
         elif max(w["y1"] - w["y0"] for w in ln["words"]) > lc["max_height_ratio"] * min(w["y1"] - w["y0"] for w in ln["words"]):
@@ -774,7 +799,7 @@ def _init(cfg: dict, args: dict):
 
     charset = cs.load(BASE / cfg["charset"])
     _W.update(cfg=cfg, browser=browser, pw=pw, charset_set=frozenset(charset[1:]), heldout=heldout_patterns(cfg),
-              sub_font=substitute_font_css(cfg) if cfg.get("substitute_font") else "", **args)  # fmt: skip
+              allow=load_allowlist(cfg), sub_font=substitute_font_css(cfg) if cfg.get("substitute_font") else "", **args)  # fmt: skip
 
 
 def render_group(group: dict) -> list[dict]:
@@ -787,8 +812,8 @@ def render_group(group: dict) -> list[dict]:
             continue
         pol.wait(group["host"])
         job = {"cfg": _W["cfg"], "url": url, "pub": group["pub"], "browser": _W["browser"], "ua_suffix": _W["ua_suffix"],
-               "heldout": _W["heldout"], "sub_font": _W["sub_font"], "charset_set": _W["charset_set"], "debug_dir": _W.get("debug_dir"),
-               "windows_dir": _W.get("windows_dir"), "split": group["split"]}  # fmt: skip
+               "heldout": _W["heldout"], "sub_font": _W["sub_font"], "allow": _W["allow"], "charset_set": _W["charset_set"],
+               "debug_dir": _W.get("debug_dir"), "windows_dir": _W.get("windows_dir"), "split": group["split"]}  # fmt: skip
         out.append(process_page(job))
     return out
 
@@ -922,6 +947,32 @@ def merge(base: Path, extra: Path, only: str) -> None:
     print(json.dumps(run["lines"]))
 
 
+def resplit(base: Path, publisher: str, to: str, seed: int) -> None:
+    """Moves one publisher's lines between splits of a finished set (no re-render). The destination's labels are shuffled with `seed`, so
+    a validation run that reads the first N lines sees every site."""
+    import shutil
+
+    frm = "train" if to == "heldout" else "heldout"
+    rows = {s: [json.loads(x) for x in (base / s / "labels.jsonl").read_text(encoding="utf-8").splitlines() if x] for s in (frm, to)}
+    moved = [r for r in rows[frm] if r["publisher"] == publisher]
+    (base / to / "images").mkdir(parents=True, exist_ok=True)
+    for r in moved:
+        shutil.move(str(base / frm / "images" / f"{r['id']}.png"), str(base / to / "images" / f"{r['id']}.png"))
+        r["split"] = to
+    rows[frm] = [r for r in rows[frm] if r["publisher"] != publisher]
+    rows[to] = rows[to] + moved
+    random.Random(seed).shuffle(rows[to])
+    for s in (frm, to):
+        (base / s / "labels.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows[s]), encoding="utf-8")
+    run = json.loads((base / "run.json").read_text(encoding="utf-8"))
+    run.setdefault("resplit", []).append({"publisher": publisher, "to": to, "lines": len(moved), "seed": seed})
+    for s in (frm, to):
+        run["lines"][s] = len(rows[s])
+        run["labels_sha256"][s] = hashlib.sha256((base / s / "labels.jsonl").read_bytes()).hexdigest()
+    (base / "run.json").write_text(json.dumps(run, indent=1, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps({"moved": len(moved), "lines": run["lines"]}))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -936,6 +987,11 @@ def main() -> None:
     r.add_argument("--only", help="comma-separated publisher ids")
     r.add_argument("--debug-dir", help="write annotated screenshots of the pages here")
     r.add_argument("--windows-dir", help="also write viewport windows with line boxes for detector training here (cfg `windows`)")
+    rs = sub.add_parser("resplit")
+    rs.add_argument("--base", required=True)
+    rs.add_argument("--publisher", required=True)
+    rs.add_argument("--to", choices=["train", "heldout"], required=True)
+    rs.add_argument("--seed", type=int, default=95)
     mg = sub.add_parser("merge")
     mg.add_argument("--base", required=True)
     mg.add_argument("--extra", required=True)
@@ -946,6 +1002,9 @@ def main() -> None:
     sh.add_argument("--n", type=int, default=60)
     sh.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
+    if a.cmd == "resplit":
+        resplit(Path(a.base), a.publisher, a.to, a.seed)
+        return
     if a.cmd == "merge":
         merge(Path(a.base), Path(a.extra), a.publisher)
         return

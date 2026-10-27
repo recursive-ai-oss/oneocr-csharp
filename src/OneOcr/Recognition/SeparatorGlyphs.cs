@@ -6,13 +6,17 @@ namespace OneOcr.Recognition;
 /// other marks. A one-character word between two words whose ink is a small round blob at the middle of the line's letters is a
 /// middle dot or a bullet (by size); one whose ink is a thin bar taller than every other mark of the line is a vertical bar. Like
 /// <see cref="DigitContext"/> it changes a character and nothing else: the word keeps its box and confidence, and words that
-/// hold more than one character, words at the ends of a line and words the network read as a letter or digit are never touched.
+/// hold more than one character and words the network read as a letter or digit are never touched; the first and last word of a line are
+/// judged only when read as a bullet-like mark (<see cref="EdgeDotReadAs"/>).
 /// All arithmetic is on integers, so the result is the same on every path and at every degree of parallelism.
 /// </summary>
 internal static class SeparatorGlyphs
 {
     /// <summary>The marks the network gives a middle dot or a bullet.</summary>
     internal const string DotReadAs = "-\u2013\u2014.,'*\u00B0~_:;^`+=\u00A8\u02D9\u2027\u2219\u22C5\u25CF\u25CB\u25AA\u25E6\u00A4\u00BA\u00AA";
+
+    /// <summary>The marks the network gives a bullet at the start or end of a line (a hyphen, a full stop and the letters are left as read there: a list may be marked with a hyphen).</summary>
+    internal const string EdgeDotReadAs = "\u00BA\u00AA\u00B0\u02D9\u2027\u2219\u22C5\u25CF\u25CB\u25AA\u25E6\u00A4";
 
     /// <summary>The marks the network gives a vertical bar.</summary>
     internal const string BarReadAs = "Il1!\u00A6/\\()[]";
@@ -64,15 +68,15 @@ internal static class SeparatorGlyphs
     internal static LineWords Apply(LineWords line, ReadOnlySpan<byte> gray, int width, int height)
     {
         IReadOnlyList<RecognizedWord> source = line.Words;
-        if (source.Count < 3 || width < 1 || gray.Length < width * height)
+        if (source.Count < 2 || width < 1 || gray.Length < width * height)
         {
             return line;
         }
 
         bool any = false;
-        for (int k = 1; k < source.Count - 1 && !any; k++)
+        for (int k = 0; k < source.Count && !any; k++)
         {
-            any = IsCandidate(source[k]);
+            any = IsCandidate(source, k);
         }
 
         if (!any || WordSegmenter.InkPixels(gray, width, height) is not { } ink)
@@ -98,9 +102,9 @@ internal static class SeparatorGlyphs
 
         // Other separators are no reference for the letters: a line of bars would otherwise hold the tallest mark itself.
         var separatorColumns = new bool[width];
-        for (int k = 1; k < source.Count - 1; k++)
+        for (int k = 0; k < source.Count; k++)
         {
-            if (IsCandidate(source[k]))
+            if (IsCandidate(source, k))
             {
                 for (int x = Math.Max(0, (int)Math.Floor(source[k].X0) - 1); x <= Math.Min(width - 1, (int)Math.Ceiling(source[k].X1)); x++)
                 {
@@ -113,7 +117,7 @@ internal static class SeparatorGlyphs
         for (int k = 0; k < source.Count; k++)
         {
             RecognizedWord w = source[k];
-            string? read = k > 0 && k < source.Count - 1 && IsCandidate(w) ? Read(w, ink, top, bottom, separatorColumns, width, height) : null;
+            string? read = IsCandidate(source, k) ? Read(w, ink, top, bottom, separatorColumns, width, height) : null;
             if (read is null)
             {
                 words?.Add(w);
@@ -127,9 +131,25 @@ internal static class SeparatorGlyphs
         return words is null ? line : new LineWords(line.Text, line.RawConfidence, words);
     }
 
-    private static bool IsCandidate(RecognizedWord w) =>
-        w.Text.Length == 1 && w.Chars.Count == 1 && w.Characters == 1 && w.Chars[0].Text == w.Text
-        && (DotReadAs.Contains(w.Text[0], StringComparison.Ordinal) || w.Text[0] is '·' or '•' || BarReadAs.Contains(w.Text[0], StringComparison.Ordinal));
+    // A one-character word between two words may be any separator the network misreads; the first and last word of a line only a
+    // bullet-like mark (a list marker at the start, a trailing dot of a breadcrumb), since a lone letter, digit or hyphen there is
+    // as likely to be what it was read as.
+    private static bool IsCandidate(IReadOnlyList<RecognizedWord> words, int k)
+    {
+        RecognizedWord w = words[k];
+        if (w.Text.Length != 1 || w.Chars.Count != 1 || w.Characters != 1 || w.Chars[0].Text != w.Text)
+        {
+            return false;
+        }
+
+        char c = w.Text[0];
+        if (k > 0 && k < words.Count - 1)
+        {
+            return DotReadAs.Contains(c, StringComparison.Ordinal) || c is '·' or '•' || BarReadAs.Contains(c, StringComparison.Ordinal);
+        }
+
+        return EdgeDotReadAs.Contains(c, StringComparison.Ordinal) || c is '·' or '•';
+    }
 
     // The glyph's blob, judged against the other ink of the line. Null when it is neither a dot nor a bar.
     private static string? Read(RecognizedWord w, bool[] ink, int[] top, int[] bottom, bool[] separatorColumns, int width, int height)
