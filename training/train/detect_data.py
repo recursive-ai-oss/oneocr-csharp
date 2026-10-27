@@ -581,8 +581,8 @@ def load_page_records(path: Path, split: str, cache: Path | None = None) -> list
 def load_web_records(root: Path, split: str, dark_repeat: int = 1, rot_p: float = 0.1, publishers: list[str] | None = None) -> list[dict]:
     """Web windows (see gen/web_lines.py): lines from the DOM, ignore regions for every DOM line that was not verified.
 
-    A window holding light-on-dark lines appears `dark_repeat` times in the list, so that small light text on dark bands, which a
-    detector trained on print and receipts sees least of, is drawn more often.
+    A window holding at least two light-on-dark lines under 16 device pixels of em height appears `dark_repeat` times in the list, so
+    that small light text on dark bands, which a detector trained on print and receipts sees least of, is drawn more often.
     """
     recs = []
     for ln in (root / split / "windows.jsonl").read_text(encoding="utf-8").splitlines():
@@ -593,7 +593,8 @@ def load_web_records(root: Path, split: str, dark_repeat: int = 1, rot_p: float 
             "path": str(root / split / "images" / f"{w['id']}.png"), "kind": "web", "id": w["id"], "layout": [], "lines": w["lines"],
             "ignore": w["ignore"], "cmask": CMASK["web"], "rot_p": rot_p, "publisher": w["publisher"], "dark": w["dark"], "em_px": w["em_px"],
         }  # fmt: skip
-        recs += [rec] * (dark_repeat if sum(w["dark"]) >= 2 else 1)
+        small_dark = sum(1 for d, e in zip(w["dark"], w["em_px"], strict=True) if d and e < 16)
+        recs += [rec] * (dark_repeat if small_dark >= 2 else 1)
     return recs
 
 
