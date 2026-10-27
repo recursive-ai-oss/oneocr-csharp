@@ -167,6 +167,40 @@ def match_counts(pred: np.ndarray, gt: np.ndarray, iou: float = 0.5) -> tuple[in
     return tp, len(pred), len(gt)
 
 
+def match_flags(pred: np.ndarray, gt: np.ndarray, iou: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
+    """One-to-one greedy matching by descending IoU: which predictions and which truths found a partner."""
+    mp, mg = np.zeros(len(pred), bool), np.zeros(len(gt), bool)
+    if len(pred) == 0 or len(gt) == 0:
+        return mp, mg
+    m = iou_matrix(pred, gt)
+    for flat in np.argsort(-m, axis=None):
+        i, j = divmod(int(flat), m.shape[1])
+        if m[i, j] < iou:
+            break
+        if mp[i] or mg[j]:
+            continue
+        mp[i] = mg[j] = True
+    return mp, mg
+
+
+def in_boxes(centres: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+    """For each (x, y) centre: does it lie inside any of the boxes."""
+    if len(boxes) == 0 or len(centres) == 0:
+        return np.zeros(len(centres), bool)
+    x, y = centres[:, 0:1], centres[:, 1:2]
+    return ((x >= boxes[None, :, 0]) & (x <= boxes[None, :, 2]) & (y >= boxes[None, :, 1]) & (y <= boxes[None, :, 3])).any(1)
+
+
+def match_counts_ignoring(pred: np.ndarray, gt: np.ndarray, ignore: np.ndarray, iou: float = 0.5) -> tuple[int, int, int]:
+    """Like match_counts, but a prediction that found no truth and sits (by its centre) in an ignore region is not counted.
+
+    Ignore regions are text the source could not verify (see train.detect_data.load_web_records): finding it is neither right nor wrong.
+    """
+    mp, mg = match_flags(pred, gt, iou)
+    free = ~mp & in_boxes(np.stack([(pred[:, 0] + pred[:, 2]) / 2, (pred[:, 1] + pred[:, 3]) / 2], 1), ignore) if len(pred) else mp
+    return int(mp.sum()), int(len(pred) - free.sum()), len(gt)
+
+
 def prf(tp: int, npred: int, ngt: int) -> dict:
     p = tp / max(npred, 1)
     r = tp / max(ngt, 1)
@@ -258,7 +292,10 @@ def score_maps(maps: list[dict], recs: list[dict], **post) -> dict:
         orient_ok += int(res["orient"].argmax() == 0)
         turned += int(res["orient"].argmax() != 0 and res["orient"].max() >= ORIENT_CONFIDENCE)
         if r.get("lines") is not None:
-            tp += match_counts(res["text"], eval_boxes(r["lines"]))
+            if r.get("ignore"):
+                tp += match_counts_ignoring(res["text"], eval_boxes(r["lines"]), eval_boxes(r["ignore"]))
+            else:
+                tp += match_counts(res["text"], eval_boxes(r["lines"]))
     images, anns = coco_layout_gt(recs)
     out = {
         "pages": len(recs),

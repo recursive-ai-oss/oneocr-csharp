@@ -1,0 +1,33 @@
+# Detector fine-tune: continue the 0.2.1 weights with viewport windows of real public-domain web pages (DOM line boxes, unverified
+# lines ignored), synthetic light-on-dark small-text pages, and the existing mix. Text threshold and expand are selected afterwards on
+# held-out web windows and DocLayNet val; the page-noise rule is re-applied to the export (export/add_postprocess_rule.py).
+name: dbnet-web
+seed: 7
+size: 1024
+scale: [0.7, 1.15]
+rot_p: 0.25
+datasets_root: ${ONEOCR_DATASETS}
+run_dir: ${ONEOCR_HOME}/runs/dbnet-web
+init_from: ${ONEOCR_BASE}
+model: {orient16: true, layout16_blocks: 4, widths: [32, 72, 176, 288], depths: [2, 3, 6, 4], fpn: 48, text: 32, layout: 96, layout16: 160}
+sources:
+  - {name: doclaynet, weight: 0.25, label_source: "DocLayNet 1.0.0 layout boxes + extra-archive text cells (CDLA-Permissive-1.0)"}
+  - {name: publaynet, weight: 0.08, label_source: "PubLayNet 1.0.0 layout boxes, CC0/CC BY articles only (annotations CDLA-Permissive-1.0)"}
+  - {name: pages, weight: 0.17, dir: "${ONEOCR_PAGES}", cache: "${ONEOCR_HOME}/cache/pages-{split}.json", label_source: "exact-truth synthetic pages (browser layout geometry)"}
+  - {name: pages_dark, weight: 0.12, dir: "${ONEOCR_PAGES_DARK}", cache: "${ONEOCR_HOME}/cache/pages-dark-{split}.json", label_source: "exact-truth synthetic light-on-dark pages (browser layout geometry)"}
+  - {name: cord, weight: 0.10, label_source: "CORD v2 train word quads (CC BY 4.0), grouped into lines; annotated rows only"}
+  - {name: web, weight: 0.28, dir: "${ONEOCR_WEB_WINDOWS}", dark_repeat: 3, rot_p: 0.1, val_publishers: [nrc],
+     label_source: "DOM line boxes of public-domain US federal web pages rendered in Chromium (train sites only); unverified DOM lines ignored"}
+loss: {prob: 1.0, binary: 1.0, thresh: 10.0, layout_bce: 1.0, layout_dice: 2.0, orient: 0.3}
+train:
+  steps: 12000
+  batch: 12
+  lr: 0.0003
+  warmup: 200
+  weight_decay: 0.0001
+  workers: 20
+  log_every: 200
+  eval_every: 2000
+  ckpt_every: 500
+  val_pages: 150
+  max_minutes: 100
