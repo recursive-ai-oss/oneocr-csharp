@@ -124,11 +124,11 @@ internal static unsafe partial class Gemm
         float** ap = stackalloc float*[4];
         float** bp = stackalloc float*[4];
         float* tile = stackalloc float[4 * 4];
-        // Rows of A are taken in blocks that fit the second-level cache (about 256 KB); inside a block the B tile (nr rows) is the outer
+        // Rows of A are taken in blocks that stay in the first-level cache (about 16 KB); inside a block the B tile (nr rows) is the outer
         // loop, so it is read from memory once per block and stays in the first-level cache while every row tile of the block runs
         // against it. With A as the outer loop, B (a whole weight matrix in the recurrent layers) would be streamed once per row tile.
         // Each output is still one tile accumulation over the same k, so the order of every dot product is unchanged.
-        int blockRows = (int)Math.Clamp(262144L / ((long)lda * sizeof(float)) / mr * mr, mr, 1 << 20);
+        int blockRows = (int)Math.Clamp(16384L / ((long)lda * sizeof(float)) / mr * mr, mr, 1 << 20);
         for (int iBlock = 0; iBlock < m; iBlock += blockRows)
         {
             int iEnd = Math.Min(m, iBlock + blockRows);
