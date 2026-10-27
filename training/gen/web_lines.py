@@ -199,12 +199,12 @@ input,select,textarea,option{color:transparent !important;-webkit-text-fill-colo
 
 KEYS_JS = r"""() => {
   const keys = new Map();
-  document.querySelectorAll('[data-u95f]').forEach(e => e.removeAttribute('data-u95f'));
+  document.querySelectorAll('[data-font-key]').forEach(e => e.removeAttribute('data-font-key'));
   for (const el of document.querySelectorAll('*')) {
     if (![...el.childNodes].some(n => n.nodeType === 3 && n.data.trim())) continue;
     const cs = getComputedStyle(el);
     const key = cs.fontFamily + '|' + cs.fontWeight + '|' + cs.fontStyle;
-    if (!keys.has(key)) { keys.set(key, {i: keys.size, family: cs.fontFamily, weight: cs.fontWeight, style: cs.fontStyle}); el.setAttribute('data-u95f', String(keys.size - 1)); }
+    if (!keys.has(key)) { keys.set(key, {i: keys.size, family: cs.fontFamily, weight: cs.fontWeight, style: cs.fontStyle}); el.setAttribute('data-font-key', String(keys.size - 1)); }
   }
   return [...keys.values()];
 }"""
@@ -213,7 +213,7 @@ SUBSTITUTE_JS = r"""(bad) => {
   for (const el of document.querySelectorAll('*')) {
     if (![...el.childNodes].some(nd => nd.nodeType === 3 && nd.data.trim())) continue;
     const cs = getComputedStyle(el);
-    if (set.has(cs.fontFamily + '|' + cs.fontWeight + '|' + cs.fontStyle)) { el.style.setProperty('font-family', "'U95Sub', sans-serif", 'important'); n++; }
+    if (set.has(cs.fontFamily + '|' + cs.fontWeight + '|' + cs.fontStyle)) { el.style.setProperty('font-family', "'HeldOutStandIn', sans-serif", 'important'); n++; }
   }
   return n;
 }"""
@@ -223,7 +223,7 @@ SUBSTITUTE_JS = r"""(bad) => {
 # lands on its own element and no clipping ancestor cuts it; words that fail are returned as blockers, so a line next to one is dropped.
 EXTRACT_JS = r"""([W, H, css]) => {
   const out = [], blockers = [], keys = new Map();
-  document.querySelectorAll('[data-u95f]').forEach(e => e.removeAttribute('data-u95f'));
+  document.querySelectorAll('[data-font-key]').forEach(e => e.removeAttribute('data-font-key'));
   const stats = {hidden: 0, partial: 0, outside: 0, pua: 0, controls: 0, nodes: 0};
   const roots = [document.body];
   const collect = (node) => node.querySelectorAll('*').forEach(e => { if (e.shadowRoot) { roots.push(e.shadowRoot); collect(e.shadowRoot); } });
@@ -277,7 +277,7 @@ EXTRACT_JS = r"""([W, H, css]) => {
     if (/rgba?\(\s*\d+,\s*\d+,\s*\d+,\s*0\s*\)/.test(cs.color) || cs.color === 'transparent') continue;
     const tf = cs.textTransform, fs = parseFloat(cs.fontSize);
     const key = cs.fontFamily + '|' + cs.fontWeight + '|' + cs.fontStyle;
-    if (!keys.has(key)) { keys.set(key, {i: keys.size, family: cs.fontFamily, weight: cs.fontWeight, style: cs.fontStyle}); el.setAttribute('data-u95f', String(keys.size - 1)); }
+    if (!keys.has(key)) { keys.set(key, {i: keys.size, family: cs.fontFamily, weight: cs.fontWeight, style: cs.fontStyle}); el.setAttribute('data-font-key', String(keys.size - 1)); }
     const fk = keys.get(key).i;
     const va = cs.verticalAlign;
     const sup = !!el.closest('sup,sub') || /^(super|sub|text-top|text-bottom)$/.test(va) || (/px$|%$/.test(va) && parseFloat(va) !== 0);
@@ -364,7 +364,7 @@ def substitute_font_css(cfg: dict) -> str:
         tmp.write_bytes(data)
         tmp.replace(path)
     b64 = base64.b64encode(path.read_bytes()).decode()
-    return ("@font-face{font-family:'U95Sub';font-weight:100 900;font-stretch:75% 100%;"
+    return ("@font-face{font-family:'HeldOutStandIn';font-weight:100 900;font-stretch:75% 100%;"
             f"src:url(data:font/ttf;base64,{b64}) format('truetype')}}")  # fmt: skip
 
 
@@ -388,7 +388,7 @@ def platform_fonts(cdp, keys: list[dict]) -> dict[int, list[str]]:
     root = cdp.send("DOM.getDocument", {"depth": 0})["root"]["nodeId"]
     for k in keys:
         try:
-            nid = cdp.send("DOM.querySelector", {"nodeId": root, "selector": f'[data-u95f="{k["i"]}"]'})["nodeId"]
+            nid = cdp.send("DOM.querySelector", {"nodeId": root, "selector": f'[data-font-key="{k["i"]}"]'})["nodeId"]
             fonts = cdp.send("CSS.getPlatformFontsForNode", {"nodeId": nid})["fonts"] if nid else []
             out[k["i"]] = [f["familyName"] for f in fonts]
         except Exception:  # noqa: BLE001 - an element inside a shadow root: CSS list only
@@ -582,7 +582,7 @@ def process_page(job: dict) -> dict:
         if bad0 and job["sub_font"]:
             page.add_style_tag(content=job["sub_font"])
             page.evaluate(SUBSTITUTE_JS, bad0)
-            page.evaluate("document.fonts.load(\"16px U95Sub\").then(() => document.fonts.ready)")
+            page.evaluate("document.fonts.load(\"16px HeldOutStandIn\").then(() => document.fonts.ready)")
             page.wait_for_timeout(300)
         res = page.evaluate(EXTRACT_JS, [vp[0], H, FREEZE_CSS])
         if res["copyright"]:
@@ -666,7 +666,7 @@ def process_page(job: dict) -> dict:
         rows.append({
             "text": ln["text"], "w": ow, "h": OUT_H, "publisher": pub, "url": url, "k": k, "dpr": dpr, "aa": aa, "viewport": vp,
             "css_px": round(ln["em"], 2), "em_px": round(ln["em"] * s, 2), "ink_h": ln["ink"]["iy1"] - ln["ink"]["iy0"], "typical_h": typical,
-            "font": names or css, "css_family": css, "substituted": any("U95Sub" in keyinfo[w["fk"]]["family"] for w in ln["words"]), "bg": ln["ink"]["bg"], "contrast": ln["ink"]["contrast"], "margin_cols": nbad,
+            "font": names or css, "css_family": css, "substituted": any("HeldOutStandIn" in keyinfo[w["fk"]]["family"] for w in ln["words"]), "bg": ln["ink"]["bg"], "contrast": ln["ink"]["contrast"], "margin_cols": nbad,
             "crop": list(crop), "scale": round(OUT_H / c.height, 4), "dom_box": [round(ln[a] * s, 1) for a in ("x0", "y0", "x1", "y1")],
             "png": buf.getvalue(),
         })  # fmt: skip

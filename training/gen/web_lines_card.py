@@ -62,7 +62,7 @@ def main() -> None:
         fam: Counter = Counter()
         for r in rows:
             for f in r["font"]:
-                fam["Open Sans (stand-in)" if f == "U95Sub" else f] += 1
+                fam["Open Sans (stand-in)" if f == "HeldOutStandIn" else f] += 1
         out += ["", "Font families the browser used (lines containing each):", ""]
         out.append(", ".join(f"{k} {v}" for k, v in fam.most_common(60)))
         digits = sum(any(c.isdigit() for c in r["text"]) for r in rows)
