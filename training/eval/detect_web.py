@@ -31,7 +31,7 @@ def run(maps: list[dict], recs: list[dict], **post) -> dict:
         a[0] += tp
         a[1] += n
 
-    preds = ign_free = 0
+    preds = 0
     tp_all = 0
     for m, r in zip(maps, recs, strict=True):
         res = decode(m, **post)

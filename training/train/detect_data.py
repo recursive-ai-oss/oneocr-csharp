@@ -591,7 +591,8 @@ def load_web_records(root: Path, split: str, dark_repeat: int = 1, rot_p: float 
             continue
         rec = {
             "path": str(root / split / "images" / f"{w['id']}.png"), "kind": "web", "id": w["id"], "layout": [], "lines": w["lines"],
-            "ignore": w["ignore"], "cmask": CMASK["web"], "rot_p": rot_p, "publisher": w["publisher"], "dark": w["dark"], "em_px": w["em_px"],
+            "ignore": w["ignore"], "cmask": CMASK["web"], "rot_p": rot_p, "publisher": w["publisher"],
+            "dark": w["dark"], "em_px": w["em_px"],
         }  # fmt: skip
         small_dark = sum(1 for d, e in zip(w["dark"], w["em_px"], strict=True) if d and e < 16)
         recs += [rec] * (dark_repeat if small_dark >= 2 else 1)
