@@ -25,6 +25,59 @@ internal static class LayoutParameters
     /// </summary>
     internal const double SoftGutterEm = 0.5;
 
+    /// <summary>
+    /// Columns whose gutter has a few words in it (a stray word or speck on a scan, justified lines that run a few pixels into the next
+    /// column): a stripe counts as a gutter when at most this fraction of the peak number of words (at least one) lie in it ...
+    /// </summary>
+    internal const double RobustCrossing = 0.10;
+
+    /// <summary>... it is at least this wide ...</summary>
+    internal const double RobustGutterEm = 0.2;
+
+    /// <summary>... and over this many text heights on each side of it the mean number of words is at least <see cref="RobustSideShare"/> of the peak ...</summary>
+    internal const double RobustSideEm = 3;
+
+    /// <summary>... (text stands up to it on both sides; the ragged right edge of long lines, with a few longer lines reaching beyond, is not a gutter).</summary>
+    internal const double RobustSideShare = 0.25;
+
+    /// <summary>Such columns are cut only in a region of at least this many distinct lines (a page of text, not a card or a form on a screen) ...</summary>
+    internal const int RobustMinLines = 30;
+
+    /// <summary>... and are at most this many times as wide as each other (a wider group has a gutter missing in it).</summary>
+    internal const double RobustColumnRatio = 1.6;
+
+    /// <summary>A line that crosses such a stripe is a header or footer of its region when at most this many other lines lie above or below it ...</summary>
+    internal const int RobustMarginLines = 5;
+
+    /// <summary>... or this fraction of the region's lines when an empty band of <see cref="BlockGapEm"/> sets the line off (a table under the columns, then the footer).</summary>
+    internal const double RobustMarginShare = 0.1;
+
+    /// <summary>A band of at most <see cref="RobustMarginLines"/> lines at the top or bottom of the region is a header or footer when an empty band this tall sets it off (a paragraph gap is not enough) ...</summary>
+    internal const double RobustMarginGapEm = 1;
+
+    /// <summary>... it spans at least this fraction of the region's width ...</summary>
+    internal const double RobustMarginSpan = 0.6;
+
+    /// <summary>... and on each of its lines its fragments fill at most this fraction of that width (the first lines of two columns fill it).</summary>
+    internal const double RobustMarginFill = 0.4;
+
+    /// <summary>
+    /// A group of at most this many fragments, and at most <see cref="SpeckShare"/> of the fragments of a region of at least
+    /// <see cref="SpeckMinFragments"/>, that the full-gutter cut leaves between two others is a speck, not a column. It joins the
+    /// nearer neighbour when it lies inside that neighbour's vertical extent, at least <see cref="SpeckInsideEm"/> from its top and bottom
+    /// (a menu item at the top of a screen is not a speck).
+    /// </summary>
+    internal const int SpeckMaxFragments = 2;
+
+    /// <summary>The share of a region's fragments a speck stays under.</summary>
+    internal const double SpeckShare = 0.03;
+
+    /// <summary>The distance, in text heights, a speck lies inside the vertical extent of the group it joins.</summary>
+    internal const double SpeckInsideEm = 2;
+
+    /// <summary>A region needs at least this many fragments before it has specks.</summary>
+    internal const int SpeckMinFragments = 30;
+
     /// <summary>A region needs at least this many distinct lines before a narrow stripe can separate its columns.</summary>
     internal const int SoftMinLines = 10;
 
@@ -189,7 +242,7 @@ internal static partial class ReadingOrder
 
         AssignLines(strips, frags);
         var blocks = new List<OrderBlock>();
-        foreach ((int[] ids, bool table, int columns, bool chrome) in XyCut(frags, cancellationToken))
+        foreach ((int[] ids, bool table, int columns, bool chrome) in XyCut(frags, strips, cancellationToken))
         {
             OrderBlock? block = MakeBlock(frags, ids, table, columns, chrome);
             if (block is not null)
@@ -328,7 +381,7 @@ internal static partial class ReadingOrder
     // OnePDF TextLayout.XyCut: cut a region at empty vertical stripes (columns) when there are any, else at empty horizontal
     // bands (blocks), else where lines with several fragments alternate with single-fragment lines. A region whose columns are
     // the cells of a table is kept whole. The explicit stack keeps the work independent of how deeply the page nests.
-    private static List<(int[] Ids, bool Table, int Columns, bool Chrome)> XyCut(List<OrderFragment> f, CancellationToken ct)
+    private static List<(int[] Ids, bool Table, int Columns, bool Chrome)> XyCut(List<OrderFragment> f, IReadOnlyList<OrderStrip> strips, CancellationToken ct)
     {
         var leaves = new List<(int[], bool, int, bool)>();
         var stack = new Stack<int[]>();
@@ -374,10 +427,21 @@ internal static partial class ReadingOrder
             bool firstIsStandalone = false;
             double ms = Median(reg.Select(i => f[i].Size).ToArray());
             List<int[]>? groups = Partition(f, reg, true, LayoutParameters.ColumnGutterEm * ms);
+            if (groups is not null)
+            {
+                groups = AbsorbSpecks(f, reg, groups, ms);
+            }
+
             bool narrowCut = false;
             if (groups is null && SoftColumns(f, reg, ms) is { } narrow)
             {
                 groups = narrow;
+                narrowCut = true;
+            }
+
+            if (groups is null && RobustColumns(f, strips, reg, ms) is { } robust)
+            {
+                groups = robust;
                 narrowCut = true;
             }
 
@@ -473,6 +537,54 @@ internal static partial class ReadingOrder
         return groups;
     }
 
+    // A group of a fragment or two in a region of many is a speck of noise (or a stray mark in the margin) that happens to stand
+    // clear of the columns on both sides, not a column: left as a group of its own it breaks the reading of the columns on either
+    // side of it (it looks like a column embedded between parts of another). It joins the nearer neighbour. Null when no cut is left.
+    private static List<int[]>? AbsorbSpecks(List<OrderFragment> f, int[] reg, List<int[]> groups, double ms)
+    {
+        if (groups.Count < 3 || reg.Length < LayoutParameters.SpeckMinFragments)
+        {
+            return groups;
+        }
+
+        int max = Math.Min(LayoutParameters.SpeckMaxFragments, (int)(LayoutParameters.SpeckShare * reg.Length));
+        var kept = new List<int[]>(groups);
+        for (int i = kept.Count - 1; i >= 0 && kept.Count > 1; i--)
+        {
+            if (kept[i].Length > max)
+            {
+                continue;
+            }
+
+            int into;
+            if (i == 0)
+            {
+                into = 1;
+            }
+            else if (i == kept.Count - 1)
+            {
+                into = i - 1;
+            }
+            else
+            {
+                double left = kept[i].Min(id => f[id].X0) - kept[i - 1].Max(id => f[id].X1);
+                double right = kept[i + 1].Min(id => f[id].X0) - kept[i].Max(id => f[id].X1);
+                into = left <= right ? i - 1 : i + 1;
+            }
+
+            double top = kept[i].Min(id => f[id].Top), bottom = kept[i].Max(id => f[id].Bot);
+            if (top - kept[into].Min(id => f[id].Top) < LayoutParameters.SpeckInsideEm * ms || kept[into].Max(id => f[id].Bot) - bottom < LayoutParameters.SpeckInsideEm * ms)
+            {
+                continue;
+            }
+
+            kept[into] = [.. kept[into], .. kept[i]];
+            kept.RemoveAt(i);
+        }
+
+        return kept.Count >= 2 ? kept : null;
+    }
+
     private static int DistinctLineCount(List<OrderFragment> f, int[] reg)
     {
         var lines = new HashSet<int>();
@@ -499,7 +611,7 @@ internal static partial class ReadingOrder
     }
 
     // Sorts the region along one axis and cuts it at every empty stripe of at least `gap`. Null when there is none.
-    private static List<int[]>? Partition(List<OrderFragment> f, int[] reg, bool xAxis, double gap, List<double>? gaps = null)
+    private static List<int[]>? Partition(List<OrderFragment> f, int[] reg, bool xAxis, double gap, List<double>? gaps = null, bool byLeaf = true)
     {
         int[] sorted = [.. reg];
         Array.Sort(sorted, (a, b) =>
@@ -513,7 +625,7 @@ internal static partial class ReadingOrder
         // columns happen to share, so it is not a cut: the columns are cut apart first.
         Dictionary<int, int>? total = null, before = null;
         int straddling = 0;
-        if (!xAxis)
+        if (!xAxis && byLeaf)
         {
             total = [];
             foreach (int id in sorted)
