@@ -58,10 +58,10 @@ public sealed class BundledModelsTests
     public void ThePinNamesTheWordFrequencyTable()
     {
         BundledModel pin = BundledModels.WordFrequencies;
-        Assert.Equal("wordfreq-v1", pin.Name);
+        Assert.Equal("wordfreq-v2", pin.Name);
         Assert.Equal("word-frequencies", pin.Role);
-        Assert.Equal("9b09eef6bd4e92d7b4a4c8ec32fb45d7cdc5746b3f0afcaffe815c05a0acae09", pin.Sha256);
-        Assert.Equal(1305931, pin.Bytes);
+        Assert.Equal("7121a7b9dbe12d109fd6cac4b6e0196ef036afb74a0f0e5504d06dd398fdf851", pin.Sha256);
+        Assert.Equal(1316145, pin.Bytes);
     }
 
     [Fact]
