@@ -107,6 +107,16 @@ The word frequency table also counts words from the visible text of web pages of
 content in the public domain (the sites and the quoted notices are in `training/data/web_sources.yaml`). Only the words and their counts
 are kept; no page text is stored in the table or the repository.
 
+### Web pages of US federal agencies (recognizer fine-tuning lines)
+
+The recognizer `crnn-v0` 0.6.3 was fine-tuned on text lines cut from screenshots of public web pages of US federal agencies whose own
+website notices place their content in the public domain: eia.gov, consumerfinance.gov, doi.gov, ntsb.gov, gsa.gov, energy.gov and fda.gov
+(sites marked held-out in that file are never trained on). The page list is
+`training/data/web_urls.txt`; each publisher's notice, quoted and dated, is in `training/data/web_sources.yaml`. No attribution is legally required for
+these works. The pages were read with an honest User-Agent, robots.txt honoured, and a pause between requests. Pages showing a copyright or
+permission notice were dropped, images were never drawn, and every label is the page's own DOM text. Only the model weights are distributed; no page
+text or screenshot is stored in the package or the repository.
+
 ### Fonts used to render synthetic training data
 
 Synthetic lines and pages are rendered from open fonts only, taken from the Google Fonts repository
