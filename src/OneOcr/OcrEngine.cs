@@ -424,7 +424,9 @@ public sealed class OcrEngine
             StageClock.Stop("9 frame map", t);
             if (searchAngle && prepared.Source is { } source && PageAngleSearch.IsWeak(finished, out _) && (finished.Words.Count > 0 || PageAngleSearch.HasInk(source)))
             {
+                long searchClock = StageClock.Start();
                 finished = SearchAngles(finished, source, pageIndex, dpi, degree, includeChars, junk, respace, digits, separators, cancellationToken);
+                StageClock.Stop("a angle search", searchClock);
             }
 
             return finished;
@@ -440,6 +442,8 @@ public sealed class OcrEngine
         OcrPage first, SearchSource source, int pageIndex, double? dpi, int degree, bool includeChars, JunkParameters? junk, bool respace, bool digits, bool separators,
         CancellationToken cancellationToken)
     {
+        // The page's background value is the same for every angle tried.
+        byte background = PageRotation.Background(PixelSpans.AsBytes(source.Pixels.AsSpan(0, source.Width * source.Height)));
         OcrPage? ReadAt(int slope)
         {
             var frame = new PageFrame(source.FrameWidth, source.FrameHeight, source.FrameQuarter, slope);
@@ -452,8 +456,9 @@ public sealed class OcrEngine
             Gray8[] turned = _pixels.Rent(canvas);
             try
             {
-                byte background = PageRotation.Background(PixelSpans.AsBytes(source.Pixels.AsSpan(0, source.Width * source.Height)));
+                long warpClock = StageClock.Start();
                 PageRotation.Deskew(source.Pixels, source.Width, source.Height, frame.Sin, frame.Cos, background, turned, frame.DeskewedWidth, frame.DeskewedHeight, degree, cancellationToken);
+                StageClock.Stop("a search warp", warpClock);
                 OcrPage page = PageReader.Read(
                     _recognizer, _limits, _pixels, _masks, _resizers, _detector, turned, frame.DeskewedWidth, frame.DeskewedHeight, pageIndex, dpi, degree, includeChars,
                     null, turn: false, null, cancellationToken, null, junk, respace, digits, separators);
