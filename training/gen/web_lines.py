@@ -857,6 +857,32 @@ def merge(base: Path, extra: Path, only: str) -> None:
     print(json.dumps(run["lines"]))
 
 
+def resplit(base: Path, publisher: str, to: str, seed: int) -> None:
+    """Moves one publisher's lines between splits of a finished set (no re-render). The destination's labels are shuffled with `seed`, so
+    a validation run that reads the first N lines sees every site."""
+    import shutil
+
+    frm = "train" if to == "heldout" else "heldout"
+    rows = {s: [json.loads(x) for x in (base / s / "labels.jsonl").read_text(encoding="utf-8").splitlines() if x] for s in (frm, to)}
+    moved = [r for r in rows[frm] if r["publisher"] == publisher]
+    (base / to / "images").mkdir(parents=True, exist_ok=True)
+    for r in moved:
+        shutil.move(str(base / frm / "images" / f"{r['id']}.png"), str(base / to / "images" / f"{r['id']}.png"))
+        r["split"] = to
+    rows[frm] = [r for r in rows[frm] if r["publisher"] != publisher]
+    rows[to] = rows[to] + moved
+    random.Random(seed).shuffle(rows[to])
+    for s in (frm, to):
+        (base / s / "labels.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows[s]), encoding="utf-8")
+    run = json.loads((base / "run.json").read_text(encoding="utf-8"))
+    run.setdefault("resplit", []).append({"publisher": publisher, "to": to, "lines": len(moved), "seed": seed})
+    for s in (frm, to):
+        run["lines"][s] = len(rows[s])
+        run["labels_sha256"][s] = hashlib.sha256((base / s / "labels.jsonl").read_bytes()).hexdigest()
+    (base / "run.json").write_text(json.dumps(run, indent=1, ensure_ascii=False), encoding="utf-8")
+    print(json.dumps({"moved": len(moved), "lines": run["lines"]}))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -870,6 +896,11 @@ def main() -> None:
     r.add_argument("--limit-pages", type=int)
     r.add_argument("--only", help="comma-separated publisher ids")
     r.add_argument("--debug-dir", help="write annotated screenshots of the pages here")
+    rs = sub.add_parser("resplit")
+    rs.add_argument("--base", required=True)
+    rs.add_argument("--publisher", required=True)
+    rs.add_argument("--to", choices=["train", "heldout"], required=True)
+    rs.add_argument("--seed", type=int, default=95)
     mg = sub.add_parser("merge")
     mg.add_argument("--base", required=True)
     mg.add_argument("--extra", required=True)
@@ -880,6 +911,9 @@ def main() -> None:
     sh.add_argument("--n", type=int, default=60)
     sh.add_argument("--seed", type=int, default=0)
     a = ap.parse_args()
+    if a.cmd == "resplit":
+        resplit(Path(a.base), a.publisher, a.to, a.seed)
+        return
     if a.cmd == "merge":
         merge(Path(a.base), Path(a.extra), a.publisher)
         return

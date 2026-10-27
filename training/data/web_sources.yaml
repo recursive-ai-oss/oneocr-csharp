@@ -33,7 +33,7 @@ publishers:
       checked: 2026-10-26
   - id: justice
     host: www.justice.gov
-    split: train
+    split: heldout
     seeds: [/, /news, /crt, /civil, /criminal, /atr, /enrd, /usao, /archives]
     prefixes: [/news, /crt, /civil, /criminal, /atr, /enrd, /olc, /opa, /jmd, /archives, /about]
     exclude: [/usao-, /opa/pr/, /media]
