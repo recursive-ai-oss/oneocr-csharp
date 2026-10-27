@@ -191,5 +191,6 @@ refer to words, `image.ToMarkdown(engine)` renders headings, lists and pipe tabl
 
 ## What is not there yet
 
-Searchable-PDF output, CJK, Arabic and Indic scripts, handwriting, curved-page dewarping, word whitelists and a word
-dictionary. See "Not yet" in the README.
+Searchable-PDF output, CJK, Arabic and Indic scripts, handwriting, scene text (signs and photos of the world rather than
+documents), curved-page dewarping, word whitelists and a word dictionary. Tesseract `.traineddata` files cannot be loaded
+or converted: oneocr runs only its own models, and you fine-tune those with `oneocr train`. See "Not yet" in the README.
