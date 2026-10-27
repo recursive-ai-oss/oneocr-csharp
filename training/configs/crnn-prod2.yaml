@@ -1,0 +1,65 @@
+# Production recognizer, stage 2: targeted-error fine-tune from the end of stage 1 (the crnn-v10 recipe: adaptive share driven by measured
+# confusions, interface and narrow-gap lines at 20 each, word-level guards) with the web lines kept in the mix and mask/quantity lines at 4.
+# Selection on validation only. ${ONEOCR_HOME} is the state directory, ${ONEOCR_V6} the targeted-error data, ${ONEOCR_FT} the earlier stage.
+name: crnn-prod2
+seed: 241
+init_from: ${ONEOCR_HOME}/runs/crnn-prod1/final.pt
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_PREV}/data/lines-v4
+run_dir: ${ONEOCR_HOME}/runs/crnn-prod2
+main_override:
+  p: { resample: 0.5, resample2: 0.25 }
+  ranges: { tilt_deg: [0.0, 0.3] }
+sources:
+  - name: adaptive
+    kind: pack
+    dir: ${ONEOCR_V6}/data/lines-v6/clean/adapt_train
+    line_set: configs/lines-v6.yaml
+    side: adapt
+    per_batch: 12
+    provenance: exact-truth synthetic (configs/lines-v6.yaml)
+    adaptive:
+      stream_dir: ${ONEOCR_V6}/data/lines-v6/clean/adapt_stream
+      every: 3000
+      gamma: 0.7
+      clip: [0.4, 4.0]
+      smooth: 0.5
+      beta: 1.0
+      bins:
+        em: [6, 8, 10, 12, 14, 16, 21, 30, 60, 100]
+        blur_rel: [0.0, 0.03, 0.06, 0.09, 0.125, 0.16]
+        contrast: [45, 65, 90, 130, 180, 256]
+        noise: [0, 2, 4, 6, 8, 12]
+  - { name: receipt-synth, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/train", line_set: configs/lines-v5.yaml, side: receipt, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: gap-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/gaps_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: ui-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: tight-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/tight_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: mask-qty, kind: pack, dir: "${ONEOCR_MASKS}/clean/mq_train", line_set: configs/lines-masks.yaml, side: rcpt, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-masks.yaml)" }
+  - { name: web-lines, kind: crops, dir: "${ONEOCR_WEB}/train", per_batch: 31, provenance: "exact truth: DOM text of public-domain web pages rendered by Chromium (gen/web_lines.py, data/font_allowlist.yaml)" }
+extra_val:
+  receipt_synth: ${ONEOCR_FT}/data/lines-v5/val
+  gaps: ${ONEOCR_FT}/data/lines-v5/gaps_val
+  ui: ${ONEOCR_FT}/data/lines-v5/ui_val
+  tight: ${ONEOCR_FT}/data/lines-v5/tight_val
+  web: ${ONEOCR_WEB}/heldout
+  mask: ${ONEOCR_MASKS}/mask_val
+  qty: ${ONEOCR_MASKS}/qty_val
+  phone: ${ONEOCR_PHONE}
+  figures: ${ONEOCR_V6}/data/lines-v6/figures_val
+  small: ${ONEOCR_V6}/data/lines-v6/small_val
+  reader: ${ONEOCR_V6}/data/lines-v6/reader_val
+  shot: ${ONEOCR_V6}/data/lines-v6/shot_val
+train:
+  steps: 8000
+  batch: 128
+  lr: 0.00004
+  warmup: 200
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 1000
+  ckpt_every: 2000
+  val_penalty: 3.0
+  guard: { val: 0.02, ui: 0.02, tight: 0.02, shot: 0.02, web: 0.02, phone: 0.02 }
+  guard_wer: { shot: 0.0, ui: 0.02, tight: 0.02, phone: 0.02, web: 0.02 }
