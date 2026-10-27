@@ -585,7 +585,7 @@ same format.
 | Model | Role | Architecture | Size | Package |
 |---|---|---|---|---|
 | `crnn-v0` 0.6.3 | Line recognizer: 622 classes (Latin, Greek, Cyrillic, punctuation, currency), per-script calibrated confidence | convolutions, 2-layer BiLSTM, CTC; 2.5 M parameters | 5.0 MB | `.Models` |
-| `dbnet-lite-v1` 0.2.2 | Page detector: text lines (oriented), page orientation, layout classes | DBNet-style, 0.7 M parameters; [spec](docs/spec/detector-v1.md) | 1.4 MB | `.Models` |
+| `dbnet-lite-v1` 0.3.0 | Page detector: text lines (oriented), page orientation, layout classes | DBNet-style, 0.7 M parameters; [spec](docs/spec/detector-v1.md) | 1.4 MB | `.Models` |
 | `charlm-v1` | Character n-gram model for word breaks and optional beam search; [spec](docs/spec/char-lm-v1.md) | interpolated Kneser–Ney, Latin + Greek + Cyrillic | 1.4 MB | `.Models` |
 | `wordfreq-v2` | Word frequencies that take back a space the recognizer put inside a word; [spec](docs/spec/word-lm-v1.md) | counts of 219 k Latin-script words | 1.3 MB | `.Models` |
 | `docextract-v0` | Invoice and receipt word tagger; [spec](docs/spec/docextract-v0.md) | character-CNN word embedding, 2-D position embedding, small transformer | about 4 MB | `.Models.Documents` |
@@ -609,8 +609,9 @@ committed to the repository.
   transcribed by a language model (see Labels). Held-out font families, held-out books and
   held-out web sites form the evaluation sets.
 - **Detector.** Page images and text-line boxes from DocLayNet and PubLayNet (only articles under
-  CC0 and CC BY), CORD v2 word quads, and synthetic pages rendered in Chromium with exact word
-  boxes.
+  CC0 and CC BY), CORD v2 word quads, synthetic pages (including light-on-dark ones) rendered in
+  Chromium with exact word boxes, and windows of public-domain US federal web pages with the
+  browser's own line boxes.
 - **Extraction.** Generated invoices and receipts with exact field truth, plus CORD v2 training
   labels.
 - **Labels.** Labels for shipped weights come from exact-truth synthetic data, text in the page

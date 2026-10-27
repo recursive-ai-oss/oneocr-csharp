@@ -121,6 +121,11 @@ The pages show the typefaces their sites serve. The ones seen in the training li
 (open licences: SIL OFL 1.1 for the first four, Apache-2.0 for Roboto) and the platform's Helvetica-compatible, Liberation (OFL-1.1) and DejaVu
 (free licence of the DejaVu fonts, https://dejavu-fonts.github.io/License.html) substitutes. Lines set in a held-out evaluation family were redrawn in Open Sans before use.
 
+The page detector `dbnet-lite-v1` 0.3.0 was fine-tuned on the same kind of pages: viewport-sized windows of screenshots of the sites above
+(plus justice.gov, which was a training site when the detector was fine-tuned) with the line boxes the browser reported for the page's own
+text; lines that could not be checked against the pixels were masked out of the loss. Sites marked held-out in `training/data/web_sources.yaml`
+were not used for training. The same terms and handling apply: no page text or screenshot is distributed, only the weights.
+
 ### Generated receipt photos
 
 The receipt fine-tune of the recognizer (`crnn-v0` 0.6.2 and later) also used 1,166 photographs of receipts generated with Google's
