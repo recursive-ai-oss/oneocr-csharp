@@ -268,6 +268,17 @@ glyph); `widest[p]` is the widest stretch touching pair `p`.
        q(ab) + q_total - q(a) - q(b)  >=  FrequencyMargin (28) + 24 if a piece is one letter + 16 if both pieces have q >= 24
 
    The extras keep out pairs of real words that happen to make a word (`dare` `say`, `a` `gain`). Integer arithmetic only.
+
+Word breaks the network left out are put in by two further rules, after the ink-gap rule above (which needs a stretch of `SplitGap`
+(9) pixels and `SplitRatio` (3.5) times the line's letter gap):
+
+- *Vertical bar.* A bar (`|`) and the letter, digit or closing mark before it, or the letter, digit or opening mark after it, are
+  cut when the stretch between them is at least `BarGap` (5) pixels and at least `BarExtra` (2) more than the line's median letter
+  gap (`Genealogy|` `Search`). The same address-word guard as for the ink-gap rule applies. Two bars in a row stay together.
+- *Fused capital I.* A network word that is a capital `I` followed by two or more lower-case ASCII letters is cut after the `I`
+  when the stretch is at least `FusedIGap` (4) pixels and `FusedIExtra` (2) more than the line's letter gap, the rest is in the
+  word frequency table with `q >= FrequencyWordQuarter` (24) and the whole word, lower-cased, is not in the table with
+  `q >= FrequencyMinQuarter` (10) (`Iagree` → `I agree`; `Index` and `Ian` are words and stay). It needs a word frequency table.
 4. *Addresses, web addresses and amounts* (`widest[p] <= CodeGap` = 6 and, on lines with at least `MinSpacesForGap` network spaces,
    at most `FrequencyRatio` times the median word gap): none of these has a space in it, so a break goes where the two words are
    the halves of one. Only the text of the two words is judged (no word model or table is needed), by the first rule that applies:
@@ -337,6 +348,9 @@ result is the same on every path and at every degree.
 `- – — . , ' * ° ~ _ : ; ^ + = ¨ ˙ ‧ ∙ ⋅ ● ○ ▪ ◦ ¤ º ª` or the grave accent (a dot),
 `·` or `•` (a dot the network already decided), or `I l 1 ! ¦ / \ ( ) [ ]` (a bar). Other letters and digits are never candidates for a
 dot, and a word of two or more characters (`-x`, `--`, `a-b`) is never touched, so hyphens and dashes inside words stay.
+The first and the last word of a line (a list marker, a trailing mark) are candidates only when read as one of `º ª ° ˙ ‧ ∙ ⋅ ● ○ ▪ ◦ ¤`,
+`·` or `•`, and only for the dot test below: a hyphen, a full stop, a letter or a bar mark there is left as read. A line needs at
+least two words.
 
 **The glyph.** Ink pixels are those the word segmenter uses (distance from the line's median grey above half the line's strongest
 contrast; lines fainter than `MinContrast` are left as read). The glyph is the run of ink columns that contains the first ink column
