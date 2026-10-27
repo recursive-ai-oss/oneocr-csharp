@@ -268,7 +268,20 @@ glyph); `widest[p]` is the widest stretch touching pair `p`.
        q(ab) + q_total - q(a) - q(b)  >=  FrequencyMargin (28) + 24 if a piece is one letter + 16 if both pieces have q >= 24
 
    The extras keep out pairs of real words that happen to make a word (`dare` `say`, `a` `gain`). Integer arithmetic only.
-   Rules 1 to 3 are tried in that order and any one of them takes the space out.
+4. *Addresses, web addresses and amounts* (`widest[p] <= CodeGap` = 6 and, on lines with at least `MinSpacesForGap` network spaces,
+   at most `FrequencyRatio` times the median word gap): none of these has a space in it, so a break goes where the two words are
+   the halves of one. Only the text of the two words is judged (no word model or table is needed), by the first rule that applies:
+   (a) the right word is `@` followed by a domain with a point inside it, and the left word is made of letters, digits and
+   `. _ % + -`, ending in a letter or digit (`elena.nair` `@example.com`); (b) the left word holds `@` with a point after it and ends
+   in a letter and a full stop, and the right word is two or more lower-case letters, a closing mark allowed after them
+   (`dad@corp.example.` `net`); (c) the left word is made of letters, digits, points and hyphens, is longer than two characters,
+   and ends in a full stop after a letter or digit, and the right word (a closing mark allowed after it) is one of `com gov org net
+   edu io uk mil info biz app dev example`, all lower-case or all upper-case (`IRS.` `gov`; a sentence would continue with a
+   capital; `us` and `co` are left out because they are words); (d) the left word is letters and `:`, and the right word starts with
+   `//` (`https:` `//irs.gov`); (e) the left word holds `//` or starts with `www.`, ends in `/`, and the right word starts with a
+   letter or digit; (f) the left word ends in `$`, `£` or `€` that no digit precedes, and the right word starts with two digits, or a digit
+   and a point or comma (`$` `17,906.36`; a lone digit is not an amount). Characters never change: only the break is taken out.
+   Rules 1 to 4 are tried in that order and any one of them takes the space out.
 
 **Putting a space in.** A stretch that no network space accounts for (no pair it touches has a network space) becomes a space at
 the pair it overlaps most when its width is at least `max(SplitGap, SplitRatio x letterGap)` (`SplitGap` = 9 pixels,
