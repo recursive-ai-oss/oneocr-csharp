@@ -24,6 +24,33 @@ public class WordSegmenterTests
     public void NumbersAndDatesAreJoinedOnlyWhenTheyAreHalvesOfOne(string left, string right, bool joined) =>
         Assert.Equal(joined, WordSegmenter.JoinsNumber(left, right));
 
+    [Theory]
+    [InlineData("elena.nair", "@example.com", true)]
+    [InlineData("fatima.costa@corp.", "example", true)]
+    [InlineData("dad@corp.example.", "net", true)]
+    [InlineData("IRS.", "gov", true)]
+    [InlineData("example.", "COM,", true)]
+    [InlineData("https:", "//www.irs.gov", true)]
+    [InlineData("https://www.irs.gov/", "forms", true)]
+    [InlineData("$", "17,906.36", true)]
+    [InlineData("US$", "50", true)]
+    [InlineData("$", "9", false)]
+    [InlineData("follow", "@example.com", true)]
+    [InlineData("us", "@nasa", false)]
+    [InlineData("us", "@", false)]
+    [InlineData("mail", "@ me", false)]
+    [InlineData("IRS.", "Gov", false)]
+    [InlineData("It.", "us", false)]
+    [InlineData("U.S.", "government", false)]
+    [InlineData("done.", "orgé", false)]
+    [InlineData("cost:", "17", false)]
+    [InlineData("5$", "17", false)]
+    [InlineData("visit", "//home", false)]
+    [InlineData("docs/", "intro", false)]
+    [InlineData("a@b.", "Net", false)]
+    public void AddressesWebAddressesAndAmountsAreJoinedOnlyWhenTheyAreHalvesOfOne(string left, string right, bool joined) =>
+        Assert.Equal(joined, WordSegmenter.JoinsCode(left, right));
+
     // A line image 32 pixels high, white with black blocks at the given [from, to] column ranges.
     private static byte[] Image(int width, params (int From, int To)[] ink)
     {
@@ -46,6 +73,25 @@ public class WordSegmenterTests
     // One character per ink block, with the block as its extent.
     private static List<RecognizedChar> Chars(string text, params (int From, int To)[] ink) =>
         [.. text.Select((c, i) => new RecognizedChar(c.ToString(), ink[i].From, ink[i].To + 1, 1f))];
+
+    [Fact]
+    public void ASpaceBeforeTheAtSignOfAnAddressIsTakenOutWhenTheInkIsClose()
+    {
+        // "jo" "@a.co": a four pixel stretch, no word model or table needed.
+        (int, int)[] ink = [(5, 12), (15, 22), (26, 33), (36, 43), (46, 49), (52, 59)];
+        bool[]? plan = WordSegmenter.Plan(Chars("jo@a.c", ink), [false, true, false, false, false], Image(70, ink), 70, 32, null);
+
+        Assert.NotNull(plan);
+        Assert.All(plan!, b => Assert.False(b));
+    }
+
+    [Fact]
+    public void TheSameSpaceStaysWhenTheStretchIsWiderThanCodeGap()
+    {
+        (int, int)[] ink = [(5, 12), (15, 22), (31, 38), (41, 48), (51, 54), (57, 64)];
+
+        Assert.Null(WordSegmenter.Plan(Chars("jo@a.c", ink), [false, true, false, false, false], Image(70, ink), 70, 32, null));
+    }
 
     [Fact]
     public void ASpaceInsideAThousandsGroupIsTakenOutWhenTheInkIsClose()

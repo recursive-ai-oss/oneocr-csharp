@@ -61,6 +61,9 @@ internal static class WordSegmenter
     /// <summary>Added to the margin when both pieces are common words.</summary>
     internal const int FrequencyBothExtra = 16;
 
+    /// <summary>The widest stretch, in pixels, at which a space inside an address, web address or amount may be taken back (see <see cref="JoinsCode"/>).</summary>
+    internal const int CodeGap = 6;
+
     /// <summary>... and, when the line has at least <see cref="MinSpacesForGap"/> spaces, the stretch has to be at most this fraction of the line's median word gap.</summary>
     internal const double ModelRatio = 0.7;
 
@@ -178,7 +181,7 @@ internal static class WordSegmenter
         bool changed = false;
         for (int p = 0; p < n - 1; p++)
         {
-            if (wasSpace[p] && widest[p] <= Math.Max(NumberGap, Math.Max(ModelGap, Math.Max(ModelGapWeak, frequencies is null ? 0 : FrequencyGap)))
+            if (wasSpace[p] && widest[p] <= Math.Max(NumberGap, Math.Max(ModelGap, Math.Max(ModelGapWeak, frequencies is null ? CodeGap : Math.Max(CodeGap, FrequencyGap))))
                 && ShouldJoin(chars, wasSpace, p, widest[p], wordGap, words, frequencies))
             {
                 result[p] = false;
@@ -311,6 +314,12 @@ internal static class WordSegmenter
 
         string l = left.ToString(), r = right.ToString();
         if (gap <= NumberGap && JoinsNumber(l, r))
+        {
+            return true;
+        }
+
+        // An address, web address or amount cut in two: the stretch is held to the same share of the line's word gap as for words.
+        if (gap <= CodeGap && !(wordGap != 0 && gap > FrequencyRatio * wordGap) && JoinsCode(l, r))
         {
             return true;
         }
@@ -531,6 +540,81 @@ internal static class WordSegmenter
         }
 
         return numeric && tail.Any(c => c is '/' or '-') && right[0] is '/' or '-' && right.Length > 1 && char.IsAsciiDigit(right[1]);
+    }
+
+    // Top-level domains that follow a full stop inside a web or mail address; words that also read as plain English (us, co) are left out.
+    private static readonly string[] Domains = ["com", "gov", "org", "net", "edu", "io", "uk", "mil", "info", "biz", "app", "dev", "example"];
+
+    private const string Currency = "$£€";
+
+    /// <summary>
+    /// Whether the words on either side of a break are the two halves of one address, web address or amount. None of those has a space
+    /// in it, so a break that sits where the pieces only make sense together goes: (a) the right word starts with <c>@</c> and carries a
+    /// dotted domain, and the left word is made of the characters of a mail name; (b) the left word is a mail address whose domain
+    /// ends in a full stop, and the right word is letters (the rest of the domain); (c) the left word is a name made of letters, digits,
+    /// points and hyphens that ends in a full stop, and the right word is a top-level domain (<c>gov</c>, <c>com</c> ...) in one case
+    /// (a sentence would continue with a capital); (d) the left word is a scheme and <c>:</c> and the right word starts with <c>//</c>;
+    /// (e) the left word is a web address (it holds <c>//</c> or starts with <c>www.</c>) that ends in <c>/</c> and the right word starts
+    /// with a letter or digit; (f) the left word ends in a currency sign that no digit precedes and the right word starts with two digits or a digit and a point or comma.
+    /// Only the break is taken out.
+    /// </summary>
+    internal static bool JoinsCode(string left, string right)
+    {
+        if (left.Length == 0 || right.Length == 0)
+        {
+            return false;
+        }
+
+        // (f) "$ 17,906.36"
+        if (Currency.Contains(left[^1], StringComparison.Ordinal) && right.Length >= 2 && char.IsAsciiDigit(right[0]) && (char.IsAsciiDigit(right[1]) || right[1] is ',' or '.')
+            && (left.Length == 1 || !char.IsAsciiDigit(left[^2])))
+        {
+            return true;
+        }
+
+        // (d) "https: //example.org"
+        if (right.StartsWith("//", StringComparison.Ordinal) && left.Length > 1 && left[^1] == ':' && left[..^1].All(char.IsAsciiLetter))
+        {
+            return true;
+        }
+
+        // (e) "https://example.org/ about"
+        if (left[^1] == '/' && (left.Contains("//", StringComparison.Ordinal) || left.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) && char.IsAsciiLetterOrDigit(right[0]))
+        {
+            return true;
+        }
+
+        // (a) "elena.nair @example.com"; the mail name is not empty, the domain has a point inside it.
+        if (right[0] == '@' && right.Length > 3 && left.All(c => char.IsAsciiLetterOrDigit(c) || "._%+-".Contains(c)) && char.IsAsciiLetterOrDigit(left[^1]))
+        {
+            string domain = right[1..].TrimEnd('.', ',', ';', ':', '!', '?', ')');
+            int dot = domain.IndexOf('.');
+            return dot > 0 && dot < domain.Length - 1 && domain.All(c => char.IsAsciiLetterOrDigit(c) || ".-".Contains(c));
+        }
+
+        // (b) "olga@corp.example. net"
+        int at = left.IndexOf('@');
+        if (at > 0 && left[^1] == '.' && char.IsAsciiLetter(left[^2]) && left.IndexOf('.', at) > 0 && char.IsAsciiLetter(right[0]))
+        {
+            string tail = right.TrimEnd('.', ',', ';', ':', '!', '?', ')');
+            return tail.Length >= 2 && tail.All(char.IsAsciiLetter) && tail.All(char.IsAsciiLetterLower);
+        }
+
+        // (c) "IRS. gov"
+        if (left.Length > 2 && left[^1] == '.' && char.IsAsciiLetterOrDigit(left[^2]) && char.IsAsciiLetterOrDigit(left[0])
+            && left.All(c => char.IsAsciiLetterOrDigit(c) || ".-".Contains(c)))
+        {
+            string tail = right.TrimEnd('.', ',', ';', ':', '!', '?', ')');
+            foreach (string d in Domains)
+            {
+                if (string.Equals(tail, d, StringComparison.OrdinalIgnoreCase) && (tail.All(char.IsAsciiLetterLower) || tail.All(char.IsAsciiLetterUpper)))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     // Digits in groups of three after one to three: "1", "96", "1,234", "12,345,678".
