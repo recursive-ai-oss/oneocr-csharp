@@ -25,71 +25,99 @@ internal static partial class ReadingOrder
 
         int[] reg = all;
         int[] peeledHead = [], peeledFoot = [];
-        double pageLeft = all.Min(i => f[i].X0), pageRight = all.Max(i => f[i].X1);
-        // A running header or a footer is a few fragments spread over the width with wide gaps between; the first lines of two columns
-        // fill the width.
-        bool LooksLikeMargin(int[] g) =>
-            g.Max(i => f[i].X1) - g.Min(i => f[i].X0) >= LayoutParameters.RobustMarginSpan * (pageRight - pageLeft) &&
-            g.Sum(i => f[i].X1 - f[i].X0) <= LayoutParameters.RobustMarginFill * DistinctLineCount(f, g) * (pageRight - pageLeft);
-
-        if (Partition(f, all, false, LayoutParameters.RobustMarginGapEm * ms, null, false) is { } bands)
+        if (MarginBands(f, all, ms) is { } margins)
         {
-            if (DistinctLineCount(f, bands[0]) <= LayoutParameters.RobustMarginLines && LooksLikeMargin(bands[0]))
-            {
-                peeledHead = bands[0];
-                bands.RemoveAt(0);
-            }
-
-            if (bands.Count > 1 && DistinctLineCount(f, bands[^1]) <= LayoutParameters.RobustMarginLines && LooksLikeMargin(bands[^1]))
-            {
-                peeledFoot = bands[^1];
-                bands.RemoveAt(bands.Count - 1);
-            }
-
-            reg = [.. bands.SelectMany(g => g)];
+            (peeledHead, reg, peeledFoot) = margins;
             if (reg.Length < 2 * LayoutParameters.RobustMinLines || DistinctLineCount(f, reg) < LayoutParameters.RobustMinLines)
             {
                 return null;
             }
         }
 
-        List<(double Position, int Words, double Width)> stripes = FindStripes(f, strips, reg, ms);
-
-        bool first = true;
-        while (stripes.Count > 0)
+        // Columns of a page whose skew was not removed completely lean a little, so that the gutter is not a vertical stripe: the
+        // words of one column reach past the words of the next at the far end. The upright reading comes first; only when it finds no
+        // columns are leaning gutters tried, from the least lean outwards.
+        for (int step = 0; step <= 2 * LayoutParameters.RobustShearSteps; step++)
         {
-            List<double> cuts = [.. stripes.Select(s => s.Position)];
-            if (CutAtStripes(f, strips, reg, cuts, peeledHead, peeledFoot, ms, out bool crossed) is { } groups)
-            {
-                return groups;
-            }
+            double shear = step == 0 ? 0 : ((step & 1) == 1 ? 1 : -1) * ((step + 1) / 2) * LayoutParameters.RobustShearStep;
+            List<(double Position, int Words, double Width)> stripes = FindStripes(f, strips, reg, ms, shear);
 
-            // Lines of text, not a stray word, run across the stripes (a table above the columns): the horizontal cut comes first.
-            if (crossed && first)
+            bool first = true;
+            while (stripes.Count > 0)
             {
-                return null;
-            }
-
-            first = false;
-
-            int weakest = 0;
-            for (int i = 1; i < stripes.Count; i++)
-            {
-                if (stripes[i].Words > stripes[weakest].Words || (stripes[i].Words == stripes[weakest].Words && stripes[i].Width < stripes[weakest].Width))
+                List<double> cuts = [.. stripes.Select(s => s.Position)];
+                if (CutAtStripes(f, strips, reg, cuts, peeledHead, peeledFoot, ms, shear, out bool crossed) is { } groups)
                 {
-                    weakest = i;
+                    return groups;
                 }
-            }
 
-            stripes.RemoveAt(weakest);
+                // Lines of text, not a stray word, run across the stripes (a table above the columns): the horizontal cut comes first.
+                if (crossed && first)
+                {
+                    if (step == 0)
+                    {
+                        return null;
+                    }
+
+                    break;
+                }
+
+                first = false;
+
+                int weakest = 0;
+                for (int i = 1; i < stripes.Count; i++)
+                {
+                    if (stripes[i].Words > stripes[weakest].Words || (stripes[i].Words == stripes[weakest].Words && stripes[i].Width < stripes[weakest].Width))
+                    {
+                        weakest = i;
+                    }
+                }
+
+                stripes.RemoveAt(weakest);
+            }
         }
 
         return null;
     }
 
+    // A running header or footer that stands apart from the text of a region: a band of a few lines at the top or bottom, set off by an
+    // empty band, that is a few fragments spread over the width (a title and a page number at the two ends) or one short line (a page
+    // footer at the left). The first lines of two columns fill the width, so they are not one. Null when there is none.
+    private static (int[] Head, int[] Body, int[] Foot)? MarginBands(List<OrderFragment> f, int[] all, double ms)
+    {
+        if (Partition(f, all, false, LayoutParameters.RobustMarginGapEm * ms, null, false) is not { } bands)
+        {
+            return null;
+        }
+
+        double width = all.Max(i => f[i].X1) - all.Min(i => f[i].X0);
+        bool LooksLikeMargin(int[] g)
+        {
+            int lines = DistinctLineCount(f, g);
+            double span = g.Max(i => f[i].X1) - g.Min(i => f[i].X0);
+            return lines <= LayoutParameters.RobustMarginLines && g.Sum(i => f[i].X1 - f[i].X0) <= LayoutParameters.RobustMarginFill * lines * width &&
+                (span >= LayoutParameters.RobustMarginSpan * width || lines == 1);
+        }
+
+        int[] head = [], foot = [];
+        if (LooksLikeMargin(bands[0]))
+        {
+            head = bands[0];
+            bands.RemoveAt(0);
+        }
+
+        if (bands.Count > 1 && LooksLikeMargin(bands[^1]))
+        {
+            foot = bands[^1];
+            bands.RemoveAt(bands.Count - 1);
+        }
+
+        return head.Length == 0 && foot.Length == 0 ? null : (head, [.. bands.SelectMany(g => g)], foot);
+    }
+
     // The stripes inside a region's text where few words lie: position (the middle of the longest run at the lowest word count),
     // that lowest count, and the width of the run.
-    private static List<(double Position, int Words, double Width)> FindStripes(List<OrderFragment> f, IReadOnlyList<OrderStrip> strips, int[] reg, double ms)
+    private static List<(double Position, int Words, double Width)> FindStripes(List<OrderFragment> f, IReadOnlyList<OrderStrip> strips, int[] reg, double ms, double shear)
     {
         var edges = new List<(double X, int Delta)>();
         foreach (int id in reg)
@@ -99,8 +127,9 @@ internal static partial class ReadingOrder
             for (int k = 0; k < fr.WordCount; k++)
             {
                 OcrBox b = words[fr.WordStart + k].Box;
-                edges.Add((b.Left, 1));
-                edges.Add((b.Right, -1));
+                double lean = shear * ((b.Top + b.Bottom) / 2);
+                edges.Add((b.Left - lean, 1));
+                edges.Add((b.Right - lean, -1));
             }
         }
 
@@ -210,7 +239,7 @@ internal static partial class ReadingOrder
 
     // Cuts the region at the given positions: header, then the columns left to right, then footer. Null when the columns are not
     // all running text.
-    private static List<int[]>? CutAtStripes(List<OrderFragment> f, IReadOnlyList<OrderStrip> strips, int[] reg, List<double> cuts, int[] peeledHead, int[] peeledFoot, double ms, out bool crossed)
+    private static List<int[]>? CutAtStripes(List<OrderFragment> f, IReadOnlyList<OrderStrip> strips, int[] reg, List<double> cuts, int[] peeledHead, int[] peeledFoot, double ms, double shear, out bool crossed)
     {
         crossed = false;
         // A fragment crosses the cuts when its words are on both sides of one (by their centres); one whose words all lie on one side
@@ -218,7 +247,7 @@ internal static partial class ReadingOrder
         bool Crosses(OrderFragment fr)
         {
             IReadOnlyList<OcrWord> words = strips[fr.Strip].Words;
-            return ZoneOf(cuts, words[fr.WordStart].Box) != ZoneOf(cuts, words[fr.WordStart + fr.WordCount - 1].Box);
+            return ZoneOf(cuts, words[fr.WordStart].Box, shear) != ZoneOf(cuts, words[fr.WordStart + fr.WordCount - 1].Box, shear);
         }
 
         var crossingLines = new HashSet<int>();
@@ -315,10 +344,10 @@ internal static partial class ReadingOrder
             IReadOnlyList<OcrWord> words = strips[fr.Strip].Words;
             int start = fr.WordStart;
             int last = fr.WordStart + fr.WordCount;
-            int zone = ZoneOf(cuts, words[start].Box);
+            int zone = ZoneOf(cuts, words[start].Box, shear);
             for (int k = start + 1; k <= last; k++)
             {
-                int next = k < last ? ZoneOf(cuts, words[k].Box) : -1;
+                int next = k < last ? ZoneOf(cuts, words[k].Box, shear) : -1;
                 if (next == zone)
                 {
                     continue;
@@ -402,9 +431,9 @@ internal static partial class ReadingOrder
     }
 
     // Which of the stripes' cuts a word lies after: the number of cuts left of its centre.
-    private static int ZoneOf(List<double> cuts, OcrBox box)
+    private static int ZoneOf(List<double> cuts, OcrBox box, double shear)
     {
-        double centre = (box.Left + box.Right) / 2;
+        double centre = ((box.Left + box.Right) / 2) - (shear * ((box.Top + box.Bottom) / 2));
         int zone = 0;
         foreach (double c in cuts)
         {

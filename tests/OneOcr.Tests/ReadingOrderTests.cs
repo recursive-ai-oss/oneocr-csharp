@@ -426,4 +426,65 @@ public class ReadingOrderTests
         strips.Add(Line(20 + pitch + 20, 20 + (9 * 16) + 2, "x"));
         Assert.Equal(Columns([0, 1], 20), Read([.. strips]).Replace(" x ", " ", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void ASpeckAtTheEdgeOfTheColumnsDoesNotTurnThemIntoBands()
+    {
+        // Two columns with a tight gutter whose paragraphs end at the same height, and one stray mark in the left margin half way down.
+        // The mark is a group of its own at the first cut; the columns must still be cut apart in their turn, not sliced at the
+        // paragraph gaps they share.
+        const int rows = 40;
+        double pitch = PitchFor(2, rows);
+        var strips = new List<OrderStrip>();
+        for (int c = 0; c < 2; c++)
+        {
+            for (int r = 0; r < rows; r++)
+            {
+                strips.Add(Line(40 + (c * pitch), 20 + (r * 16) + (r >= 14 ? 14 : 0) + (r >= 29 ? 14 : 0), ColumnRow(c, r)));
+            }
+        }
+
+        strips.Add(Line(2, 20 + (20 * 16) + 14, "#"));
+        Assert.Equal(Columns([0, 1], rows), Read([.. strips]).Replace("# ", string.Empty, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ColumnsOfAPageThatLeansAreReadColumnByColumn()
+    {
+        // Three columns whose gutters, 0.6 of the text height, lean by 0.01 over the height of the page (what a skew estimate leaves):
+        // no vertical stripe is empty from top to bottom, but the gutters are clear along their own slant.
+        const int rows = 60;
+        double pitch = PitchFor(3, rows) - 3;
+        var strips = new List<OrderStrip>();
+        for (int c = 0; c < 3; c++)
+        {
+            for (int r = 0; r < rows; r++)
+            {
+                double y = 20 + (r * 16);
+                strips.Add(Line(20 + (c * pitch) + (0.01 * y), y, ColumnRow(c, r)));
+            }
+        }
+
+        Assert.Equal(Columns([0, 1, 2], rows), Read([.. strips]));
+    }
+
+    [Fact]
+    public void AFooterAtTheLeftUnderTheColumnsIsReadLast()
+    {
+        // Two columns with a tight gutter and one short footer line under the left one only, after an empty band: it is not the end of
+        // the left column.
+        const int rows = 40;
+        double pitch = PitchFor(2, rows);
+        var strips = new List<OrderStrip>();
+        for (int c = 0; c < 2; c++)
+        {
+            for (int r = 0; r < rows; r++)
+            {
+                strips.Add(Line(20 + (c * pitch), 20 + (r * 16), ColumnRow(c, r)));
+            }
+        }
+
+        strips.Add(Line(20, 20 + (rows * 16) + 20, "Page 8 Chapter 3 Title"));
+        Assert.Equal(Columns([0, 1], rows) + " Page 8 Chapter 3 Title", Read([.. strips]));
+    }
 }
