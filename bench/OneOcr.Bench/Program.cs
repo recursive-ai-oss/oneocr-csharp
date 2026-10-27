@@ -315,6 +315,9 @@ internal static class Program
         var totals = new SortedDictionary<string, double>(StringComparer.Ordinal);
         double wall = 0;
         var clock = new Stopwatch();
+        TimeSpan gcPause0 = GC.GetTotalPauseDuration();
+        int gen0 = GC.CollectionCount(0), gen1 = GC.CollectionCount(1), gen2 = GC.CollectionCount(2);
+        long allocated = GC.GetTotalAllocatedBytes(false);
         foreach (string f in files)
         {
             Image image = Image.Load(f);
@@ -327,6 +330,7 @@ internal static class Program
             }
         }
 
+        TimeSpan gcPause = GC.GetTotalPauseDuration() - gcPause0;
         Console.WriteLine($"{files.Length} pages, degree {degree}, mean ms per page:");
         foreach (var (k, v) in totals)
         {
@@ -334,6 +338,7 @@ internal static class Program
         }
 
         Console.WriteLine($"  {"total",-28} {wall / files.Length,8:F1}");
+        Console.WriteLine($"  gc pause ms per page {gcPause.TotalMilliseconds / files.Length:F2}, gen0 {GC.CollectionCount(0) - gen0}, gen1 {GC.CollectionCount(1) - gen1}, gen2 {GC.CollectionCount(2) - gen2}, allocated MB per page {(GC.GetTotalAllocatedBytes(false) - allocated) / 1048576.0 / files.Length:F1}");
         return 0;
     }
 

@@ -275,6 +275,10 @@ internal static unsafe class DetectKernels
         }
     }
 
+    // Output positions per block of the interior path: the input rows a block reads (three rows of about this many positions)
+    // stay in the first-level cache while every channel block runs over them.
+    private const int DepthwiseBlock = 16;
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DepthwiseCore<TV>(
         float* input, int h, int w, int c, int stride, float* weightsT, float* bias, bool relu, int oy0, int oy1, float* output)
@@ -282,41 +286,89 @@ internal static unsafe class DetectKernels
     {
         int ow = w / stride;
         float** t = stackalloc float*[9];
-        float* o = output;
         long rowStride = (long)w * c;
+        // Interior columns: all nine taps are inside the image (columns 1 .. (w - 2) / stride).
+        int oxLo = 1, oxHi = (w - 2) / stride;
         for (int oy = oy0; oy < oy1; oy++)
         {
-            for (int ox = 0; ox < ow; ox++)
+            float* o = output + ((long)(oy - oy0) * ow * c);
+            int next = 0;
+            if ((oy * stride) - 1 >= 0 && (oy * stride) + 1 < h && oxHi >= oxLo)
             {
-                // Taps outside the image contribute +0 (see StemCore) and are skipped.
-                for (int ky = 0; ky < 3; ky++)
+                // Interior rows too: no tap needs a bounds test, and the nine weight vectors of a channel block are loaded once for a
+                // whole block of positions. Each output is the same nine products, tree and bias as the general path below.
+                float* top = input + (((long)((oy * stride) - 1)) * rowStride);
+                for (int ox = oxLo; ox <= oxHi; ox += DepthwiseBlock)
                 {
-                    int iy = (oy * stride) - 1 + ky;
-                    for (int kx = 0; kx < 3; kx++)
+                    int n = Math.Min(DepthwiseBlock, oxHi - ox + 1);
+                    for (int cb = 0; cb < c; cb += TV.Width)
                     {
-                        int ix = (ox * stride) - 1 + kx;
-                        t[(ky * 3) + kx] = (uint)iy < (uint)h && (uint)ix < (uint)w ? input + (iy * rowStride) + ((long)ix * c) : null;
+                        TV w0 = TV.Load(weightsT + cb), w1 = TV.Load(weightsT + c + cb), w2 = TV.Load(weightsT + (2 * c) + cb);
+                        TV w3 = TV.Load(weightsT + (3 * c) + cb), w4 = TV.Load(weightsT + (4 * c) + cb), w5 = TV.Load(weightsT + (5 * c) + cb);
+                        TV w6 = TV.Load(weightsT + (6 * c) + cb), w7 = TV.Load(weightsT + (7 * c) + cb), w8 = TV.Load(weightsT + (8 * c) + cb);
+                        TV bv = TV.Load(bias + cb);
+                        TV zero = TV.Zero;
+                        for (int q = 0; q < n; q++)
+                        {
+                            int pos = ox + q;
+                            float* r0 = top + ((long)((pos * stride) - 1) * c) + cb;
+                            float* r1 = r0 + rowStride;
+                            float* r2 = r1 + rowStride;
+                            TV p0 = TV.Fma(w0, TV.Load(r0), zero), p1 = TV.Fma(w1, TV.Load(r0 + c), zero), p2 = TV.Fma(w2, TV.Load(r0 + (2 * c)), zero);
+                            TV p3 = TV.Fma(w3, TV.Load(r1), zero), p4 = TV.Fma(w4, TV.Load(r1 + c), zero), p5 = TV.Fma(w5, TV.Load(r1 + (2 * c)), zero);
+                            TV p6 = TV.Fma(w6, TV.Load(r2), zero), p7 = TV.Fma(w7, TV.Load(r2 + c), zero), p8 = TV.Fma(w8, TV.Load(r2 + (2 * c)), zero);
+                            TV v = TV.Add(Tree9(p0, p1, p2, p3, p4, p5, p6, p7, p8), bv);
+                            (relu ? TV.Relu(v) : v).Store(o + ((long)pos * c) + cb);
+                        }
                     }
                 }
 
-                TV zero = TV.Zero;
-                for (int cb = 0; cb < c; cb += TV.Width)
+                // The general path covers the columns before and after the interior.
+                for (int ox = 0; ox < oxLo; ox++)
                 {
-                    TV p0 = t[0] == null ? zero : TV.Fma(TV.Load(weightsT + cb), TV.Load(t[0] + cb), zero);
-                    TV p1 = t[1] == null ? zero : TV.Fma(TV.Load(weightsT + c + cb), TV.Load(t[1] + cb), zero);
-                    TV p2 = t[2] == null ? zero : TV.Fma(TV.Load(weightsT + (2 * c) + cb), TV.Load(t[2] + cb), zero);
-                    TV p3 = t[3] == null ? zero : TV.Fma(TV.Load(weightsT + (3 * c) + cb), TV.Load(t[3] + cb), zero);
-                    TV p4 = t[4] == null ? zero : TV.Fma(TV.Load(weightsT + (4 * c) + cb), TV.Load(t[4] + cb), zero);
-                    TV p5 = t[5] == null ? zero : TV.Fma(TV.Load(weightsT + (5 * c) + cb), TV.Load(t[5] + cb), zero);
-                    TV p6 = t[6] == null ? zero : TV.Fma(TV.Load(weightsT + (6 * c) + cb), TV.Load(t[6] + cb), zero);
-                    TV p7 = t[7] == null ? zero : TV.Fma(TV.Load(weightsT + (7 * c) + cb), TV.Load(t[7] + cb), zero);
-                    TV p8 = t[8] == null ? zero : TV.Fma(TV.Load(weightsT + (8 * c) + cb), TV.Load(t[8] + cb), zero);
-                    TV v = TV.Add(Tree9(p0, p1, p2, p3, p4, p5, p6, p7, p8), TV.Load(bias + cb));
-                    (relu ? TV.Relu(v) : v).Store(o + cb);
+                    DepthwisePosition<TV>(input, h, w, c, stride, weightsT, bias, relu, oy, ox, o + ((long)ox * c), t, rowStride);
                 }
 
-                o += c;
+                next = oxHi + 1;
             }
+
+            for (int ox = next; ox < ow; ox++)
+            {
+                DepthwisePosition<TV>(input, h, w, c, stride, weightsT, bias, relu, oy, ox, o + ((long)ox * c), t, rowStride);
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void DepthwisePosition<TV>(
+        float* input, int h, int w, int c, int stride, float* weightsT, float* bias, bool relu, int oy, int ox, float* o, float** t, long rowStride)
+        where TV : struct, ILanes<TV>
+    {
+        // Taps outside the image contribute +0 (see StemCore) and are skipped.
+        for (int ky = 0; ky < 3; ky++)
+        {
+            int iy = (oy * stride) - 1 + ky;
+            for (int kx = 0; kx < 3; kx++)
+            {
+                int ix = (ox * stride) - 1 + kx;
+                t[(ky * 3) + kx] = (uint)iy < (uint)h && (uint)ix < (uint)w ? input + (iy * rowStride) + ((long)ix * c) : null;
+            }
+        }
+
+        TV zero = TV.Zero;
+        for (int cb = 0; cb < c; cb += TV.Width)
+        {
+            TV p0 = t[0] == null ? zero : TV.Fma(TV.Load(weightsT + cb), TV.Load(t[0] + cb), zero);
+            TV p1 = t[1] == null ? zero : TV.Fma(TV.Load(weightsT + c + cb), TV.Load(t[1] + cb), zero);
+            TV p2 = t[2] == null ? zero : TV.Fma(TV.Load(weightsT + (2 * c) + cb), TV.Load(t[2] + cb), zero);
+            TV p3 = t[3] == null ? zero : TV.Fma(TV.Load(weightsT + (3 * c) + cb), TV.Load(t[3] + cb), zero);
+            TV p4 = t[4] == null ? zero : TV.Fma(TV.Load(weightsT + (4 * c) + cb), TV.Load(t[4] + cb), zero);
+            TV p5 = t[5] == null ? zero : TV.Fma(TV.Load(weightsT + (5 * c) + cb), TV.Load(t[5] + cb), zero);
+            TV p6 = t[6] == null ? zero : TV.Fma(TV.Load(weightsT + (6 * c) + cb), TV.Load(t[6] + cb), zero);
+            TV p7 = t[7] == null ? zero : TV.Fma(TV.Load(weightsT + (7 * c) + cb), TV.Load(t[7] + cb), zero);
+            TV p8 = t[8] == null ? zero : TV.Fma(TV.Load(weightsT + (8 * c) + cb), TV.Load(t[8] + cb), zero);
+            TV v = TV.Add(Tree9(p0, p1, p2, p3, p4, p5, p6, p7, p8), TV.Load(bias + cb));
+            (relu ? TV.Relu(v) : v).Store(o + cb);
         }
     }
 
