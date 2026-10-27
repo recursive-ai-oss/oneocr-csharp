@@ -14,10 +14,24 @@ internal static class OcrHash
     public static int Run(Dictionary<string, string> o)
     {
         int degree = o.TryGetValue("degree", out string? d) ? int.Parse(d, CultureInfo.InvariantCulture) : 1;
-        OcrEngine engine = o.TryGetValue("model", out string? model) ? OcrEngine.Load(model) : OcrEngine.LoadBundled();
-        if (o.TryGetValue("detector", out string? detector))
+        // --path scalar|vector128|avx2|avx512 forces a kernel path on this machine (the environment switches cannot select 128-bit vectors).
+        OneOcr.Kernels.KernelPath? forced = o.TryGetValue("path", out string? pathName) ? Enum.Parse<OneOcr.Kernels.KernelPath>(pathName, ignoreCase: true) : null;
+        OcrEngine engine;
+        if (forced is { } fp)
         {
-            engine = engine.WithDetector(detector);
+            engine = OcrEngine.Create(OneOcr.Model.ModelContainer.Load(o["model"]), null, fp);
+            if (o.TryGetValue("detector", out string? det))
+            {
+                engine = engine.WithDetector(OneOcr.Model.ModelContainer.Load(det), fp);
+            }
+        }
+        else
+        {
+            engine = o.TryGetValue("model", out string? model) ? OcrEngine.Load(model) : OcrEngine.LoadBundled();
+            if (o.TryGetValue("detector", out string? detector))
+            {
+                engine = engine.WithDetector(detector);
+            }
         }
 
         if (o.TryGetValue("wordlm", out string? wordLm))

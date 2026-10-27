@@ -102,6 +102,26 @@ public class KernelTests
     }
 
     [Fact]
+    public void GemmPathsAgreeWhenTheRowsOfAFillSeveralCacheBlocks()
+    {
+        // Rows of A are taken in blocks that fit the second-level cache, so a tall A with long rows crosses block boundaries that are
+        // not a multiple of either tile height.
+        var rng = new Random(7);
+        foreach ((int m, int k, int n) in new[] { (700, 256, 21), (230, 1024, 9), (97, 2048, 6), (1030, 48, 35) })
+        {
+            float[] a = Random(rng, m * k), b = Random(rng, n * k), bias = Random(rng, n);
+            var c1 = new float[m * n];
+            Gemm.NT(KernelPath.Scalar, a, k, b, k, m, n, k, bias, c1, n, 1);
+            foreach (KernelPath path in Vectors)
+            {
+                var c2 = new float[c1.Length];
+                Gemm.NT(path, a, k, b, k, m, n, k, bias, c2, n, 1);
+                AssertBitEqual(c1, c2, $"{path} gemm m={m} n={n} k={k}");
+            }
+        }
+    }
+
+    [Fact]
     public void GemmRejectsSpansSmallerThanTheirShape()
     {
         var a = new float[10];
