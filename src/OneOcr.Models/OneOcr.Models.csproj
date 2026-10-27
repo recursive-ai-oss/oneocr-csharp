@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Model weights for RecursiveAI.OneOcr. The recognizer, the page detector and the word language model are embedded when the package is built with OneOcrModelFile, OneOcrDetectorFile and OneOcrLanguageModelFile pointing at the pinned files (see models.json).</Description>
+    <Description>Model weights for RecursiveAI.OneOcr. The recognizer, the page detector and the word language model are embedded when the package is built with OneOcrModelFile, OneOcrDetectorFile, OneOcrLanguageModelFile and OneOcrWordFrequencyFile pointing at the pinned files (see models.json).</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -9,7 +9,7 @@
   </ItemGroup>
 
   <!--
-    Pack step: dotnet pack src/OneOcr.Models -p:OneOcrModelFile=/path/to/recognizer.onm -p:OneOcrDetectorFile=/path/to/detector.onm -p:OneOcrLanguageModelFile=/path/to/charlm-v1.bin
+    Pack step: dotnet pack src/OneOcr.Models -p:OneOcrModelFile=/path/to/recognizer.onm -p:OneOcrDetectorFile=/path/to/detector.onm -p:OneOcrLanguageModelFile=/path/to/charlm-v1.bin -p:OneOcrWordFrequencyFile=/path/to/wordfreq-v1.bin
     Each file must hash to the SHA-256 pinned for its role in models.json; the build stops otherwise. Without a property the package
     builds without that model (development builds), and BundledModels reports that it is absent. Weights are never checked in.
   -->
@@ -70,6 +70,26 @@
     <Error Condition="'$(_ActualShaL.ToLowerInvariant())' != '$(_PinnedShaL)'" Text="OneOcrLanguageModelFile hashes to $(_ActualShaL), but models.json pins $(_PinnedShaL) for the language model. Nothing was packed." />
     <ItemGroup>
       <EmbeddedResource Include="$(OneOcrLanguageModelFile)" LogicalName="$(_PinnedAssetL)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="EmbedWordFrequencies" BeforeTargets="AssignTargetPaths" Condition="'$(OneOcrWordFrequencyFile)' != ''">
+    <PropertyGroup>
+      <_ManifestTextW>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/models.json'))</_ManifestTextW>
+      <_PinnedShaW>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestTextW)', '"role"\s*:\s*"word-frequencies"[^}]*?"sha256"\s*:\s*"([0-9a-f]{64})"').Groups[1].Value)</_PinnedShaW>
+      <_PinnedAssetW>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestTextW)', '"role"\s*:\s*"word-frequencies"[^}]*?"asset"\s*:\s*"([^"]+)"').Groups[1].Value)</_PinnedAssetW>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(OneOcrWordFrequencyFile)')" Text="OneOcrWordFrequencyFile '$(OneOcrWordFrequencyFile)' does not exist." />
+    <Error Condition="'$(_PinnedShaW)' == '' Or '$(_PinnedAssetW)' == ''" Text="models.json has no pinned word frequency table." />
+    <GetFileHash Files="$(OneOcrWordFrequencyFile)" Algorithm="SHA256" HashEncoding="hex">
+      <Output TaskParameter="Items" ItemName="_WordFrequencyHash" />
+    </GetFileHash>
+    <PropertyGroup>
+      <_ActualShaW>%(_WordFrequencyHash.FileHash)</_ActualShaW>
+    </PropertyGroup>
+    <Error Condition="'$(_ActualShaW.ToLowerInvariant())' != '$(_PinnedShaW)'" Text="OneOcrWordFrequencyFile hashes to $(_ActualShaW), but models.json pins $(_PinnedShaW) for the word frequency table. Nothing was packed." />
+    <ItemGroup>
+      <EmbeddedResource Include="$(OneOcrWordFrequencyFile)" LogicalName="$(_PinnedAssetW)" />
     </ItemGroup>
   </Target>
 

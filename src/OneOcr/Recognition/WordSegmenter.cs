@@ -40,6 +40,27 @@ internal static class WordSegmenter
     /// <summary>A piece counts as no word when its own score is at most this (a typical word scores about zero or more; a rare real word such as "tax" scores about -1.7).</summary>
     internal const double WeakPieceMax = -2.0;
 
+    /// <summary>The widest stretch, in pixels, at which the word frequency table may take a space back.</summary>
+    internal const int FrequencyGap = 9;
+
+    /// <summary>... and, on a line with a usable word gap, the stretch is at most this fraction of it.</summary>
+    internal const double FrequencyRatio = 0.85;
+
+    /// <summary>The joined word has to be at least this frequent in the table (quarter-bits of its count).</summary>
+    internal const int FrequencyMinQuarter = 10;
+
+    /// <summary>How many quarter-bits more common the joined word is than its pieces together (28 is 7 bits, about 4.9 nats of log-odds).</summary>
+    internal const int FrequencyMargin = 28;
+
+    /// <summary>Added to the margin when one of the pieces is a single letter.</summary>
+    internal const int FrequencySingleExtra = 24;
+
+    /// <summary>A piece in the table with at least this value (quarter-bits of its count) is a common word.</summary>
+    internal const int FrequencyWordQuarter = 24;
+
+    /// <summary>Added to the margin when both pieces are common words.</summary>
+    internal const int FrequencyBothExtra = 16;
+
     /// <summary>... and, when the line has at least <see cref="MinSpacesForGap"/> spaces, the stretch has to be at most this fraction of the line's median word gap.</summary>
     internal const double ModelRatio = 0.7;
 
@@ -48,6 +69,9 @@ internal static class WordSegmenter
 
     /// <summary>Lines whose strongest ink is fainter than this (distance from the background, 0..255) have no usable column profile and are left as read.</summary>
     internal const int MinContrast = 64;
+
+    // Characters that mark a word as a code, as in the decoder.
+    private const string CodeSymbols = "@#_/\\=%+*~^|<>[]{}";
 
     private const string Closing = ".,;:!?)]}%\u2019\u201D'\"\u00BB\u2026";
     private const string Opening = "$\u00A3\u20AC([{\u2018\u201C\u00AB";
@@ -62,7 +86,8 @@ internal static class WordSegmenter
     /// <param name="width">Its width in pixels.</param>
     /// <param name="height">Its height in pixels.</param>
     /// <param name="words">The character model that judges whether letters form one word, or null.</param>
-    public static bool[]? Plan(IReadOnlyList<RecognizedChar> chars, bool[] wasSpace, ReadOnlySpan<byte> gray, int width, int height, WordPlausibility? words)
+    /// <param name="frequencies">The word frequencies that judge whether a cut word was one, or null.</param>
+    public static bool[]? Plan(IReadOnlyList<RecognizedChar> chars, bool[] wasSpace, ReadOnlySpan<byte> gray, int width, int height, WordPlausibility? words, WordFrequencyModel? frequencies = null)
     {
         int n = chars.Count;
         if (n < 2 || width < 1 || gray.Length < width * height)
@@ -153,7 +178,8 @@ internal static class WordSegmenter
         bool changed = false;
         for (int p = 0; p < n - 1; p++)
         {
-            if (wasSpace[p] && widest[p] <= Math.Max(NumberGap, Math.Max(ModelGap, ModelGapWeak)) && ShouldJoin(chars, wasSpace, p, widest[p], wordGap, words))
+            if (wasSpace[p] && widest[p] <= Math.Max(NumberGap, Math.Max(ModelGap, Math.Max(ModelGapWeak, frequencies is null ? 0 : FrequencyGap)))
+                && ShouldJoin(chars, wasSpace, p, widest[p], wordGap, words, frequencies))
             {
                 result[p] = false;
             }
@@ -268,7 +294,7 @@ internal static class WordSegmenter
 
     // Whether the network's space after character p is taken back: the words on its two sides are the halves of one number or date,
     // or one word that the character model finds much more plausible whole.
-    private static bool ShouldJoin(IReadOnlyList<RecognizedChar> chars, bool[] wasSpace, int p, int gap, double wordGap, WordPlausibility? words)
+    private static bool ShouldJoin(IReadOnlyList<RecognizedChar> chars, bool[] wasSpace, int p, int gap, double wordGap, WordPlausibility? words, WordFrequencyModel? frequencies)
     {
         (int from, int to) = WordSpan(wasSpace, p, chars.Count);
         var left = new StringBuilder();
@@ -289,31 +315,50 @@ internal static class WordSegmenter
             return true;
         }
 
-        if (words is null || gap > ModelGapWeak || (wordGap != 0 && gap > ModelRatio * wordGap))
+        if (words is not null && gap <= ModelGapWeak && !(wordGap != 0 && gap > ModelRatio * wordGap)
+            && JoinEvidence(words, l, r) is { } evidence)
         {
-            return false;
+            // Plain evidence: the joined word is much more plausible than the pieces. Weak evidence, enough when one piece could not
+            // stand as a word by itself ("val" + "uable", "in" + "debted"): a smaller gain. Two pieces that are both words ("tax" "at")
+            // need the plain evidence.
+            if ((gap <= ModelGap && evidence.Gain >= ModelMargin) || (evidence.Gain >= ModelMarginWeak && evidence.MinPiece <= WeakPieceMax))
+            {
+                return true;
+            }
         }
 
-        (double Gain, double MinPiece)? evidence = JoinEvidence(words, l, r);
-        if (evidence is null)
-        {
-            return false;
-        }
-
-        // Plain evidence: the joined word is much more plausible than the pieces. Weak evidence, enough when one piece could not
-        // stand as a word by itself ("val" + "uable", "in" + "debted"): a smaller gain. Two pieces that are both words ("tax" "at")
-        // need the plain evidence.
-        return (gap <= ModelGap && evidence.Value.Gain >= ModelMargin)
-            || (evidence.Value.Gain >= ModelMarginWeak && evidence.Value.MinPiece <= WeakPieceMax);
+        return frequencies is not null && JoinsByFrequency(frequencies, l, r, gap, wordGap);
     }
 
     // How much more word-like the two words are as one word than as two (null when the model has no score for them): the pieces
     // must end and begin with letters, and only their outer marks (quotes, a full stop) are left out of the score.
     private static (double Gain, double MinPiece)? JoinEvidence(WordPlausibility words, string left, string right)
     {
-        if (left.Length == 0 || right.Length == 0 || !char.IsLetter(left[^1]) || !char.IsLetter(right[0]))
+        if (!Cores(left, right, out string leftCore, out string rightCore))
         {
             return null;
+        }
+
+        double? joined = words.Score(leftCore + rightCore);
+        double? one = words.Score(leftCore);
+        double? two = words.Score(rightCore);
+        if (joined is null || one is null || two is null)
+        {
+            return null;
+        }
+
+        return (joined.Value - (one.Value + two.Value), Math.Min(one.Value, two.Value));
+    }
+
+    // The letters of the two pieces without the marks around them (quotes, a full stop). False when either piece does not end or begin
+    // with a letter, or holds a capital the models cannot judge: they are trained on running prose, and a capital inside a piece
+    // marks a code, an abbreviation or a heading ("TehES", "DI"); only a capital that starts the left piece is prose.
+    private static bool Cores(string left, string right, out string leftCore, out string rightCore)
+    {
+        leftCore = rightCore = string.Empty;
+        if (left.Length == 0 || right.Length == 0 || !char.IsLetter(left[^1]) || !char.IsLetter(right[0]))
+        {
+            return false;
         }
 
         int a = 0;
@@ -328,15 +373,13 @@ internal static class WordSegmenter
             b--;
         }
 
-        string leftCore = left[a..], rightCore = right[..b];
-
-        // The model is trained on running prose. Capitals inside a piece mark a code, an abbreviation or a heading ("TehES", "DI"),
-        // which it cannot judge: only a capital that starts the left piece is prose.
-        for (int i = 0; i < leftCore.Length; i++)
+        leftCore = left[a..];
+        rightCore = right[..b];
+        for (int i = 1; i < leftCore.Length; i++)
         {
-            if (i > 0 && char.IsUpper(leftCore[i]))
+            if (char.IsUpper(leftCore[i]))
             {
-                return null;
+                return false;
             }
         }
 
@@ -344,19 +387,88 @@ internal static class WordSegmenter
         {
             if (char.IsUpper(c))
             {
-                return null;
+                return false;
             }
         }
 
-        double? joined = words.Score(leftCore + rightCore);
-        double? one = words.Score(leftCore);
-        double? two = words.Score(rightCore);
-        if (joined is null || one is null || two is null)
+        return true;
+    }
+
+    // Whether the frequency table finds the joined word far more common than its two pieces together: the joined word is in the table
+    // with at least FrequencyMinQuarter, and its count over the product of the pieces' counts (a word the table lacks counts as
+    // seen about half as often as the rarest word it holds) is at least FrequencyMargin quarter-bits above what chance puts
+    // together. A one-letter piece needs FrequencySingleExtra more. Integer arithmetic only, so every platform decides alike.
+    private static bool JoinsByFrequency(WordFrequencyModel frequencies, string left, string right, int gap, double wordGap)
+    {
+        if (gap > FrequencyGap || (wordGap != 0 && gap > FrequencyRatio * wordGap) || !Cores(left, right, out string l, out string r))
         {
-            return null;
+            return false;
         }
 
-        return (joined.Value - (one.Value + two.Value), Math.Min(one.Value, two.Value));
+        // A digit or a code symbol anywhere in either word, also among the marks around the letters, makes it a code: never judged.
+        foreach (char c in left + right)
+        {
+            if (char.IsDigit(c) || CodeSymbols.Contains(c, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        string a = Lower(l), b = Lower(r);
+        if (a.Length == 0 || b.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (char c in a + b)
+        {
+            if (!char.IsLetter(c))
+            {
+                return false;
+            }
+        }
+
+        if (!TryJoined(frequencies, a + b, out int joined) || joined < FrequencyMinQuarter)
+        {
+            return false;
+        }
+
+        int qa = frequencies.Quarter(a), qb = frequencies.Quarter(b);
+        int gain = joined + frequencies.TotalQuarterBits - qa - qb;
+        int needed = FrequencyMargin + (a.Length == 1 || b.Length == 1 ? FrequencySingleExtra : 0);
+
+        // Two pieces that are both common words ("dare" "say") are most likely two words, whatever the joined word's count: they need more.
+        if (qa >= FrequencyWordQuarter && qb >= FrequencyWordQuarter)
+        {
+            needed += FrequencyBothExtra;
+        }
+
+        return gain >= needed;
+    }
+
+    private static bool TryJoined(WordFrequencyModel frequencies, string word, out int quarter)
+    {
+        quarter = 0;
+        if (word.Length > 40)
+        {
+            return false;
+        }
+
+        Span<byte> bytes = stackalloc byte[160];
+        int n = Encoding.UTF8.GetBytes(word, bytes);
+        return frequencies.TryFind(bytes[..n], out quarter);
+    }
+
+    // The table's folding: the simple lowercase of each code point, as the character model does it.
+    private static string Lower(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        foreach (Rune r in s.EnumerateRunes())
+        {
+            sb.Append(Prepared.Fold(r.ToString()));
+        }
+
+        return sb.ToString();
     }
 
     // Whether the words on either side of a break are the two halves of one number or date: a thousands group that the break cut

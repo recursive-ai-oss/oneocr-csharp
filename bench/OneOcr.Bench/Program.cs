@@ -408,6 +408,12 @@ internal static class Program
             engine = engine.WithWordModel(OneOcr.Decoding.CharLanguageModel.Load(wordLm));
         }
 
+        if (o.TryGetValue("wordfreq", out string? wordFreq))
+        {
+            // --wordfreq FILE: the word frequency table that takes back spaces inside words (see OcrEngine.WithWordFrequencies).
+            engine = engine.WithWordFrequencies(OneOcr.Decoding.WordFrequencyModel.Load(wordFreq));
+        }
+
         if (o.TryGetValue("detector", out string? detectorFile))
         {
             engine = engine.WithDetector(detectorFile);

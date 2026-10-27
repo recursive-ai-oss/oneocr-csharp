@@ -15,6 +15,8 @@ For a coverage-guided run, instrument `OneOcr.dll` with the `sharpfuzz` tool and
 
 `review` runs a review-import file through the parser (`docs/spec/review-queue.md`) under tight limits; only `OcrFormatException` and `OcrLimitException` may come out. Seeds are in `fuzz/corpus/review/`. The first mutation run found that invalid UTF-8 inside a string threw `InvalidOperationException`; the whole input is now checked for valid UTF-8 first.
 
+`wordfreq` runs word frequency file bytes (`docs/spec/word-lm-v1.md`) through the parser and, when they parse, lookups of arbitrary byte strings under tight limits; only `OcrModelException` and `OcrLimitException` may come out. Seeds are in `fuzz/corpus/wordfreq/`, written by `ONEOCR_FUZZ_TARGET=wordfreq OneOcr.Fuzz seeds <dir>`.
+
 A minimized reproducer of a finding goes to `testdata/` with a regression test asserting a typed error.
 
 `docextract` runs document-extraction model container bytes (`docextract-v0`) through the parser, the model builder and, when they build, featurization, a forward pass and assembly on a fixed seven-word page under tight limits; only `OcrModelException` and `OcrLimitException` may come out. Seeds are in `fuzz/corpus/docextract/`, written by `ONEOCR_FUZZ_TARGET=docextract OneOcr.Fuzz seeds <dir>`. A 600 s mutation run executed 31.5 million inputs, 0.8 million of them parsed and built, with no findings.

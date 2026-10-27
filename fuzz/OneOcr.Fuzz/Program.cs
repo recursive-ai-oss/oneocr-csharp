@@ -25,6 +25,7 @@ internal static class Program
             "docextract" => DocExtractTarget.Run,
             "charlm" => CharLmTarget.Run,
             "lexicon" => LexiconTarget.Run,
+            "wordfreq" => WordFreqTarget.Run,
             "pagejson" => PageJsonTarget.Run,
             "review" => ReviewImportTarget.Run,
             "pdf" => PdfTarget.Run,
@@ -139,7 +140,7 @@ internal static class Program
             }
         }
 
-        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
+        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + WordFreqTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
         return 0;
     }
 
@@ -161,6 +162,16 @@ internal static class Program
             File.WriteAllBytes(Path.Combine(dir, "order3.seed"), TestLm.Build("latin", alphabet, ["cab", "cab", "dab", "cod", "b\u00e9"], 3));
             File.WriteAllBytes(Path.Combine(dir, "order2.seed"), TestLm.Build("latin", alphabet, ["cab", "dab", "cod"], 2));
             File.WriteAllBytes(Path.Combine(dir, "two-scripts.seed"), TestLm.Assemble([("latin", alphabet, ["cab", "dab"]), ("other", ["x", "y"], ["xy", "yx"])], 3));
+            return;
+        }
+
+        if (target == "wordfreq")
+        {
+            var small = new (string, int)[] { ("apple", 40), ("apples", 9), ("application", 300), ("apply", 120), ("banana", 12), ("band", 80), ("bandage", 5) };
+            File.WriteAllBytes(Path.Combine(dir, "small.seed"), TestWordFrequencies.Build(small));
+            var many = Enumerable.Range(0, 70).Select(i => ("w" + i.ToString("D3", System.Globalization.CultureInfo.InvariantCulture), 3 + i)).ToArray();
+            File.WriteAllBytes(Path.Combine(dir, "blocks.seed"), TestWordFrequencies.Build(many));
+            File.WriteAllBytes(Path.Combine(dir, "empty.seed"), TestWordFrequencies.Build([]));
             return;
         }
 

@@ -97,7 +97,7 @@ Layout annotations and page images, for training the page detector.
 ### Project Gutenberg texts
 
 Public-domain books in 19 languages (217 titles; the identifiers are in `training/data/texts.yaml`) supply the text that is
-rendered into synthetic line images, and the text the character language model (`charlm-v1`) is estimated from. Two further
+rendered into synthetic line images, and the text the character language model (`charlm-v1`) and the word frequency table (`wordfreq-v1`) are estimated from. Two further
 books (identifiers 1342 and 11) are used only as prose for evaluation pages. Only the body between the START and END markers
 is used, with the Project Gutenberg trademark text removed. Terms: https://www.gutenberg.org/policy/permission.html — for
 public-domain titles "nobody can grant, or withhold, permission to do with this item as you please", "including any commercial
