@@ -9,7 +9,7 @@
   </ItemGroup>
 
   <!--
-    Pack step: dotnet pack src/OneOcr.Models -p:OneOcrModelFile=/path/to/recognizer.onm -p:OneOcrDetectorFile=/path/to/detector.onm -p:OneOcrLanguageModelFile=/path/to/charlm-v1.bin -p:OneOcrWordFrequencyFile=/path/to/wordfreq-v1.bin
+    Pack step: dotnet pack src/OneOcr.Models -p:OneOcrModelFile=/path/to/recognizer.onm -p:OneOcrDetectorFile=/path/to/detector.onm -p:OneOcrLanguageModelFile=/path/to/charlm-v1.bin -p:OneOcrWordFrequencyFile=/path/to/wordfreq-v2.bin
     Each file must hash to the SHA-256 pinned for its role in models.json; the build stops otherwise. Without a property the package
     builds without that model (development builds), and BundledModels reports that it is absent. Weights are never checked in.
   -->

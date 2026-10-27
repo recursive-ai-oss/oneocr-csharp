@@ -11,7 +11,8 @@ Words of Latin letters only, each lowercased by the simple one-to-one lowercase 
 and U+0130, stay as they are), as in `char-lm-v1.md`. A word with a digit, an apostrophe, a hyphen, a code symbol or a letter of
 another script is not in the table. A word is 1 to 40 UTF-8 bytes. The builder reads the Latin-script books marked `train` in
 `training/data/texts.yaml` (the books the character language model is built from; Alice and Pride and Prejudice, the evaluation
-page sets' texts, and the held-out books are not among them) and keeps words seen at least `min_count` times (default 3).
+page sets' texts, and the held-out books are not among them) and keeps words seen at least `min_count` times (default 3). It can add
+counts from the visible text of public-domain US federal web pages (`training/wordlm/README.md`); the file format does not change.
 
 A count is stored as `q = clamp(round(4 * log2(count)), 1, 255)`, a quarter of a bit: the count is about `2^(q/4)`. `q` is never 0.
 
@@ -53,5 +54,5 @@ The page reader's word segmentation (`oneocr-page-v1.md`, "Word segmentation", r
     gain = q(ab) + q_total - q(a) - q(b)        (q of a word that is not in the table is q_missing)
 
 which is four times the base-2 log-odds that the letters are one word and not two independent words. All comparisons are on
-integers, so every platform decides alike. The table holds 217,000 words from the Latin-script books of 15 languages and is 1.3 MB.
+integers, so every platform decides alike. The bundled table holds 219,000 words from the Latin-script books of 15 languages and modern web text, and is 1.3 MB.
 It knows nothing of numbers, codes, names or words with an apostrophe or hyphen, and such words are never joined with it.

@@ -29,13 +29,13 @@
       "asset": "charlm-v1.bin"
     },
     {
-      "name": "wordfreq-v1",
+      "name": "wordfreq-v2",
       "role": "word-frequencies",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "container": 0,
-      "bytes": 1305931,
-      "sha256": "9b09eef6bd4e92d7b4a4c8ec32fb45d7cdc5746b3f0afcaffe815c05a0acae09",
-      "asset": "wordfreq-v1.bin"
+      "bytes": 1316145,
+      "sha256": "7121a7b9dbe12d109fd6cac4b6e0196ef036afb74a0f0e5504d06dd398fdf851",
+      "asset": "wordfreq-v2.bin"
     }
   ]
 }

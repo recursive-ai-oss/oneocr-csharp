@@ -11,6 +11,14 @@ A token is a space-delimited word of a paragraph with the punctuation around it 
 a Latin letter (so numbers, codes, words with an apostrophe or a hyphen and non-Latin words are not in the table), after the simple
 lowercase mapping of each character (one code point to one; characters whose lowercase is not a single code point stay as they are).
 Words seen fewer than --min-count times are left out, and so are words longer than 40 UTF-8 bytes.
+
+Optionally (--web LABELS.jsonl, --web-weight N) it adds modern vocabulary counted from the visible text of public-domain US federal web
+pages: LABELS is the labels.jsonl that training/gen/web_lines.py writes, whose "text" is the page text of one visual line. Only rows of
+publishers marked `split: train` in training/data/web_sources.yaml are read, so the held-out sites never reach the table. A line text
+is counted once per publisher (menus, footers and card titles repeat across a site's pages), a word is counted from the web only when
+it occurs in at least --web-min-lines (default 2) distinct lines, and its web count is multiplied by --web-weight before it is added
+to the book count. Why a weight: the web sample is small (a few hundred thousand tokens against ten million of book text), but it is
+the kind of text the reader meets on screens, so an unweighted sum would let 19th-century frequencies decide a joining of modern words.
 Standard library only; the output is deterministic.
 """
 
@@ -18,7 +26,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import math
+import re
 import struct
 import sys
 import unicodedata
@@ -74,6 +84,47 @@ def count_words(texts: Path, manifest: Path, langs: str) -> tuple[Counter, int]:
     return counts, books
 
 
+def train_publishers(sources: Path) -> set[str]:
+    """Publisher ids marked `split: train` in web_sources.yaml (a flat reading of the file, no YAML parser needed)."""
+    out, cur = set(), None
+    for line in sources.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"\s*-\s*id:\s*(\S+)", line)
+        if m:
+            cur = m.group(1)
+            continue
+        m = re.match(r"\s*split:\s*(\S+)", line)
+        if m and cur and m.group(1).strip('"') == "train":
+            out.add(cur)
+    return out
+
+
+def count_web(labels: list[Path], sources: Path, min_lines: int) -> Counter:
+    """Word counts from the distinct line texts of each train publisher; words in fewer than `min_lines` distinct lines are dropped."""
+    pubs = train_publishers(sources)
+    seen: set[tuple[str, str]] = set()
+    counts: Counter = Counter()
+    for path in labels:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if not raw:
+                continue
+            row = json.loads(raw)
+            if row.get("split") != "train" or row["publisher"] not in pubs:
+                continue
+            key = (row["publisher"], unicodedata.normalize("NFC", row["text"]))
+            if key in seen:
+                continue
+            seen.add(key)
+            for tok in key[1].split(" "):
+                if tok.endswith("-"):
+                    continue  # the start of a word wrapped at a hyphen
+                core = strip_marks(tok)
+                if core and all(is_latin_letter(c) for c in core):
+                    counts["".join(B.fold(c) for c in core)] += 1
+    counts = Counter({w: c for w, c in counts.items() if c >= min_lines})
+    print(f"web: {len(seen)} distinct lines of {sorted(pubs)}, {len(counts)} word types, {sum(counts.values())} tokens", file=sys.stderr)
+    return counts
+
+
 def write(counts: Counter, out: Path, min_count: int) -> None:
     total = sum(counts.values())
     kept = sorted(
@@ -106,8 +157,15 @@ def main() -> None:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--langs", choices=["all", "en"], default="all", help="Latin-script books of every language, or English only")
     ap.add_argument("--min-count", type=int, default=3)
+    ap.add_argument("--web", type=Path, action="append", default=[], help="labels.jsonl of web_lines.py (repeatable)")
+    ap.add_argument("--web-sources", type=Path, default=Path(__file__).resolve().parents[1] / "data" / "web_sources.yaml")
+    ap.add_argument("--web-weight", type=int, default=1, help="multiplier on a word's web count")
+    ap.add_argument("--web-min-lines", type=int, default=2)
     args = ap.parse_args()
     counts, _ = count_words(args.texts, args.manifest, args.langs)
+    if args.web:
+        for w, c in count_web(args.web, args.web_sources, args.web_min_lines).items():
+            counts[w] += c * args.web_weight
     write(counts, args.out, args.min_count)
 
 
