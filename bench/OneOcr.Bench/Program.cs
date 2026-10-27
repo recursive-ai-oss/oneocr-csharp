@@ -61,6 +61,8 @@ internal static class Program
             "kernels" => Kernels(options),
             "decode" => DecodeBench.Run(options),
             "group" => GroupBench.Run(options),
+            "gemm" => GemmBench.Run(options),
+            "ocrhash" => OcrHash.Run(options),
             "trainstep" => TrainBench.Run(options),
             "detect" => DetectBench.Run(options),
             "docextract" => DocExtractBench.Run(options),
@@ -294,6 +296,16 @@ internal static class Program
         if (o.TryGetValue("detector", out string? detectorFile))
         {
             engine = engine.WithDetector(detectorFile);
+        }
+
+        if (o.TryGetValue("wordlm", out string? wordLm))
+        {
+            engine = engine.WithWordModel(OneOcr.Decoding.CharLanguageModel.Load(wordLm));
+        }
+
+        if (o.TryGetValue("wordfreq", out string? wordFreq))
+        {
+            engine = engine.WithWordFrequencies(OneOcr.Decoding.WordFrequencyModel.Load(wordFreq));
         }
 
         string[] files = [.. Directory.GetFiles(Need(o, "pages")).Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).Take(limit)];

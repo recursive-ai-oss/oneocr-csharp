@@ -124,14 +124,14 @@ internal static unsafe partial class Gemm
         float** ap = stackalloc float*[4];
         float** bp = stackalloc float*[4];
         float* tile = stackalloc float[4 * 4];
-        for (int i0 = 0; i0 < m; i0 += mr)
+        // Rows of A are taken in blocks that stay in the first-level cache (about 16 KB); inside a block the B tile (nr rows) is the outer
+        // loop, so it is read from memory once per block and stays in the first-level cache while every row tile of the block runs
+        // against it. With A as the outer loop, B (a whole weight matrix in the recurrent layers) would be streamed once per row tile.
+        // Each output is still one tile accumulation over the same k, so the order of every dot product is unchanged.
+        int blockRows = (int)Math.Clamp(16384L / ((long)lda * sizeof(float)) / mr * mr, mr, 1 << 20);
+        for (int iBlock = 0; iBlock < m; iBlock += blockRows)
         {
-            int rows = Math.Min(mr, m - i0);
-            for (int r = 0; r < mr; r++)
-            {
-                ap[r] = a + ((long)(i0 + Math.Min(r, rows - 1)) * lda);
-            }
-
+            int iEnd = Math.Min(m, iBlock + blockRows);
             for (int j0 = 0; j0 < n; j0 += nr)
             {
                 int cols = Math.Min(nr, n - j0);
@@ -140,16 +140,25 @@ internal static unsafe partial class Gemm
                     bp[q] = b + ((long)(j0 + Math.Min(q, cols - 1)) * ldb);
                 }
 
-                if (path == KernelPath.Avx512)
+                for (int i0 = iBlock; i0 < iEnd; i0 += mr)
                 {
-                    Tile4x4Avx512(ap, bp, 1, k, 0, tile);
-                }
-                else
-                {
-                    Tile3x2Avx2(ap, bp, 1, k, 0, tile);
-                }
+                    int rows = Math.Min(mr, iEnd - i0);
+                    for (int r = 0; r < mr; r++)
+                    {
+                        ap[r] = a + ((long)(i0 + Math.Min(r, rows - 1)) * lda);
+                    }
 
-                StoreTile(tile, rows, cols, bias == null ? null : bias + j0, c + (i0 * ldcRow) + (j0 * ldcCol), ldcRow, ldcCol, path);
+                    if (path == KernelPath.Avx512)
+                    {
+                        Tile4x4Avx512(ap, bp, 1, k, 0, tile);
+                    }
+                    else
+                    {
+                        Tile3x2Avx2(ap, bp, 1, k, 0, tile);
+                    }
+
+                    StoreTile(tile, rows, cols, bias == null ? null : bias + j0, c + (i0 * ldcRow) + (j0 * ldcCol), ldcRow, ldcCol, path);
+                }
             }
         }
     }
@@ -596,10 +605,28 @@ internal static unsafe partial class Gemm
         }
 
         // cRQ: row R against B row Q. Reduce the four rows of each B row together.
-        Sse.Store(tile, Reduce4Outputs(Fold(c00), Fold(c10), Fold(c20), Fold(c30)));
-        Sse.Store(tile + 4, Reduce4Outputs(Fold(c01), Fold(c11), Fold(c21), Fold(c31)));
-        Sse.Store(tile + 8, Reduce4Outputs(Fold(c02), Fold(c12), Fold(c22), Fold(c32)));
-        Sse.Store(tile + 12, Reduce4Outputs(Fold(c03), Fold(c13), Fold(c23), Fold(c33)));
+        Sse.Store(tile, Reduce4Avx512(c00, c10, c20, c30));
+        Sse.Store(tile + 4, Reduce4Avx512(c01, c11, c21, c31));
+        Sse.Store(tile + 8, Reduce4Avx512(c02, c12, c22, c32));
+        Sse.Store(tile + 12, Reduce4Avx512(c03, c13, c23, c33));
+    }
+
+    // The 16-partial tree of four accumulators at once; lane i of the result is the finished sum of a_i. The same additions as
+    // Fold(a) followed by Reduce4Outputs, in the same association:
+    //   (p[i] + p[i+8]) + (p[i+4] + p[i+12]) for i < 4, then lane 0 + lane 1 of (x + (x2, x3)).
+    // Shuffling 128-bit quarters moves the operands of the first two additions for all four accumulators with fewer instructions than
+    // extracting halves of each accumulator separately.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector128<float> Reduce4Avx512(Vector512<float> a0, Vector512<float> a1, Vector512<float> a2, Vector512<float> a3)
+    {
+        // Each accumulator is four quarters of four lanes; this holds (quarter 0 + quarter 2) and (quarter 1 + quarter 3) of a0, then of a1.
+        Vector512<float> s01 = Avx512F.Add(Avx512F.Shuffle4x128(a0, a1, 0x44), Avx512F.Shuffle4x128(a0, a1, 0xEE));
+        Vector512<float> s23 = Avx512F.Add(Avx512F.Shuffle4x128(a2, a3, 0x44), Avx512F.Shuffle4x128(a2, a3, 0xEE));
+        // Quarter r of x is the sum of those two for accumulator r.
+        Vector512<float> x = Avx512F.Add(Avx512F.Shuffle4x128(s01, s23, 0x88), Avx512F.Shuffle4x128(s01, s23, 0xDD));
+        Vector512<float> y = Avx512F.Add(x, Avx512F.Permute4x32(x, 0xEE));
+        Vector512<float> z = Avx512F.Add(y, Avx512F.Permute4x32(y, 0x55));
+        return Avx512F.PermuteVar16x32(z, Vector512.Create(0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12)).GetLower().GetLower();
     }
 
     // 3 A rows x 2 B rows, two 256-bit accumulators per output: 12 accumulators; the A rows stay in registers and the B vectors

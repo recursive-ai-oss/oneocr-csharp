@@ -214,6 +214,7 @@ internal static class CrnnForward
                 int nextPadW = i + 1 < model.Conv.Length ? model.Conv[i + 1].PadW : 0;
                 int nextWp = ow + (2 * nextPadW);
                 float[] next = Rent(pool, (long)(oh + (2 * nextPadH)) * nextWp * b.Out);
+                long convClock = StageClock.Start();
                 try
                 {
                     ConvReluPool(b, path, degree, pool, current!, wp, h, oh, ow, next, nextPadH, nextPadW, nextWp);
@@ -224,6 +225,7 @@ internal static class CrnnForward
                     throw;
                 }
 
+                StageClock.Stop($"r1.conv{i}", convClock);
                 Return(pool, ref current);
                 current = next;
                 h = oh;
