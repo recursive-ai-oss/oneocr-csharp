@@ -69,7 +69,7 @@ def choose_dsf(dpi: float) -> float:
 
 def build_spec(kind: str, ps: int, attempt: int, n_items: int):
     g = _G
-    ctx = layouts.Ctx(random.Random(ps ^ (0x9E37 * (attempt + 1))), g["bank"], g["pool"], g["split"], g["root"])
+    ctx = layouts.Ctx(random.Random(ps ^ (0x9E37 * (attempt + 1))), g["bank"], g["pool"], g["split"], g["root"], dark_p=g["cfg"].get("dark_p", 0.0))
     if kind == "prose":
         return layouts.prose_page(ctx)
     if kind == "table":

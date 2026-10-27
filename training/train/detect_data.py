@@ -5,6 +5,8 @@ Sources (label provenance is recorded per record in the manifest):
   publaynet  layout boxes shipped with PubLayNet 1.0.0, CC0 / CC BY articles only
   pages      exact-truth synthetic pages (line boxes and region boxes from the renderer)
   cord       CORD v2 receipts (CC BY 4.0): word quads shipped with the dataset, grouped into lines; no layout labels
+  web        viewport windows of public-domain federal web pages rendered in Chromium (gen/web_lines.py --windows-dir): DOM line
+             boxes that passed the pixel checks are lines, every other DOM line is an ignore region; no layout labels
 
 A record is a dict:
   path    image file
@@ -55,7 +57,9 @@ CMASK = {
     "publaynet": [1, 1, 0, 1, 1, 0, 0, 0],
     "pages": [1, 1, 1, 1, 1, 1, 1, 1],
     "cord": [0, 0, 0, 0, 0, 0, 0, 0],
+    "web": [0, 0, 0, 0, 0, 0, 0, 0],
 }
+CMASK["pages_dark"] = CMASK["pages"]
 
 TEXT_SHRINK = 0.3  # of the short side, per side
 LAYOUT_SHRINK = 0.2
@@ -226,6 +230,8 @@ class DetDataset(Dataset):
             b0, b1 = rec["text_band"]
             ok[: max(0, int(b0 * sy))] = 0
             ok[max(0, int(b1 * sy)) :] = 0
+        for x0, y0, x1, y1 in rec.get("ignore", ()):  # text we could not verify: neither a line nor background
+            ok[max(0, int(y0 * sy)) : int(np.ceil(y1 * sy)) + 1, max(0, int(x0 * sx)) : int(np.ceil(x1 * sx)) + 1] = 0
         if self.train and rng.random() < rec.get("rot_p", self.rot_p):
             k = rng.choice([1, 2, 3])
             arr = np.rot90(arr, k)
@@ -376,7 +382,12 @@ def load_records(name: str, root: Path, split: str, src: dict | None = None) -> 
         return load_publaynet_records(root, split)
     if name == "cord":
         return load_cord_records(root, split, tuple(src["scale"]) if src.get("scale") else None, bool(src.get("split_ends")))
-    if name == "pages":
+    if name == "web":
+        return load_web_records(
+            Path(src["dir"]), "train" if split == "train" else "heldout", int(src.get("dark_repeat", 1)), float(src.get("rot_p", 0.1)),
+            None if split == "train" else src.get("val_publishers"),
+        )
+    if name.startswith("pages"):  # "pages", "pages_dark": generator outputs in different directories
         cache = Path(src["cache"].format(split=split)) if src.get("cache") else None
         if src.get("holdout_every"):
             # no separate validation set yet: every n-th page (by id order) is held out of training. Pages share templates with
@@ -564,6 +575,27 @@ def load_page_records(path: Path, split: str, cache: Path | None = None) -> list
     if cache is not None:
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_text(json.dumps({"root": str(root), "v": 2, "recs": recs}))
+    return recs
+
+
+def load_web_records(root: Path, split: str, dark_repeat: int = 1, rot_p: float = 0.1, publishers: list[str] | None = None) -> list[dict]:
+    """Web windows (see gen/web_lines.py): lines from the DOM, ignore regions for every DOM line that was not verified.
+
+    A window holding at least two light-on-dark lines under 16 device pixels of em height appears `dark_repeat` times in the list, so
+    that small light text on dark bands, which a detector trained on print and receipts sees least of, is drawn more often.
+    """
+    recs = []
+    for ln in (root / split / "windows.jsonl").read_text(encoding="utf-8").splitlines():
+        w = json.loads(ln)
+        if publishers and w["publisher"] not in publishers:
+            continue
+        rec = {
+            "path": str(root / split / "images" / f"{w['id']}.png"), "kind": "web", "id": w["id"], "layout": [], "lines": w["lines"],
+            "ignore": w["ignore"], "cmask": CMASK["web"], "rot_p": rot_p, "publisher": w["publisher"],
+            "dark": w["dark"], "em_px": w["em_px"],
+        }  # fmt: skip
+        small_dark = sum(1 for d, e in zip(w["dark"], w["em_px"], strict=True) if d and e < 16)
+        recs += [rec] * (dark_repeat if small_dark >= 2 else 1)
     return recs
 
 

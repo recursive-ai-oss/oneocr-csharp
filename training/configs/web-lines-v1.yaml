@@ -15,6 +15,9 @@ render:
   max_page_css_px: 6000           # the viewport is stretched to the document height up to this, so every line is hit-testable
   max_shot_px: 14000              # device pixels, a Chromium screenshot limit
   page_timeout_ms: 45000
+windows:                          # viewport windows for detector training (--windows-dir)
+  max_per_page: 4                 # the top of the page always, the others a seeded draw
+  min_lines: 3
 lines:
   min_chars: 2
   max_chars: 120

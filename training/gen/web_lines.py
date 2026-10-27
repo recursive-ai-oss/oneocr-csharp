@@ -550,6 +550,62 @@ def margin_check(G: np.ndarray, crop: tuple[int, int, int, int], ink: dict, lc: 
     return bad <= lc["margin_cols_max"], bad
 
 
+def light_on_dark(G: np.ndarray, box: tuple[int, int, int, int], bg: float) -> bool:
+    """True when the text in the box is lighter than its background (the ink end that lies further from the background is the bright one)."""
+    x0, y0, x1, y1 = box
+    c = G[max(0, y0) : y1, max(0, x0) : x1]
+    if c.size == 0:
+        return False
+    hi, lo = float(np.percentile(c, 99.5)), float(np.percentile(c, 0.5))
+    return hi - bg > bg - lo
+
+
+def cut_windows(job: dict, rec: dict, G: np.ndarray, s: float, vp: list, lines: list[dict], cands: list[dict]) -> list[dict]:
+    """Viewport-sized windows of the page with detector labels, for training the text detector.
+
+    The detector sees a whole screenshot scaled to 1024 px on its long side, so a window is one viewport (what a screenshot of the
+    site shows), not the 6000 px page. Lines that passed every check are positives with their DOM line box; every other line the DOM
+    holds (dropped for a covered neighbour, a charset or pixel check, a held-out font or one outside the font allowlist) is an ignore region, because the pixels there
+    are text we could not verify, not background. A line cut by a window edge is ignored in that window too.
+    """
+    cfg = job["cfg"]["windows"]
+    Hs = G.shape[0]
+    wh = max(64, int(round(vp[1] * s)))
+    offs = list(range(0, Hs, wh))
+    offs = [o for o in offs if Hs - o >= 0.3 * wh or o == 0]
+    rng = random.Random(f"win:{job['cfg']['seed']}:{job['url']}")
+    keep = [offs[0]] + rng.sample(offs[1:], min(len(offs) - 1, cfg["max_per_page"] - 1))
+    good = {id(c) for c in cands}
+    out = []
+    for oy in sorted(keep):
+        y1w = min(Hs, oy + wh)
+        pos, ign, flags, ems = [], [], [], []
+        for ln in lines:
+            b = [ln["x0"] * s, ln["y0"] * s - oy, ln["x1"] * s, ln["y1"] * s - oy]
+            if b[3] <= 0 or b[1] >= y1w - oy:
+                continue
+            inside = b[1] >= 0 and b[3] <= y1w - oy
+            if id(ln) in good and inside:
+                pos.append([round(v, 1) for v in b])
+                ink = ln["ink"]
+                flags.append(int(light_on_dark(G, (int(b[0]), int(b[1] + oy), int(b[2]), int(b[3] + oy)), float(ink["bg"]))))
+                ems.append(round(ln["em"] * s, 1))
+            else:
+                ign.append([round(v, 1) for v in b])
+        if len(pos) < cfg["min_lines"]:
+            continue
+        wid = f"{rec['publisher']}-{hashlib.sha1(job['url'].encode()).hexdigest()[:8]}-w{oy // wh}"
+        d = Path(job["windows_dir"]) / job["split"] / "images"
+        d.mkdir(parents=True, exist_ok=True)
+        buf = io.BytesIO()
+        Image.fromarray(G[oy:y1w]).save(buf, format="PNG")
+        (d / f"{wid}.png").write_bytes(buf.getvalue())
+        out.append({"id": wid, "publisher": rec["publisher"], "url": job["url"], "split": job["split"], "w": int(G.shape[1]), "h": int(y1w - oy),
+                    "dpr": rec["dpr"], "aa": rec["aa"], "viewport": vp, "lines": pos, "ignore": ign, "dark": flags, "em_px": ems,
+                    "sha256": hashlib.sha256(buf.getvalue()).hexdigest()})  # fmt: skip
+    return out
+
+
 def process_page(job: dict) -> dict:
     """Renders one page; returns its record, the kept line rows (with PNG bytes) and what was dropped."""
     from playwright.sync_api import TimeoutError as PwTimeout
@@ -665,10 +721,11 @@ def process_page(job: dict) -> dict:
                 continue
             ln["ink"] = ink
             cands.append(ln)
+    wins = cut_windows(job, rec, G, s, vp, lines, cands) if job.get("windows_dir") else []
     if not cands:
         rec["kept"] = 0
         rec["drops"] = dict(drops)
-        return {"rec": rec, "rows": [], "drops": drops}
+        return {"rec": rec, "rows": [], "drops": drops, "windows": wins}
     ratio = float(np.median([(c["ink"]["iy1"] - c["ink"]["iy0"]) / ((c["y1"] - c["y0"]) * s) for c in cands]))
     typical = float(np.median([(c["y1"] - c["y0"]) * s * ratio for c in all_text_lines]))  # the page reader's median over every found line
     rows = []
@@ -702,7 +759,7 @@ def process_page(job: dict) -> dict:
     dbg = job.get("debug_dir")
     if dbg and rows:
         draw_debug(img, cands, rows, res["blockers"], s, Path(dbg) / f"{pub}-{hashlib.sha1(url.encode()).hexdigest()[:8]}.png")
-    return {"rec": rec, "rows": rows, "drops": drops}
+    return {"rec": rec, "rows": rows, "drops": drops, "windows": wins}
 
 
 def draw_debug(img: Image.Image, cands: list[dict], rows: list[dict], blockers: list, s: float, path: Path) -> None:
@@ -755,7 +812,8 @@ def render_group(group: dict) -> list[dict]:
             continue
         pol.wait(group["host"])
         job = {"cfg": _W["cfg"], "url": url, "pub": group["pub"], "browser": _W["browser"], "ua_suffix": _W["ua_suffix"],
-               "heldout": _W["heldout"], "sub_font": _W["sub_font"], "allow": _W["allow"], "charset_set": _W["charset_set"], "debug_dir": _W.get("debug_dir")}  # fmt: skip
+               "heldout": _W["heldout"], "sub_font": _W["sub_font"], "allow": _W["allow"], "charset_set": _W["charset_set"],
+               "debug_dir": _W.get("debug_dir"), "windows_dir": _W.get("windows_dir"), "split": group["split"]}  # fmt: skip
         out.append(process_page(job))
     return out
 
@@ -773,11 +831,11 @@ def render(cfg: dict, a) -> None:
         by = {k: v[: a.limit_pages] for k, v in by.items()}
     if a.only:
         by = {k: v for k, v in by.items() if k in a.only.split(",")}
-    groups = [{"pub": k, "host": pubs[k]["host"], "urls": v} for k, v in sorted(by.items())]
+    groups = [{"pub": k, "host": pubs[k]["host"], "split": pubs[k]["split"], "urls": v} for k, v in sorted(by.items())]
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     args = {"token": crawler["token"], "info_url": crawler["info_url"], "interval": crawler["min_interval_s"],
-            "ua_suffix": f"{crawler['token']}/1.0 (+{crawler['info_url']})", "debug_dir": a.debug_dir}  # fmt: skip
+            "ua_suffix": f"{crawler['token']}/1.0 (+{crawler['info_url']})", "debug_dir": a.debug_dir, "windows_dir": a.windows_dir}  # fmt: skip
     t0 = time.time()
     results = []
     ctx = mp.get_context("spawn")
@@ -820,6 +878,13 @@ def write_set(cfg: dict, a, out: Path, pubs: dict, results: list[dict], seconds:
     for split, rows in labels.items():
         (out / split).mkdir(parents=True, exist_ok=True)
         (out / split / "labels.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    if getattr(a, "windows_dir", None):
+        wd = Path(a.windows_dir)
+        for split in ("train", "heldout"):
+            ws = [w for r in results for w in r.get("windows", []) if w["split"] == split]
+            (wd / split).mkdir(parents=True, exist_ok=True)
+            (wd / split / "windows.jsonl").write_text("".join(json.dumps(w) + "\n" for w in ws), encoding="utf-8")
+            print(f"windows {split}: {len(ws)} ({sum(len(w['lines']) for w in ws)} lines, {sum(sum(w['dark']) > 0 for w in ws)} with light-on-dark text)")
     (out / "pages.jsonl").write_text("".join(json.dumps(p, ensure_ascii=False) + "\n" for p in pages), encoding="utf-8")
     import playwright
 
@@ -921,6 +986,7 @@ def main() -> None:
     r.add_argument("--limit-pages", type=int)
     r.add_argument("--only", help="comma-separated publisher ids")
     r.add_argument("--debug-dir", help="write annotated screenshots of the pages here")
+    r.add_argument("--windows-dir", help="also write viewport windows with line boxes for detector training here (cfg `windows`)")
     rs = sub.add_parser("resplit")
     rs.add_argument("--base", required=True)
     rs.add_argument("--publisher", required=True)
