@@ -17,7 +17,8 @@ internal static partial class PageReader
     private const int MaxGroupLines = 12;
 
     // Most line pixels (the sum of the widths, about four per step of the recurrence) in one group: the group holds the sequences of
-    // all its lines at once, so this bounds the memory a group needs.
+    // all its lines at once (about 0.75 KB per pixel with the shipped recognizer), so this bounds the memory a group needs. Wide enough
+    // that a dozen lines of ordinary width share their recurrent products; a smaller bound split such groups into one or two lines.
     private const int MaxGroupWidth = 16384;
 
     private static readonly double[] CommonResolutions = [72, 96, 150, 200, 300, 400, 600];

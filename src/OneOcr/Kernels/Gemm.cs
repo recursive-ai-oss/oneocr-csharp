@@ -605,10 +605,28 @@ internal static unsafe partial class Gemm
         }
 
         // cRQ: row R against B row Q. Reduce the four rows of each B row together.
-        Sse.Store(tile, Reduce4Outputs(Fold(c00), Fold(c10), Fold(c20), Fold(c30)));
-        Sse.Store(tile + 4, Reduce4Outputs(Fold(c01), Fold(c11), Fold(c21), Fold(c31)));
-        Sse.Store(tile + 8, Reduce4Outputs(Fold(c02), Fold(c12), Fold(c22), Fold(c32)));
-        Sse.Store(tile + 12, Reduce4Outputs(Fold(c03), Fold(c13), Fold(c23), Fold(c33)));
+        Sse.Store(tile, Reduce4Avx512(c00, c10, c20, c30));
+        Sse.Store(tile + 4, Reduce4Avx512(c01, c11, c21, c31));
+        Sse.Store(tile + 8, Reduce4Avx512(c02, c12, c22, c32));
+        Sse.Store(tile + 12, Reduce4Avx512(c03, c13, c23, c33));
+    }
+
+    // The 16-partial tree of four accumulators at once; lane i of the result is the finished sum of a_i. The same additions as
+    // Fold(a) followed by Reduce4Outputs, in the same association:
+    //   (p[i] + p[i+8]) + (p[i+4] + p[i+12]) for i < 4, then lane 0 + lane 1 of (x + (x2, x3)).
+    // Shuffling 128-bit quarters moves the operands of the first two additions for all four accumulators with fewer instructions than
+    // extracting halves of each accumulator separately.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static Vector128<float> Reduce4Avx512(Vector512<float> a0, Vector512<float> a1, Vector512<float> a2, Vector512<float> a3)
+    {
+        // [a0 q0+q2, a0 q1+q3, a1 q0+q2, a1 q1+q3] where q0..q3 are the quarters of 4 lanes.
+        Vector512<float> s01 = Avx512F.Add(Avx512F.Shuffle4x128(a0, a1, 0x44), Avx512F.Shuffle4x128(a0, a1, 0xEE));
+        Vector512<float> s23 = Avx512F.Add(Avx512F.Shuffle4x128(a2, a3, 0x44), Avx512F.Shuffle4x128(a2, a3, 0xEE));
+        // x quarter r = (q0+q2) + (q1+q3) of accumulator r.
+        Vector512<float> x = Avx512F.Add(Avx512F.Shuffle4x128(s01, s23, 0x88), Avx512F.Shuffle4x128(s01, s23, 0xDD));
+        Vector512<float> y = Avx512F.Add(x, Avx512F.Permute4x32(x, 0xEE));
+        Vector512<float> z = Avx512F.Add(y, Avx512F.Permute4x32(y, 0x55));
+        return Avx512F.PermuteVar16x32(z, Vector512.Create(0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12)).GetLower().GetLower();
     }
 
     // 3 A rows x 2 B rows, two 256-bit accumulators per output: 12 accumulators; the A rows stay in registers and the B vectors
