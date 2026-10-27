@@ -165,6 +165,38 @@ public class SeparatorGlyphsTests
         Assert.Same(unchanged, SeparatorGlyphs.Apply(unchanged, inside.Pixels, Width, Height));
     }
 
+    [Theory]
+    [InlineData("\u00BA", 7, 7, 13, "\u2022")] // a list marker the network read as an ordinal sign
+    [InlineData("\u00B0", 3, 3, 14, "\u00B7")]
+    [InlineData("\u2022", 3, 3, 14, "\u00B7")]
+    public void ABulletAtTheStartOrEndOfALineIsReadBySize(string read, int w, int h, int y, string expected)
+    {
+        var first = new Line();
+        first.Mark(read, 10, y, w, h);
+        first.Letters("abcd", 10 + w + 10);
+        Assert.Equal(expected, SeparatorGlyphs.Apply(first.Result(), first.Pixels, Width, Height).Words[0].Text);
+
+        var last = new Line();
+        int x = last.Letters("abcd", 10);
+        last.Mark(read, x + 8, y, w, h);
+        Assert.Equal(expected, SeparatorGlyphs.Apply(last.Result(), last.Pixels, Width, Height).Words[1].Text);
+    }
+
+    [Theory]
+    [InlineData("-")] // a list may be marked with a hyphen
+    [InlineData(".")]
+    [InlineData("I")] // a bar mark at a line end could be a letter
+    [InlineData("a")]
+    [InlineData("*")]
+    public void OtherMarksAtTheEndsOfALineStayAsRead(string read)
+    {
+        var line = new Line();
+        line.Mark(read, 10, 14, 3, 3);
+        line.Letters("abcd", 30);
+        LineWords before = line.Result();
+        Assert.Same(before, SeparatorGlyphs.Apply(before, line.Pixels, Width, Height));
+    }
+
     [Fact]
     public void FaintLinesAndLinesWithoutLettersAreLeftAsRead()
     {

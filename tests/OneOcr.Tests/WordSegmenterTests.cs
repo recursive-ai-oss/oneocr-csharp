@@ -121,6 +121,52 @@ public class WordSegmenterTests
         Assert.Null(WordSegmenter.Plan(Chars("12,34", ink), [false, false, true, false], Image(60, ink), 60, 32, null));
     }
 
+    // "abc" and a fourth character after a stretch of `stretch` empty pixels; the letters are 6 pixels wide and 2 apart.
+    private static bool[]? FourthAfter(string text, int stretch, WordFrequencyModel? frequencies = null)
+    {
+        (int, int)[] ink = [(5, 10), (13, 18), (21, 26), (27 + stretch, 32 + stretch)];
+        int width = 40 + stretch;
+        return WordSegmenter.Plan(Chars(text, ink), [false, false, false], Image(width, ink), width, 32, null, frequencies);
+    }
+
+    [Theory]
+    [InlineData("abc|", 5, true)] // a bar close to the word before it: cut from a stretch of 5 pixels (letter gap 2)
+    [InlineData("abc|", 4, false)]
+    [InlineData("abcd", 5, false)] // the same stretch between two letters is a letter gap
+    [InlineData("ab|c", 5, true)]
+    [InlineData("ab||", 6, false)] // two bars stay together
+    public void AVerticalBarIsCutFromItsNeighbourOnASmallerStretchThanAWordNeeds(string text, int stretch, bool cut)
+    {
+        // The wide stretch is before the fourth character, except for "ab|c", where the bar is the third and the stretch follows it.
+        bool[]? plan = text == "ab|c" ? WordSegmenter.Plan(Chars(text, (5, 10), (13, 18), (27, 28), (30, 35)), [false, false, false], Image(45, (5, 10), (13, 18), (27, 28), (30, 35)), 45, 32, null) : FourthAfter(text, stretch);
+        Assert.Equal(cut, plan is not null);
+    }
+
+    private static WordFrequencyModel Frequencies(params (string, int)[] words) =>
+        WordFrequencyModel.Parse(TestWordFrequencies.Build(words));
+
+    [Theory]
+    [InlineData("Iagree", 5, true)] // "agree" is a word, "iagree" is not, and the stretch is wider than a letter gap
+    [InlineData("Iagree", 3, false)] // too close: the letter gap of the line
+    [InlineData("Iamend", 5, false)] // "iamend" is not a word, but "amend" is not in this table: nothing to cut off
+    [InlineData("Index", 5, false)] // "ndex" is no word of the table
+    public void ACapitalIFusedToACommonWordIsCutOff(string text, int stretch, bool cut)
+    {
+        WordFrequencyModel table = Frequencies(("agree", 5000), ("the", 60000), ("index", 800));
+        (int, int)[] ink = [(5, 7), (8 + stretch, 13 + stretch), (16 + stretch, 21 + stretch), (24 + stretch, 29 + stretch), (32 + stretch, 37 + stretch), (40 + stretch, 45 + stretch)];
+        int width = 55 + stretch;
+        bool[]? plan = WordSegmenter.Plan(Chars(text, ink), new bool[text.Length - 1], Image(width, ink), width, 32, null, table);
+        Assert.Equal(cut, plan is not null && plan[0]);
+    }
+
+    [Fact]
+    public void ACapitalIFusedToAWordIsLeftAloneWhenTheWholeIsAWord()
+    {
+        WordFrequencyModel table = Frequencies(("agree", 5000), ("iagree", 300));
+        (int, int)[] ink = [(5, 7), (13, 18), (21, 26), (29, 34), (37, 42), (45, 50)];
+        Assert.Null(WordSegmenter.Plan(Chars("Iagree", ink), new bool[5], Image(60, ink), 60, 32, null, table));
+    }
+
     [Fact]
     public void AWideEmptyStretchInsideAWordBecomesASpace()
     {
