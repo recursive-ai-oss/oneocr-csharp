@@ -1,0 +1,42 @@
+# Production recognizer, stage 1: crnn-v0 (charset-v1) from random initialisation, 240k steps on the full mix: the line-v4 main stream
+# (the remaining 53 of 128 lines per batch) plus the web lines of real public-domain pages (31, DOM truth, fonts from the licence-checked
+# allowlist), receipt/interface/gap/tight synthetic lines, and the mask and quantity lines (4). Run in resumable chunks:
+# `train/prod_chunk.sh crnn-prod1 UNTIL`. The later fine-tune stages start from this run's final checkpoint. Selection is on validation only.
+name: crnn-prod1
+seed: 240
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_PREV}/data/lines-v4
+run_dir: ${ONEOCR_HOME}/runs/crnn-prod1
+main_override:
+  p: { resample: 0.5, resample2: 0.25 }
+  ranges: { tilt_deg: [0.0, 0.3] }
+sources:
+  - { name: adaptive, kind: pack, dir: "${ONEOCR_V6}/data/lines-v6/clean/adapt_train", line_set: configs/lines-v6.yaml, side: adapt, per_batch: 10, provenance: "exact-truth synthetic (configs/lines-v6.yaml)" }
+  - { name: receipt-synth, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/train", line_set: configs/lines-v5.yaml, side: receipt, per_batch: 3, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: gap-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/gaps_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 3, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: ui-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 12, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: tight-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/tight_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 12, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: mask-qty, kind: pack, dir: "${ONEOCR_MASKS}/clean/mq_train", line_set: configs/lines-masks.yaml, side: rcpt, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-masks.yaml)" }
+  - { name: web-lines, kind: crops, dir: "${ONEOCR_WEB}/train", per_batch: 31, provenance: "exact truth: DOM text of public-domain web pages rendered by Chromium (gen/web_lines.py, data/font_allowlist.yaml)" }
+extra_val:
+  web: ${ONEOCR_WEB}/heldout
+  gaps: ${ONEOCR_FT}/data/lines-v5/gaps_val
+  ui: ${ONEOCR_FT}/data/lines-v5/ui_val
+  tight: ${ONEOCR_FT}/data/lines-v5/tight_val
+  mask: ${ONEOCR_MASKS}/mask_val
+  qty: ${ONEOCR_MASKS}/qty_val
+  phone: ${ONEOCR_PHONE}
+  shot: ${ONEOCR_V6}/data/lines-v6/shot_val
+  small: ${ONEOCR_V6}/data/lines-v6/small_val
+  figures: ${ONEOCR_V6}/data/lines-v6/figures_val
+train:
+  steps: 240000
+  batch: 128
+  lr: 0.002
+  warmup: 1000
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 4000
+  ckpt_every: 2000
