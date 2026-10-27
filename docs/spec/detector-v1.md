@@ -141,3 +141,7 @@ have `sigma` under the minimum): `rule_sigma_min` 0.1235, `rule_junk_max` 0.6358
 
 `dbnet-lite-v1` 0.2.2 is 0.2.1 with these three members added and the manifest version changed: the tensor bytes are identical to 0.2.1's,
 so the forward-pass parity fixtures of 0.2.1 apply unchanged. Only the page-level behaviour differs.
+
+`dbnet-lite-v1` 0.3.0 has the 0.2.x architecture and tensor layout with new weights (a fine-tune of 0.2.1 on windows of real web pages and
+light-on-dark synthetic pages, blended 1:3 with its starting weights). Its page rule is `rule_sigma_min` 0.1235, `rule_junk_max`
+1,000,000 (the junk-density condition never holds back the rule) and `rule_text_threshold` 0.5. It has its own forward-pass fixtures.
