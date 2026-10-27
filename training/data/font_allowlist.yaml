@@ -1,0 +1,19 @@
+# Fonts the web line generator may train on: only lines whose browser-reported fonts are all here are kept (gen/web_lines.py).
+# Matching is by normalised name prefix (case, spaces and "(Fontations)" ignored), so weights and styles such as "Figtree Light" match.
+# Licences are those of each family's own licence file in the Google Fonts repository (pinned in data/fonts.yaml for the families listed
+# there) or the packaged copyright file for the system fonts; a site serving a family under another name is not matched.
+families:
+  - { family: Liberation Sans, license: OFL-1.1, source: system package fonts-liberation }
+  - { family: Liberation Serif, license: OFL-1.1, source: system package fonts-liberation }
+  - { family: Liberation Mono, license: OFL-1.1, source: system package fonts-liberation }
+  - { family: Noto Sans, license: OFL-1.1, source: system package fonts-noto / google/fonts }
+  - { family: Noto Serif, license: OFL-1.1, source: system package fonts-noto / google/fonts }
+  - { family: DejaVu Sans, license: Bitstream-Vera-derived free licence, source: system package fonts-dejavu }
+  - { family: DejaVu Serif, license: Bitstream-Vera-derived free licence, source: system package fonts-dejavu }
+  - { family: Open Sans, license: OFL-1.1, source: google/fonts ofl/opensans (data/fonts.yaml) }
+  - { family: Roboto, license: Apache-2.0, source: google/fonts apache/roboto (data/fonts.yaml) }
+  - { family: Public Sans, license: OFL-1.1, source: google/fonts ofl/publicsans/OFL.txt sha256 157a9e77f7580246... at e7db6ca6 }
+  - { family: Figtree, license: OFL-1.1, source: google/fonts ofl/figtree/OFL.txt sha256 140d37233e7f3ce7... at e7db6ca6 }
+  - { family: Jost, license: OFL-1.1, source: google/fonts ofl/jost (data/fonts.yaml) }
+  - { family: Merriweather, license: OFL-1.1, source: google/fonts ofl/merriweather (data/fonts.yaml) }
+  - { family: Inter, license: OFL-1.1, source: google/fonts ofl/inter (data/fonts.yaml) }

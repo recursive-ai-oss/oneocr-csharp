@@ -40,3 +40,5 @@ lines:
 # a held-out font on a page is replaced by this pinned file of the training pool (the layout is the real page's; the typeface is not)
 substitute_font: ofl/opensans/OpenSans[wdth,wght].ttf
 heldout_font_patterns: ["sourcesans", "sourceserif", "ibmplex", "plexsans", "plexserif", "plexmono", "gelasio", "carlito", "caladea"]
+# a line is kept only when every font the browser reports for its words is on this licence-checked list (data/font_allowlist.yaml)
+font_allowlist: data/font_allowlist.yaml
