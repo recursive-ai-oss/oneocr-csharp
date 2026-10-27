@@ -55,6 +55,30 @@ public sealed class BundledModelsTests
     }
 
     [Fact]
+    public void ThePinNamesTheWordFrequencyTable()
+    {
+        BundledModel pin = BundledModels.WordFrequencies;
+        Assert.Equal("wordfreq-v1", pin.Name);
+        Assert.Equal("word-frequencies", pin.Role);
+        Assert.Equal("9b09eef6bd4e92d7b4a4c8ec32fb45d7cdc5746b3f0afcaffe815c05a0acae09", pin.Sha256);
+        Assert.Equal(1305931, pin.Bytes);
+    }
+
+    [Fact]
+    public void BundledWordFrequenciesMatchTheirPinAndAreUsedWhenPacked()
+    {
+        if (!BundledModels.HasWordFrequencies || !BundledModels.HasRecognizer)
+        {
+            return;
+        }
+
+        Assert.Null(BundledModels.TryReadWordFrequencies(out byte[] data));
+        Assert.Equal(BundledModels.WordFrequencies.Sha256, Convert.ToHexStringLower(SHA256.HashData(data)));
+        Assert.True(WordFrequencyModel.Parse(data).WordCount > 100_000);
+        Assert.True(OcrEngine.LoadBundled().HasWordFrequencies);
+    }
+
+    [Fact]
     public void BundledDetectorMatchesItsPinAndLoadsWhenPacked()
     {
         if (!BundledModels.HasDetector || !BundledModels.HasRecognizer)

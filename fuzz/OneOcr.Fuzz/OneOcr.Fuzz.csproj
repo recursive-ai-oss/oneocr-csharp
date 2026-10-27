@@ -26,6 +26,7 @@
     <Compile Include="../../tests/OneOcr.Tests/TestDetectorModels.cs" Link="TestDetectorModels.cs" />
     <Compile Include="../../tests/OneOcr.Tests/TestDocModels.cs" Link="TestDocModels.cs" />
     <Compile Include="../../tests/OneOcr.Tests/TestLm.cs" Link="TestLm.cs" />
+    <Compile Include="../../tests/OneOcr.Tests/TestWordFrequencies.cs" Link="TestWordFrequencies.cs" />
     <Compile Include="../../tests/OneOcr.Tests/SamplePage.cs" Link="SamplePage.cs" />
     <Compile Include="../../tests/OneOcr.Tests/PdfFixtures.cs" Link="PdfFixtures.cs" />
     <Compile Include="../../tests/OneOcr.Tests/LlmFixtures.cs" Link="LlmFixtures.cs" />

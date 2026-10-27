@@ -23,6 +23,7 @@ public static class BundledModels
     private static readonly Lazy<BundledModel> s_recognizer = new(() => ReadPin("recognizer"));
     private static readonly Lazy<BundledModel> s_detector = new(() => ReadPin("detector"));
     private static readonly Lazy<BundledModel> s_languageModel = new(() => ReadPin("language-model"));
+    private static readonly Lazy<BundledModel> s_wordFrequencies = new(() => ReadPin("word-frequencies"));
 
     /// <summary>The recognizer this release pins.</summary>
     public static BundledModel Recognizer => s_recognizer.Value;
@@ -33,6 +34,9 @@ public static class BundledModels
     /// <summary>The character language model this release pins; the engine uses it to decide where the spaces between words go.</summary>
     public static BundledModel LanguageModel => s_languageModel.Value;
 
+    /// <summary>The word frequency table this release pins; the engine uses it to take back spaces the network put inside words.</summary>
+    public static BundledModel WordFrequencies => s_wordFrequencies.Value;
+
     /// <summary>Whether the recognizer file is embedded in this build of the package.</summary>
     public static bool HasRecognizer => typeof(BundledModels).Assembly.GetManifestResourceInfo(Recognizer.Asset) is not null;
 
@@ -41,6 +45,14 @@ public static class BundledModels
 
     /// <summary>Whether the language model file is embedded in this build of the package.</summary>
     public static bool HasLanguageModel => typeof(BundledModels).Assembly.GetManifestResourceInfo(LanguageModel.Asset) is not null;
+
+    /// <summary>Whether the word frequency file is embedded in this build of the package.</summary>
+    public static bool HasWordFrequencies => typeof(BundledModels).Assembly.GetManifestResourceInfo(WordFrequencies.Asset) is not null;
+
+    /// <summary>Reads the embedded word frequency table and checks it against the pin.</summary>
+    /// <param name="data">The file bytes when the result is <see langword="null"/>.</param>
+    /// <returns><see langword="null"/> on success; otherwise a sentence saying why no table could be returned.</returns>
+    public static string? TryReadWordFrequencies(out byte[] data) => TryRead(WordFrequencies, out data);
 
     /// <summary>Reads the embedded language model and checks it against the pin.</summary>
     /// <param name="data">The model bytes when the result is <see langword="null"/>.</param>

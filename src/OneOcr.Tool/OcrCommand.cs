@@ -16,7 +16,7 @@ internal static class OcrCommand
     public static int Run(Flags f)
     {
         string input = f.Required("in");
-        string? outDir = f.Optional("out"), modelFile = f.Optional("model"), detectorFile = f.Optional("detector"), wordModelFile = f.Optional("wordlm"), statsFile = f.Optional("stats");
+        string? outDir = f.Optional("out"), modelFile = f.Optional("model"), detectorFile = f.Optional("detector"), wordModelFile = f.Optional("wordlm"), wordFreqFile = f.Optional("wordfreq"), statsFile = f.Optional("stats");
         int degree = f.Int("degree", 0);
         bool json = f.Switch("json");
         f.Done();
@@ -44,6 +44,11 @@ internal static class OcrCommand
         if (wordModelFile is not null)
         {
             engine = engine.WithWordModel(CharLanguageModel.Load(wordModelFile));
+        }
+
+        if (wordFreqFile is not null)
+        {
+            engine = engine.WithWordFrequencies(WordFrequencyModel.Load(wordFreqFile));
         }
 
         double loadMs = clock.Elapsed.TotalMilliseconds;

@@ -257,6 +257,18 @@ glyph); `widest[p]` is the widest stretch touching pair `p`.
      words: they need the plain evidence.
 
    A piece the model has no score for (digits, code symbols, letters outside the script) never joins: the code-word rule.
+3. *Word frequencies* (only when the engine has a word frequency table, `word-lm-v1.md`): the same piece rules as 2 (letters at
+   the cut, outer marks set aside, no capital inside a piece other than the first letter of the left piece) and, in addition, no
+   digit and no code symbol (`@ # _ / \ = % + * ~ ^ | < > [ ] { }`) anywhere in either word, the marks around the letters
+   included. Both pieces are lowercased by the table's folding, and `a`, `b` and `ab` are looked up (`q` is the stored quarter-bits
+   of a count; a missing word has `q_missing`). The space goes when `widest[p] <= FrequencyGap` (9), the stretch is at most
+   `FrequencyRatio` (0.85) times the line's median word gap (on lines with at least `MinSpacesForGap` network spaces), `ab` is in
+   the table with `q(ab) >= FrequencyMinQuarter` (10), and
+
+       q(ab) + q_total - q(a) - q(b)  >=  FrequencyMargin (28) + 24 if a piece is one letter + 16 if both pieces have q >= 24
+
+   The extras keep out pairs of real words that happen to make a word (`dare` `say`, `a` `gain`). Integer arithmetic only.
+   Rules 1 to 3 are tried in that order and any one of them takes the space out.
 
 **Putting a space in.** A stretch that no network space accounts for (no pair it touches has a network space) becomes a space at
 the pair it overlaps most when its width is at least `max(SplitGap, SplitRatio x letterGap)` (`SplitGap` = 9 pixels,
@@ -270,6 +282,9 @@ not two digits, not a point or comma that follows a digit, and not inside a word
 covers the most of the word's letters (the first on ties; no score when it does not cover all of them) and the word start as the
 first context symbol, as in `decoding.md`, in `double` in that order. A typical word scores about zero. The word model is the
 model file that ships with the models package (`charlm-v1`); an engine without one skips rule 2 above and nothing else.
+
+The frequency rule's parameters were chosen on the held-out tune sets (thirteen sets of generated and real-web pages) and checked on
+five newly generated sets that were not looked at while choosing; no set got worse in CER, WER or reading order.
 
 The first parameters were chosen on pages that are not part of the benchmark sets (a degraded-scan set and a screenshot set
 rendered with new seeds). The weak-evidence values were chosen on the held-out tune sets, by counting joins that the truth text

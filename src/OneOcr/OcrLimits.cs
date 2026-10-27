@@ -83,6 +83,9 @@ public sealed class OcrLimits
     /// <summary>Most n-grams, over all orders and scripts, in one language model file. Default 4,000,000.</summary>
     public long MaxLanguageModelNgrams { get; init; } = 4_000_000;
 
+    /// <summary>Most words in a word frequency file. Default 2^22.</summary>
+    public int MaxWordModelWords { get; init; } = 1 << 22;
+
     /// <summary>Most words in a lexicon. Default 2^20.</summary>
     public int MaxLexiconWords { get; init; } = 1 << 20;
 

@@ -27,6 +27,7 @@ public sealed class LineRecognizer
     private readonly BufferPool<float> _pool;
     private readonly bool[] _isSpace;
     private WordPlausibility? _words;
+    private WordFrequencyModel? _frequencies;
 
     /// <summary>The scratch pool of this recognizer, for a page detector to share (it is thread-safe).</summary>
     internal BufferPool<float> ScratchPool => _pool;
@@ -34,6 +35,16 @@ public sealed class LineRecognizer
     internal KernelPath UsedPath => _path;
 
     internal bool HasWordModel => _words is not null;
+
+    internal bool HasWordFrequencies => _frequencies is not null;
+
+    /// <summary>A recognizer that shares this one's weights and buffers and lets <paramref name="frequencies"/> take back spaces inside words (null: none).</summary>
+    internal LineRecognizer WithWordFrequencies(WordFrequencyModel? frequencies)
+    {
+        var copy = (LineRecognizer)MemberwiseClone();
+        copy._frequencies = frequencies;
+        return copy;
+    }
 
     /// <summary>A recognizer that shares this one's weights and buffers and lets <paramref name="words"/> judge word breaks (null: pixels only).</summary>
     internal LineRecognizer WithWordModel(WordPlausibility? words)
@@ -479,7 +490,7 @@ public sealed class LineRecognizer
             chars.AddRange(w.Chars);
         }
 
-        bool[]? plan = WordSegmenter.Plan(chars, wasSpace, gray, width, height, _words);
+        bool[]? plan = WordSegmenter.Plan(chars, wasSpace, gray, width, height, _words, _frequencies);
         if (plan is null)
         {
             return line;

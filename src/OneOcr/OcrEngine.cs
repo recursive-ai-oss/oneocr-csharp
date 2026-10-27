@@ -116,6 +116,21 @@ public sealed class OcrEngine
     public OcrEngine WithWordModel(CharLanguageModel? model) =>
         new(_recognizer.WithWordModel(model is null ? null : new WordPlausibility(model)), _limits, _pixels, _masks, _resizers, _decoding, _detector, _confirmTurns);
 
+    /// <summary>Whether this engine has word frequencies that take back spaces the network put inside words (see <see cref="WithWordFrequencies"/>).</summary>
+    public bool HasWordFrequencies => _recognizer.HasWordFrequencies;
+
+    /// <summary>
+    /// An engine that shares this one's models and uses <paramref name="frequencies"/> to take back a space the network put inside a
+    /// word: when the empty stretch there is narrow and the joined letters are a word far more common than the two pieces together
+    /// ("condition" "ally"), the space is taken out. Only page methods with <see cref="OcrOptions.FixWordSpacing"/> use it, only
+    /// spaces change, and numbers, codes and words with capitals inside are never judged. <see cref="LoadBundled"/> sets the table that ships with
+    /// the models package; <see langword="null"/> removes it.
+    /// </summary>
+    /// <param name="frequencies">The table, for example from <see cref="WordFrequencyModel.Load(string, OcrLimits?)"/>, or null for none.</param>
+    /// <returns>The new engine; this one is unchanged.</returns>
+    public OcrEngine WithWordFrequencies(WordFrequencyModel? frequencies) =>
+        new(_recognizer.WithWordFrequencies(frequencies), _limits, _pixels, _masks, _resizers, _decoding, _detector, _confirmTurns);
+
     /// <summary>An engine that shares this one's recognizer and has no page detector: lines come from the built-in classical finder.</summary>
     /// <returns>The new engine; this one is unchanged.</returns>
     public OcrEngine WithoutDetector() => new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, null);
@@ -170,6 +185,18 @@ public sealed class OcrEngine
             }
 
             engine = engine.WithWordModel(CharLanguageModel.Parse(words, limits));
+        }
+
+        // The word frequencies that take back spaces inside words ship next to it; a build without them keeps the other evidence only.
+        if (BundledModels.HasWordFrequencies)
+        {
+            problem = BundledModels.TryReadWordFrequencies(out byte[] frequencies);
+            if (problem is not null)
+            {
+                throw new OcrModelException(problem);
+            }
+
+            engine = engine.WithWordFrequencies(WordFrequencyModel.Parse(frequencies, limits));
         }
 
         // The page detector ships with the recognizer. A build of the models package without it (a development build) reads pages with
