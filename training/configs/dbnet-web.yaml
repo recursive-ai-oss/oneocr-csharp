@@ -1,4 +1,4 @@
-# Detector fine-tune: continue the 0.2.1 weights with viewport windows of real public-domain web pages (DOM line boxes, unverified
+# Detector fine-tune (run a; the candidate blends it with its starting weights, 1 part to 3, see export/blend_checkpoints.py): continue the 0.2.1 weights with viewport windows of real public-domain web pages (DOM line boxes, unverified
 # lines ignored), synthetic light-on-dark small-text pages, and the existing mix. Text threshold and expand are selected afterwards on
 # held-out web windows and DocLayNet val; the page-noise rule is re-applied to the export (export/add_postprocess_rule.py).
 name: dbnet-web
