@@ -361,4 +361,69 @@ public class ReadingOrderTests
 
         Assert.Equal(string.Join(' ', expected), Read([.. strips]));
     }
+
+    private static string Columns(IEnumerable<int> cols, int rows) =>
+        string.Join(' ', cols.SelectMany(c => Enumerable.Range(0, rows).Select(r => ColumnRow(c, r))));
+
+    // Column pitch for a page of `rows` lines: the widest row of any column, plus a gutter of 0.9 of the text height.
+    private static double PitchFor(int columns, int rows) =>
+        Enumerable.Range(0, columns).SelectMany(c => Enumerable.Range(0, rows).Select(r => ColumnRow(c, r))).Max(t => t.Split(' ').Sum(w => 6.0 * w.Length) + (8.0 * 4)) + 9;
+
+    [Fact]
+    public void AStrayWordInATightGutterDoesNotMergeTheColumns()
+    {
+        // Three columns of a page of text with a gutter of 0.9 of the text height, but the end of one line of the first column runs
+        // into the gutter (a word the recognizer put a little too far right, or a speck read as a word): no stripe is empty any more.
+        const int rows = 34;
+        double pitch = PitchFor(3, rows);
+        var strips = new List<OrderStrip>();
+        for (int c = 0; c < 3; c++)
+        {
+            for (int r = 0; r < rows; r++)
+            {
+                strips.Add(Line(20 + (c * pitch), 20 + (r * 16), c == 0 && r == 5 ? ColumnRow(c, r) + " zz" : ColumnRow(c, r)));
+            }
+        }
+
+        Assert.Equal(Columns([0, 1, 2], rows), Read([.. strips]).Replace(" zz", string.Empty, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AHeaderAndAFooterAcrossTheColumnsAreReadFirstAndLast()
+    {
+        // Two columns with a tight gutter, a running header above and a footer below that run across the gutter: the columns are
+        // cut apart and the header and the footer stay whole, before and after them.
+        const int rows = 34;
+        double pitch = PitchFor(2, rows);
+        var strips = new List<OrderStrip> { Line(20, 0, "Publication 100 Chapter 4 Heading of the page") };
+        for (int c = 0; c < 2; c++)
+        {
+            for (int r = 0; r < rows; r++)
+            {
+                strips.Add(Line(20 + (c * pitch), 30 + (r * 16), ColumnRow(c, r)));
+            }
+        }
+
+        strips.Add(Line(20, 30 + (rows * 16) + 20, "Footer words that cross the page 12"));
+        Assert.Equal("Publication 100 Chapter 4 Heading of the page " + Columns([0, 1], rows) + " Footer words that cross the page 12", Read([.. strips]));
+    }
+
+    [Fact]
+    public void ASpeckBetweenTwoColumnsIsNotAThirdColumn()
+    {
+        // Two columns with a wide gutter and one stray mark in the middle of it, half way down. Left alone it is a group of its own
+        // that sits between two parts of the column beside it, and the page would be read in bands instead of column by column.
+        double pitch = PitchFor(2, 20);
+        var strips = new List<OrderStrip>();
+        for (int c = 0; c < 2; c++)
+        {
+            for (int r = 0; r < 20; r++)
+            {
+                strips.Add(Line(20 + (c * (pitch + 40)), 20 + (r * 16), ColumnRow(c, r)));
+            }
+        }
+
+        strips.Add(Line(20 + pitch + 20, 20 + (9 * 16) + 2, "x"));
+        Assert.Equal(Columns([0, 1], 20), Read([.. strips]).Replace(" x ", " ", StringComparison.Ordinal));
+    }
 }
