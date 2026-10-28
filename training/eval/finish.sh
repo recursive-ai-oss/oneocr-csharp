@@ -4,7 +4,7 @@
 #   eval/finish.sh RUN LABEL          RUN = run directory name (e.g. crnn-v8)
 # Environment: ONEOCR_HOME (state of this stage: runs/, data/, exports/, eval-<label>/), ONEOCR_PREV (the production run's data/lines-v4),
 # ONEOCR_FT (earlier fine-tune stage data: lines-v5 sets, CORD crops), BENCH_LINES (page-set crops), TESS_DIR (stored Tesseract outputs),
-# VERSION (container version string), CORD_WEIGHT (default 8).
+# WEB_SET (held-out web line set), VERSION (container version string), CORD_WEIGHT (default 8).
 set -uo pipefail
 export CUDA_VISIBLE_DEVICES=
 cd "$(dirname "$0")/.."
@@ -38,8 +38,8 @@ if [ -d "${ONEOCR_GEN:-/nonexistent}/crops/dev/finder" ]; then
 fi
 # held-out phone-style word crops (gen/make_phone_lines.sh), when PHONE_SET names them
 if [ -d "${PHONE_SET:-/nonexistent}" ]; then extra+=(--extra "phone_tune=$PHONE_SET"); genalso="$genalso,phone_tune"; fi
-# browser-rendered interface lines (gen/ui_lines.py), when ONEOCR_UI names them: held-out-family validation set
-if [ -d "${ONEOCR_UI:-/nonexistent}/val" ]; then extra+=(--extra "chromium_ui=$ONEOCR_UI/val"); genalso="$genalso,chromium_ui"; fi
+# held-out web sites (gen/web_lines.py), when WEB_SET names them
+if [ -d "${WEB_SET:-/nonexistent}" ]; then extra+=(--extra "web_heldout=$WEB_SET"); genalso="$genalso,web_heldout"; fi
 uv run python -m eval.model_hyps --device cpu --checkpoint "$ck" --sets-dir "$ONEOCR_PREV/data/lines-v4" --bench-dir "$BENCH_LINES" --out "$o/hyps" "${extra[@]}" | tail -2
 uv run python -m eval.calibrate fit --hyps "$o/hyps/calib.hyps.jsonl" "$o/hyps/calib_receipt.hyps.jsonl" "$o/hyps/calib6.hyps.jsonl" "${cal7[@]}" "${calg[@]}" \
   "$o/hyps/calib_cord.hyps.jsonl:${CORD_WEIGHT:-8}" --out "$o/calibration.json"
