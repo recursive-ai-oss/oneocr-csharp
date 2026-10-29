@@ -103,14 +103,16 @@ Photographs taken with the camera turned by 10 to 30 degrees are beyond the skew
 page reads as garbage. The search costs nothing on pages that read well.
 
 - **Trigger.** After the first reading (steps 1–5, mapped to the frame the caller gets), let *confident* words be those with
-  calibrated confidence ≥ 0.9. The reading is weak when characters in confident words make up less than **0.6** of all characters
-  of all words (a page without words counts as weak only when at least 0.2% of its pixels are ink, so a blank page is not searched). Pages that are not weak are never read again.
+  calibrated confidence ≥ 0.9. Let the *share* be the characters in confident words over all characters of all words. The search
+  runs when the share is under **0.9** (a page without words has share 0 and is searched only when at least 0.2% of its pixels are
+  ink, so a blank page is not). It is the **full search** when the share is under **0.6** and the **light search** from 0.6 up to 0.9
+  (a photograph turned by a few degrees reads mostly right and still loses lines). Pages with share ≥ 0.9 are never read again.
 - **Score** of a reading: the sum, over its confident words in reading order, of `confidence · (number of UTF-16 code units of the
   text)`, accumulated in double precision.
 - **Candidates.** The page as it was before step 4 (turned upright, not straightened) is turned by a slope `k / 1024` exactly as in
   Deskew, with `k` taken from the table for 5°, 10°, … 35°: `90, 181, 274, 373, 477, 591, 717` (round(1024·tan a)). The search is coarse to fine:
-  1. 10°, then −10°, 20°, −20°, 30°, −30° (positive slopes first), each read like the first reading (detection, lines, recognition,
-     reading order, the same options) and mapped back through the frame of the candidate;
+  1. 10°, then −10°, and in the full search 20°, −20°, 30°, −30° (positive slopes first), each read like the first reading
+     (detection, lines, recognition, reading order, the same options) and mapped back through the frame of the candidate;
   2. if one of these won, 5° either side of the winner (the smaller magnitude first).
   A candidate whose canvas would exceed `OcrLimits.MaxImagePixels` is skipped.
 - **Winner.** A candidate replaces the best so far only if its score is strictly greater, and the first candidate must beat the first
@@ -118,7 +120,7 @@ page reads as garbage. The search costs nothing on pages that read well.
   reading is the result unchanged.
 - **Result.** The winning page's boxes and quads are in the input frame (the turn is part of the frame, so quads are produced by the
   mapping below), `SkewDegrees` is the candidate's angle (`atan(k/1024)`), and a diagnostic says the page was read at several angles.
-  A weak page costs at most 8 more readings.
+  The full search costs at most 8 more readings, the light search at most 4 (10°, −10°, and the two 5° steps around a winner).
 
 Every reading is an ordinary page reading, so the search is bit-identical on every path and degree like the rest.
 

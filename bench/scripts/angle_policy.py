@@ -23,6 +23,7 @@ def full_pick(p: dict) -> int:
 
 
 def policy_pick(p: dict, coarse: tuple[int, ...]) -> int:
+    # coarse: the angles probed (degrees); the finer step either side of a winner is used when the full search traced it
     best, thr = 0, p["first"] * MARGIN
     for ang in coarse:
         sc = p["scores"].get(ang)
@@ -46,29 +47,34 @@ def main() -> None:
     ap.add_argument("--scorer", default="v3")
     a = ap.parse_args()
     pages = parse(Path(a.log))
-    policies = {"full (10,20,30)": (-30, -20, -10, 10, 20, 30), "10 only": (-10, 10), "10,20": (-20, -10, 10, 20)}
-    for share_hi in (0.6, 0.8, 0.9):
-        for name, coarse in policies.items():
-            total = base_t = forced_t = pol_t = unknown = same = 0
-            for stem, p in pages.items():
-                b, n = misses(Path(a.truth), Path(a.base), stem, a.scorer)
-                f, _ = misses(Path(a.truth), Path(a.forced), stem, a.scorer)
-                total += n
-                base_t += b
-                forced_t += f
-                if p["share"] >= share_hi:
-                    pol_t += b
-                    continue
-                fp, pp = full_pick(p), policy_pick(p, coarse)
+    # Share under 0.6 gets the full search (as before). Share from 0.6 up to D gets the light search (10 degrees either way, then the
+    # finer step). Pages where the light search picks what the full one would are scored with the forced run; where it picks no turn
+    # they are scored with the base run; where it picks another turn the number is a guess (the forced run's), counted as "different".
+    for d in (0.7, 0.8, 0.85, 0.9, 0.95):
+        total = base_t = forced_t = pol_t = same = diff = missed = band = 0
+        for stem, p in pages.items():
+            b, n = misses(Path(a.truth), Path(a.base), stem, a.scorer)
+            f, _ = misses(Path(a.truth), Path(a.forced), stem, a.scorer)
+            total += n
+            base_t += b
+            forced_t += f
+            if p["share"] < 0.6:
+                pol_t += f
+            elif p["share"] < d:
+                band += 1
+                fp, pp = full_pick(p), policy_pick(p, (-10, 10))
                 if pp == fp:
-                    pol_t += f
+                    pol_t += f if fp else b
                     same += 1
                 elif pp == 0:
                     pol_t += b
+                    missed += 1
                 else:
-                    pol_t += f  # a different angle: assumed to read like the full search's (upper bound, counted as unknown)
-                    unknown += 1
-            print(f"share<{share_hi} policy {name:16s}: recall-CER {100 * pol_t / total:.3f} (base {100 * base_t / total:.3f}, full forced {100 * forced_t / total:.3f}); agree {same}, different {unknown}")
+                    pol_t += f
+                    diff += 1
+            else:
+                pol_t += b
+        print(f"doubt<{d}: band pages {band}, light = full pick {same}, no turn where full turns {missed}, other turn {diff}; recall-CER {100 * pol_t / total:.3f} (base {100 * base_t / total:.3f}, forced {100 * forced_t / total:.3f})")
 
 
 if __name__ == "__main__":

@@ -416,6 +416,7 @@ internal static class Program
                 PageAngleSearch.Margin = double.Parse(f[1], CultureInfo.InvariantCulture);
                 PageAngleSearch.MaxStep = f.Length > 2 ? int.Parse(f[2], CultureInfo.InvariantCulture) : PageAngleSearch.MaxStep;
                 PageAngleSearch.CoarseStep = f.Length > 3 ? int.Parse(f[3], CultureInfo.InvariantCulture) : PageAngleSearch.CoarseStep;
+                PageAngleSearch.DoubtShare = f.Length > 4 ? double.Parse(f[4], CultureInfo.InvariantCulture) : PageAngleSearch.DoubtShare;
             }
         }
 

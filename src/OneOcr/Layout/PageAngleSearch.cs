@@ -16,8 +16,15 @@ internal static class PageAngleSearch
     /// <summary>A word counts as confidently read at or above this calibrated confidence.</summary>
     internal static float ConfidentWord = 0.9f;
 
-    /// <summary>The first reading is weak when the share of its characters in confidently read words is under this.</summary>
+    /// <summary>The first reading is weak (full search) when the share of its characters in confidently read words is under this.</summary>
     internal static double WeakShare = 0.6;
+
+    /// <summary>
+    /// A reading whose confident share is under this but not under <see cref="WeakShare"/> is a doubtful reading (a photograph turned by a
+    /// few degrees reads mostly right and still loses lines). It gets the light search: only the angles of 10 degrees either way, and a
+    /// finer step around the one that wins.
+    /// </summary>
+    internal static double DoubtShare = 0.9;
 
     /// <summary>A reading at another angle replaces the first one only when its score is at least this many times the first one's.</summary>
     internal static double Margin = 1.1;
@@ -67,8 +74,11 @@ internal static class PageAngleSearch
 
         share = all == 0 ? 0 : (double)sure / all;
         Trace?.Invoke(string.Create(CultureInfo.InvariantCulture, $"weak? share {share:0.####} chars {all} words {page.Words.Count}"));
-        return Always || share < WeakShare;
+        return Always || share < DoubtShare;
     }
+
+    /// <summary>Whether a reading with this confident share gets the light search instead of the full one.</summary>
+    public static bool IsLight(double share) => !Always && share >= WeakShare;
 
     /// <summary>
     /// Whether a page that read as no words at all has enough ink for text to be there: at least 0.2% of its pixels on the ink side of
@@ -100,14 +110,15 @@ internal static class PageAngleSearch
     /// returns the page in the input frame, or null when that angle cannot be read (its canvas would exceed the pixel limit).
     /// </summary>
     /// <returns>The winning page and its angle in degrees (null for the first reading when it stays).</returns>
-    public static (OcrPage Page, int? AngleDegrees) Search(OcrPage first, Func<int, OcrPage?> readAt, CancellationToken cancellationToken)
+    public static (OcrPage Page, int? AngleDegrees) Search(OcrPage first, Func<int, OcrPage?> readAt, CancellationToken cancellationToken, bool light = false)
     {
+        int maxStep = light ? CoarseStep : MaxStep;
         double threshold = Score(first) * Margin;
         Trace?.Invoke(string.Create(CultureInfo.InvariantCulture, $"first {Score(first):0.##}"));
         OcrPage best = first;
         int bestStep = 0;
         // Ties go to the smaller angle and, between the two signs, to the positive one: candidates are tried in that order and replace the best only when strictly better.
-        for (int step = CoarseStep; step <= MaxStep; step += CoarseStep)
+        for (int step = CoarseStep; step <= maxStep; step += CoarseStep)
         {
             for (int sign = 1; sign >= -1; sign -= 2)
             {
@@ -130,7 +141,7 @@ internal static class PageAngleSearch
             foreach (int next in new[] { center + 1, center - 1 })
             {
                 int mag = Math.Abs(next);
-                if (mag < 1 || mag > MaxStep + 1 || mag > Slopes.Length || (next < 0) != (center < 0))
+                if (mag < 1 || mag > maxStep + 1 || mag > Slopes.Length || (next < 0) != (center < 0))
                 {
                     continue;
                 }
