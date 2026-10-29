@@ -128,6 +128,8 @@ def main() -> None:
     train_recs, bounds, weights, prov = [], [], [], {}
     for src in cfg["sources"]:
         recs = load_records(src["name"], root, "train", src)
+        if src.get("faint_p"):  # share of windows drawn with low-contrast text (DetDataset.faint_text)
+            recs = [{**r, "faint_p": src["faint_p"]} for r in recs]
         bounds.append((len(train_recs), len(train_recs) + len(recs)))
         weights.append(src["weight"])
         train_recs += recs

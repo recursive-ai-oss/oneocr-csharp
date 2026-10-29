@@ -271,6 +271,8 @@ class DetDataset(Dataset):
         lq, lc = lq[ok], lc[ok]
         lb = np.clip(np.concatenate([lq.min(1), lq.max(1)], 1), 0, S)
         if self.train:
+            if rng.random() < rec.get("faint_p", 0.0):
+                canvas = self.faint_text(canvas, rng)
             canvas = self._photometric(canvas, rng)
         out = {
             "image": torch.from_numpy(canvas)[None],
@@ -292,6 +294,24 @@ class DetDataset(Dataset):
             pw = np.ones((H, H), np.float32)
         out["prob"], out["thr"], out["thr_mask"], out["pos_w"] = (torch.from_numpy(np.ascontiguousarray(a))[None] for a in (p, t, m, pw))
         return out
+
+    @staticmethod
+    def faint_text(a: np.ndarray, rng: random.Random) -> np.ndarray:
+        """Lower the contrast of text against its own background while keeping the labels exact.
+
+        Real interface text is often a few percent lighter or darker than its band (muted nav links, footers, badges). Half the
+        time the detail finer than ~6 px is scaled towards the local background (bands and card edges keep their contrast, only the
+        glyphs fade); otherwise the whole window is compressed towards its median. The factor leaves ink 8-25% away from its
+        background after scaling, which stays legible at 8 bits (about 20+ grey levels); flat fields are left flat, so nothing is
+        created where the labels say there is no text.
+        """
+        x = a.astype(np.float32)
+        c = rng.uniform(0.04, 0.20)
+        if rng.random() < 0.5:
+            bg = np.asarray(Image.fromarray(a).filter(ImageFilter.GaussianBlur(rng.uniform(4.0, 8.0))), np.float32)
+        else:
+            bg = np.float32(np.median(x))
+        return np.clip(np.rint(bg + (x - bg) * c), 0, 255).astype(np.uint8)
 
     @staticmethod
     def _photometric(a: np.ndarray, rng: random.Random) -> np.ndarray:
