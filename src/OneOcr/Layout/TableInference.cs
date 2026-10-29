@@ -39,8 +39,12 @@ internal static partial class TableStructure
     /// <param name="plan">The blocks in reading order.</param>
     /// <param name="regions">The page's detected regions; only those named "table" are used.</param>
     /// <param name="separators">Learned separators, or null.</param>
-    public static List<OrderBlock> Infer(List<OrderBlock> plan, IReadOnlyList<DetectedRegion> regions, ITableSeparators? separators)
+    /// <param name="rules">Finds the page's horizontal rules (called at most once, and only when a table is looked at); null when the
+    /// page's pixels are not available. Rules that cross a table separate its rows into bands read cell by cell.</param>
+    public static List<OrderBlock> Infer(List<OrderBlock> plan, IReadOnlyList<DetectedRegion> regions, ITableSeparators? separators, Func<IReadOnlyList<RuleLine>>? rules = null)
     {
+        IReadOnlyList<RuleLine>? pageRules = null;
+        IReadOnlyList<RuleLine> Rules() => pageRules ??= rules?.Invoke() ?? [];
         var slots = new OrderBlock?[plan.Count];
         for (int i = 0; i < plan.Count; i++)
         {
@@ -54,40 +58,24 @@ internal static partial class TableStructure
                 continue;
             }
 
-            var inside = new List<int>();
-            for (int i = 0; i < slots.Length; i++)
-            {
-                if (slots[i] is { Cells: null, IsStandalone: false } b && Inside(region, b))
-                {
-                    inside.Add(i);
-                }
-            }
-
+            List<int> inside = InsideBlocks(slots, region, includeStandalone: false);
             if (inside.Count == 0)
             {
                 continue;
             }
 
-            // The rows are the lines of the page: fragments of different blocks that sit on one line are one row.
-            var byLine = new SortedDictionary<int, List<OrderFragment>>();
-            foreach (int i in inside)
+            var rows = RowsOf(slots, inside);
+            List<double> cuts = rules is null ? [] : Cuts(rows, Rules());
+            if (cuts.Count > 0)
             {
-                foreach (OrderLine l in slots[i]!.Lines)
-                {
-                    foreach (OrderFragment f in l.Fragments)
-                    {
-                        if (!byLine.TryGetValue(f.Line, out List<OrderFragment>? list))
-                        {
-                            byLine[f.Line] = list = [];
-                        }
-
-                        list.Add(f);
-                    }
-                }
+                // Rules cut the table into bands. A block that the reading order set apart as a field of a form (a wrapped paragraph in a
+                // cell reads like one) belongs to the table when it lies within one band; one that a rule runs through is a field, not a cell.
+                inside = InsideBlocks(slots, region, includeStandalone: true, cuts);
+                rows = RowsOf(slots, inside);
             }
 
-            var rows = byLine.Values.OrderBy(r => r.Average(f => f.Base)).ToList();
-            OrderBlock? made = Build(rows, new OcrBox(region.Left, region.Top, region.Right, region.Bottom), separators);
+            (rows, bool[]? grouped) = Bands(rows, cuts);
+            OrderBlock? made = Build(rows, new OcrBox(region.Left, region.Top, region.Right, region.Bottom), separators, grouped);
             if (made is null)
             {
                 continue;
@@ -113,7 +101,8 @@ internal static partial class TableStructure
                 var rows = b.Lines.Select(l => l.Fragments).ToList();
                 (double top, double left, double right) = Extent(b);
                 double bottom = b.Lines.SelectMany(l => l.Fragments).Max(f => f.Bot);
-                result.Add(Build(rows, new OcrBox(left, top, right, bottom), separators) ?? b);
+                (rows, bool[]? grouped) = Bands(rows, rules is null ? [] : Cuts(rows, Rules()));
+                result.Add(Build(rows, new OcrBox(left, top, right, bottom), separators, grouped) ?? b);
             }
             else
             {
@@ -122,6 +111,43 @@ internal static partial class TableStructure
         }
 
         return result;
+    }
+
+    private static List<int> InsideBlocks(OrderBlock?[] slots, DetectedRegion region, bool includeStandalone, List<double>? cuts = null)
+    {
+        var inside = new List<int>();
+        for (int i = 0; i < slots.Length; i++)
+        {
+            if (slots[i] is { Cells: null } b && (!b.IsStandalone || (includeStandalone && !Crossed(b, cuts))) && Inside(region, b))
+            {
+                inside.Add(i);
+            }
+        }
+
+        return inside;
+    }
+
+    // The rows are the lines of the page: fragments of different blocks that sit on one line are one row.
+    private static List<List<OrderFragment>> RowsOf(OrderBlock?[] slots, List<int> inside)
+    {
+        var byLine = new SortedDictionary<int, List<OrderFragment>>();
+        foreach (int i in inside)
+        {
+            foreach (OrderLine l in slots[i]!.Lines)
+            {
+                foreach (OrderFragment f in l.Fragments)
+                {
+                    if (!byLine.TryGetValue(f.Line, out List<OrderFragment>? list))
+                    {
+                        byLine[f.Line] = list = [];
+                    }
+
+                    list.Add(f);
+                }
+            }
+        }
+
+        return byLine.Values.OrderBy(r => r.Average(f => f.Base)).ToList();
     }
 
     private static bool Inside(DetectedRegion r, OrderBlock b)
@@ -141,7 +167,7 @@ internal static partial class TableStructure
     }
 
     // Builds the table block for rows of fragments (each row left to right), or null when there are not two columns.
-    private static OrderBlock? Build(List<List<OrderFragment>> rows, OcrBox box, ITableSeparators? separators)
+    private static OrderBlock? Build(List<List<OrderFragment>> rows, OcrBox box, ITableSeparators? separators, bool[]? grouped = null)
     {
         int total = rows.Sum(r => r.Count);
         if (rows.Count < 2 || total > MaxFragments)
@@ -149,15 +175,23 @@ internal static partial class TableStructure
             return null;
         }
 
-        foreach (List<OrderFragment> r in rows)
+        for (int i = 0; i < rows.Count; i++)
         {
-            r.Sort((a, b) => a.X0.CompareTo(b.X0));
+            if (grouped is null || !grouped[i])
+            {
+                rows[i].Sort((a, b) => a.X0.CompareTo(b.X0));
+            }
         }
 
         (double Left, double Right)[]? columns = Columns(rows, box, separators);
         if (columns is null || columns.Length < 2)
         {
             return null;
+        }
+
+        if (grouped is not null)
+        {
+            (rows, grouped) = SplitAligned(rows, grouped, columns);
         }
 
         var cells = new List<OrderCell>();
@@ -172,7 +206,7 @@ internal static partial class TableStructure
             OrderCell? last = null;
             int lastIndex = -1, lastEnd = -1;
             var rowCells = new List<int>();
-            foreach (OrderFragment f in row)
+            foreach (OrderFragment f in grouped is not null && grouped[r] ? Array.Empty<OrderFragment>() : (IEnumerable<OrderFragment>)row)
             {
                 (int c0, int c1) = Reach(columns, f);
                 if (last is not null && c0 <= lastEnd)
@@ -192,6 +226,11 @@ internal static partial class TableStructure
                     cells.Add(last);
                     rowCells.Add(lastIndex);
                 }
+            }
+
+            if (grouped is not null && grouped[r])
+            {
+                GroupCells(columns, row, r, cells, rowCells);
             }
 
             foreach (int ci in rowCells)
@@ -216,6 +255,7 @@ internal static partial class TableStructure
             {
                 multi++;
             }
+
 
             lines.Add(new OrderLine { Fragments = row });
         }
@@ -247,6 +287,288 @@ internal static partial class TableStructure
             Cells = sorted,
             TableConfidence = (float)multi / rows.Count,
         };
+    }
+
+    // A band of fewer columns than this is read line by line: with two columns a row is mostly a name and its value, and cells that wrap in
+    // both columns are rare.
+    private const int MinCellColumns = 3;
+
+    // A band whose lines hold at least this share of the (line, column) pairs they could are rows read line by line.
+    private const double AlignedShare = 0.75;
+
+    // A rule separates two bands when it runs across at least this share of the table's width: a rule under one column is the edge of
+    // one cell, and a short rule is an underline.
+    private const double BandRuleShare = 0.6;
+
+    // Rules closer together than this many text heights are one separator (a double rule, a thick rule drawn as two lines).
+    private const double BandRuleMerge = 0.5;
+
+    /// <summary>
+    /// The rules that cut a table into bands: those that lie between the table's first and last fragment and run across at least
+    /// <see cref="BandRuleShare"/> of its text extent, merged when closer than half a text height. Empty when no rule qualifies.
+    /// </summary>
+    internal static List<double> Cuts(List<List<OrderFragment>> rows, IReadOnlyList<RuleLine> rules)
+    {
+        var cuts = new List<double>();
+        if (rules.Count == 0 || rows.Count < 2)
+        {
+            return cuts;
+        }
+
+        double top = double.MaxValue, bottom = double.MinValue, left = double.MaxValue, right = double.MinValue;
+        var heights = new List<double>();
+        foreach (List<OrderFragment> row in rows)
+        {
+            foreach (OrderFragment f in row)
+            {
+                top = Math.Min(top, f.Top);
+                bottom = Math.Max(bottom, f.Bot);
+                left = Math.Min(left, f.X0);
+                right = Math.Max(right, f.X1);
+                heights.Add(f.Bot - f.Top);
+            }
+        }
+
+        double height = Median(heights);
+        foreach (RuleLine r in rules.OrderBy(r => r.Pos))
+        {
+            double overlap = Math.Min(r.Hi, right) - Math.Max(r.Lo, left);
+            if (overlap >= BandRuleShare * (right - left) && r.Pos > top && r.Pos < bottom && (cuts.Count == 0 || r.Pos - cuts[^1] >= BandRuleMerge * height))
+            {
+                cuts.Add(r.Pos);
+            }
+        }
+
+        return cuts;
+    }
+
+    // Whether a cut runs through the vertical extent of a block's text.
+    private static bool Crossed(OrderBlock b, List<double>? cuts)
+    {
+        if (cuts is null || cuts.Count == 0)
+        {
+            return false;
+        }
+
+        double top = double.MaxValue, bottom = double.MinValue;
+        foreach (OrderLine l in b.Lines)
+        {
+            foreach (OrderFragment f in l.Fragments)
+            {
+                top = Math.Min(top, f.Top);
+                bottom = Math.Max(bottom, f.Bot);
+            }
+        }
+
+        foreach (double c in cuts)
+        {
+            if (c > top && c < bottom)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Groups the rows (text lines) of a table into bands: the stretches of the table between the cutting rules (<see cref="Cuts"/>). A band
+    /// whose lines are cells of different columns is read cell by cell (its cells' lines together, top to bottom), not line by line across
+    /// the columns. A band of one line, and a band in which a fragment spans columns that other fragments also reach (so cells cannot be
+    /// told apart), stays as the lines it holds, as without rules. Returns the rows unchanged, with no band flags, when there are no cuts.
+    /// </summary>
+    internal static (List<List<OrderFragment>> Rows, bool[]? Grouped) Bands(List<List<OrderFragment>> rows, List<double> cuts)
+    {
+        if (cuts.Count == 0)
+        {
+            return (rows, null);
+        }
+
+        // Fragments go to the band their centre lies in; the lines of a band, by the page's line numbers.
+        var bands = new SortedDictionary<int, List<OrderFragment>>();
+        foreach (List<OrderFragment> row in rows)
+        {
+            foreach (OrderFragment f in row)
+            {
+                double centre = (f.Top + f.Bot) / 2;
+                int band = 0;
+                while (band < cuts.Count && cuts[band] < centre)
+                {
+                    band++;
+                }
+
+                if (!bands.TryGetValue(band, out List<OrderFragment>? list))
+                {
+                    bands[band] = list = [];
+                }
+
+                list.Add(f);
+            }
+        }
+
+        var result = new List<List<OrderFragment>>();
+        var flags = new List<bool>();
+        foreach (List<OrderFragment> band in bands.Values)
+        {
+            int lines = band.Select(f => f.Line).Distinct().Count();
+            if (lines <= 1)
+            {
+                result.Add(band);
+                flags.Add(false);
+                continue;
+            }
+
+            result.Add(band);
+            flags.Add(true);
+        }
+
+        return (result, [.. flags]);
+    }
+
+    // A band whose lines run across all of its columns at once (a list of rows: a name and a price on every line) is a set of rows that the
+    // rules happen to fence together, and is read line by line; a band whose columns hold their own numbers of lines, so that the lines of
+    // different columns do not share baselines, is a row of cells of several lines. The share of (line, column) pairs present among all
+    // pairs of the band's lines and the columns it uses tells them apart.
+    private static (List<List<OrderFragment>> Rows, bool[] Grouped) SplitAligned(List<List<OrderFragment>> rows, bool[] grouped, (double Left, double Right)[] columns)
+    {
+        var result = new List<List<OrderFragment>>(rows.Count);
+        var flags = new List<bool>(rows.Count);
+        for (int r = 0; r < rows.Count; r++)
+        {
+            if (!grouped[r])
+            {
+                result.Add(rows[r]);
+                flags.Add(false);
+                continue;
+            }
+
+            var byLine = new SortedDictionary<int, List<OrderFragment>>();
+            var used = new HashSet<int>();
+            var present = new HashSet<(int Line, int Column)>();
+            foreach (OrderFragment f in rows[r])
+            {
+                (int c0, _) = Reach(columns, f);
+                used.Add(c0);
+                present.Add((f.Line, c0));
+                if (!byLine.TryGetValue(f.Line, out List<OrderFragment>? list))
+                {
+                    byLine[f.Line] = list = [];
+                }
+
+                list.Add(f);
+            }
+
+            if (used.Count < MinCellColumns || present.Count >= AlignedShare * byLine.Count * used.Count)
+            {
+                foreach (List<OrderFragment> line in byLine.Values.OrderBy(l => l.Average(f => f.Base)))
+                {
+                    line.Sort((a, b) => a.X0.CompareTo(b.X0));
+                    result.Add(line);
+                    flags.Add(false);
+                }
+            }
+            else
+            {
+                result.Add(rows[r]);
+                flags.Add(true);
+            }
+        }
+
+        return (result, [.. flags]);
+    }
+
+    // Cells of a band read as units: one cell per first column; its fragments (the cell's lines) top to bottom. When a fragment spans columns
+    // that another fragment of the band also reaches, the cells cannot be told apart and the band is read by its lines, as without rules.
+    private static void GroupCells(
+        (double Left, double Right)[] columns, List<OrderFragment> band, int row, List<OrderCell> cells, List<int> rowCells)
+    {
+        var reach = new (int First, int Last)[band.Count];
+        bool conflict = false;
+        for (int i = 0; i < band.Count; i++)
+        {
+            reach[i] = Reach(columns, band[i]);
+        }
+
+        for (int i = 0; i < band.Count && !conflict; i++)
+        {
+            if (reach[i].Last == reach[i].First)
+            {
+                continue;
+            }
+
+            for (int j = 0; j < band.Count; j++)
+            {
+                if (j != i && reach[j].First <= reach[i].Last && reach[j].Last >= reach[i].First && band[j].Line != band[i].Line)
+                {
+                    conflict = true;
+                    break;
+                }
+            }
+        }
+
+        if (conflict)
+        {
+            // Back to lines: the band's fragments row by row, cells as in a plain row.
+            band.Sort((a, b) => a.Line != b.Line ? a.Base.CompareTo(b.Base) : a.X0.CompareTo(b.X0));
+            OrderCell? last = null;
+            int lastIndex = -1, lastEnd = -1, currentLine = int.MinValue;
+            foreach (OrderFragment f in band)
+            {
+                (int c0, int c1) = Reach(columns, f);
+                if (f.Line == currentLine && last is not null && c0 <= lastEnd)
+                {
+                    f.Cell = lastIndex;
+                    last = last with { ColumnSpan = Math.Max(last.Column + last.ColumnSpan, c1 + 1) - last.Column, Box = OcrBox.Union(last.Box, new OcrBox(f.X0, f.Top, f.X1, f.Bot)) };
+                    cells[lastIndex] = last;
+                    lastEnd = Math.Max(lastEnd, c1);
+                }
+                else
+                {
+                    last = new OrderCell(row, c0, 1, c1 - c0 + 1, new OcrBox(f.X0, f.Top, f.X1, f.Bot));
+                    lastIndex = cells.Count;
+                    lastEnd = c1;
+                    currentLine = f.Line;
+                    f.Cell = lastIndex;
+                    cells.Add(last);
+                    rowCells.Add(lastIndex);
+                }
+            }
+
+            return;
+        }
+
+        var byColumn = new SortedDictionary<int, int>();
+        for (int i = 0; i < band.Count; i++)
+        {
+            OrderFragment f = band[i];
+            var fragmentBox = new OcrBox(f.X0, f.Top, f.X1, f.Bot);
+            if (byColumn.TryGetValue(reach[i].First, out int index))
+            {
+                OrderCell c = cells[index];
+                cells[index] = c with { ColumnSpan = Math.Max(c.Column + c.ColumnSpan, reach[i].Last + 1) - c.Column, Box = OcrBox.Union(c.Box, fragmentBox) };
+                f.Cell = index;
+            }
+            else
+            {
+                f.Cell = cells.Count;
+                byColumn[reach[i].First] = cells.Count;
+                rowCells.Add(cells.Count);
+                cells.Add(new OrderCell(row, reach[i].First, 1, reach[i].Last - reach[i].First + 1, fragmentBox));
+            }
+        }
+
+        // Cells left to right, the lines of a cell top to bottom.
+        band.Sort((a, b) =>
+        {
+            int c = cells[a.Cell].Column.CompareTo(cells[b.Cell].Column);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.Top.CompareTo(b.Top);
+            return c != 0 ? c : a.X0.CompareTo(b.X0);
+        });
     }
 
     // The first and last column a fragment belongs to.

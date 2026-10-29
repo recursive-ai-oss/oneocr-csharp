@@ -28,6 +28,11 @@ smaller class).
    that cross a drawn vertical rule are cut at the rule, and every piece is read on its own, so a word is never read across a
    column. Text belongs to the cell that holds the centre of its fragment.
 
+**A grid that is only part of a table.** A component of rules is not taken as a grid when at least two of its horizontal rules run on
+beyond its outermost vertical rule on the same side by more than `FragmentOverhang` (0.25) times the grid's width: the table has columns
+whose rules are faint or not drawn, and a grid of the verticals found would leave them out. Nothing is erased or cut for such a component; the
+table is read as a table without a rule grid (next sections), with the horizontal rules cutting its rows.
+
 The table's block holds one line per row that has text; a line's cells are the table cells with text in that row, left to right
 (`Line.Cells` marks where each cell's words start); a cell with several lines of text lists them top to bottom, joined by a space in
 the line's text; a cell with a span is listed once, in its first row. `Table.Rows` and `Columns` are the grid's; `Cells` lists every
@@ -48,6 +53,30 @@ row):
   that belongs to several columns is a cell with a column span. Fragments that reach the same column in one row are one cell. A
   column with nothing in a row is an empty cell (`words: []`) over the column's extent.
 - `Confidence` is the share of rows with more than one cell, as before. The text of the page does not change.
+
+### Rows cut by rules, cells of several lines
+
+Where the page has horizontal rules across the table, the rows are not the text lines but the **bands** between the rules, and a band is read
+cell by cell. (Page rules are the horizontal rules of the ruled-table finder, found whether or not they form a grid.)
+
+- **Separators.** A rule separates two bands when it lies between the table's first and last fragment and its extent overlaps the table's
+  text extent by at least `BandRuleShare` (0.6) of its width: a rule under one column is the border of one cell, a short rule an underline.
+  Rules closer together than `BandRuleMerge` (0.5) times the median fragment height are one separator. A table with no such rule is read
+  exactly as before.
+- **Bands.** Each fragment goes to the band that holds the centre of its box, so the lines of a cell stay together even when a cell of
+  another column ends higher or lower. A band is a row of the table (`row` of its cells, `Table.Rows` counts bands).
+- **Columns** come from the gaps as above, with the bands as the rows: a gap is free when at most a quarter of the bands have text across it.
+- **Cells.** A band is read cell by cell only when it holds cells of several lines. It must use at least `MinCellColumns` (3) columns (two
+  columns are mostly a name and its value, and cells that wrap in both are rare), and its lines must not run across its columns together: with
+  `present` the number of (line, column) pairs that have a fragment, `lines` the band's lines (fragments sharing a baseline, across columns)
+  and `used` the columns with text in the band, a band with `present >= AlignedShare (0.75) * lines * used` is a set of rows that the
+  rules happen to fence together (a list of a name and a price on every line) and is read line by line, each line a row. Otherwise every
+  fragment belongs to the cell of the first column it reaches, so all fragments of one column of the band (the cell's lines) are one cell,
+  listed top to bottom, and the cells are listed left to right. A band in which a fragment spans columns that a fragment of another line
+  also reaches cannot be split into cells; it is read by its lines, as without rules. A band holding one line is the same row as without rules.
+- **Text the reading order cut out.** A block of a table region that the reading order marked as a field of a form (a wrapped paragraph in a
+  cell reads like one) is part of the table when rules cut the table into bands and no cutting rule runs through the block's text; without
+  rules, or when a rule runs through it (a label above a field's box and the value in it), such a block stays out, as before.
 
 A word that the recognizer read across a column gap stays one word and goes to one cell. Words are never split to fit a grid.
 

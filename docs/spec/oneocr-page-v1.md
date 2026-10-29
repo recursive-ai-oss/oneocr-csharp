@@ -228,6 +228,9 @@ of PDF fragments:
   its cells. Table `confidence` is the share of rows with more than one cell and is not calibrated.
   Tables drawn with ruling lines, and tables in a detected `table` region, get spans, empty cells (`words: []`) and multi-line
   cells; see `table-structure-v1.md`. The members are the same.
+  In a table cut into rows by rules, a cell of several lines is read whole (its lines top to bottom) before the cell beside it, so the
+  text of a row comes cell by cell, not line by line across the cells; the lines of one cell are joined by a space in the `Line.text` of the
+  band's row.
 
 Word boxes are the ink extent inside the horizontal range the recognizer aligned the word to. Character boxes tile that
 range by the alignment of the network's output and carry `approximate: true`.
