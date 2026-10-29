@@ -58,24 +58,54 @@ internal static partial class TableStructure
                 continue;
             }
 
-            List<int> inside = InsideBlocks(slots, region, includeStandalone: false);
-            if (inside.Count == 0)
+            List<int> narrow = InsideBlocks(slots, region, includeStandalone: false);
+            if (narrow.Count == 0)
             {
                 continue;
             }
 
-            var rows = RowsOf(slots, inside);
+            var box = new OcrBox(region.Left, region.Top, region.Right, region.Bottom);
+            var rows = RowsOf(slots, narrow);
             List<double> cuts = rules is null ? [] : Cuts(rows, Rules());
+            List<int> inside = narrow;
+            OrderBlock? made = null;
             if (cuts.Count > 0)
             {
                 // Rules cut the table into bands. A block that the reading order set apart as a field of a form (a wrapped paragraph in a
-                // cell reads like one) belongs to the table when it lies within one band; one that a rule runs through is a field, not a cell.
-                inside = InsideBlocks(slots, region, includeStandalone: true, cuts);
-                rows = RowsOf(slots, inside);
+                // cell reads like one) belongs to the table when it lies within one band, and only if it ends up in a band read cell by
+                // cell: a form's label and its input box are also rows between rules, and read line by line they lose the pairing the
+                // field blocks give them.
+                List<int> wide = InsideBlocks(slots, region, includeStandalone: true, cuts);
+                if (wide.Count > narrow.Count)
+                {
+                    var added = new HashSet<OrderFragment>();
+                    foreach (int i in wide.Except(narrow))
+                    {
+                        foreach (OrderLine l in slots[i]!.Lines)
+                        {
+                            added.UnionWith(l.Fragments);
+                        }
+                    }
+
+                    var wideRows = RowsOf(slots, wide);
+                    (wideRows, bool[]? wideGrouped) = Bands(wideRows, cuts);
+                    var info = new HashSet<OrderFragment>();
+                    OrderBlock? candidate = Build(wideRows, box, separators, wideGrouped, info);
+                    if (candidate is not null && info.Overlaps(added))
+                    {
+                        made = candidate;
+                        inside = wide;
+                    }
+                }
             }
 
-            (rows, bool[]? grouped) = Bands(rows, cuts);
-            OrderBlock? made = Build(rows, new OcrBox(region.Left, region.Top, region.Right, region.Bottom), separators, grouped);
+            if (made is null)
+            {
+                rows = RowsOf(slots, narrow);
+                (rows, bool[]? grouped) = Bands(rows, cuts);
+                made = Build(rows, box, separators, grouped);
+            }
+
             if (made is null)
             {
                 continue;
@@ -167,7 +197,8 @@ internal static partial class TableStructure
     }
 
     // Builds the table block for rows of fragments (each row left to right), or null when there are not two columns.
-    private static OrderBlock? Build(List<List<OrderFragment>> rows, OcrBox box, ITableSeparators? separators, bool[]? grouped = null)
+    // When given, groupedFragments receives the fragments of the rows that are read cell by cell.
+    private static OrderBlock? Build(List<List<OrderFragment>> rows, OcrBox box, ITableSeparators? separators, bool[]? grouped = null, HashSet<OrderFragment>? groupedFragments = null)
     {
         int total = rows.Sum(r => r.Count);
         if (rows.Count < 2 || total > MaxFragments)
@@ -192,6 +223,16 @@ internal static partial class TableStructure
         if (grouped is not null)
         {
             (rows, grouped) = SplitAligned(rows, grouped, columns);
+            if (groupedFragments is not null)
+            {
+                for (int r = 0; r < rows.Count; r++)
+                {
+                    if (grouped[r])
+                    {
+                        groupedFragments.UnionWith(rows[r]);
+                    }
+                }
+            }
         }
 
         var cells = new List<OrderCell>();

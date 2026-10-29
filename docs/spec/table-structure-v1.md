@@ -76,7 +76,9 @@ cell by cell. (Page rules are the horizontal rules of the ruled-table finder, fo
   also reaches cannot be split into cells; it is read by its lines, as without rules. A band holding one line is the same row as without rules.
 - **Text the reading order cut out.** A block of a table region that the reading order marked as a field of a form (a wrapped paragraph in a
   cell reads like one) is part of the table when rules cut the table into bands and no cutting rule runs through the block's text; without
-  rules, or when a rule runs through it (a label above a field's box and the value in it), such a block stays out, as before.
+  rules, or when a rule runs through it (a label above a field's box and the value in it), such a block stays out, as before. Blocks are
+  merged only if the merged table has a band read cell by cell that holds a fragment of a merged block; otherwise the table is built
+  without them (a form's labels and input boxes are bands too, and read line by line they would lose the label–value pairing of the fields).
 
 A word that the recognizer read across a column gap stays one word and goes to one cell. Words are never split to fit a grid.
 
