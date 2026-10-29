@@ -118,6 +118,28 @@ Text is normalised the same way on both sides: Unicode NFC, typographic quotes a
 - **Reading-order error**: word-sequence edit distance divided by truth words. It also contains recognition
   errors, so it is read together with WER: order error close to WER means the order is right.
 
+**Scorer versions** (`--scorer v2|v3`, recorded as `scorer` in every result and report). The metrics above are the same in both;
+they differ only in where the truth word sequence comes from.
+
+- **v2** (the default of `score`, unchanged since bench-v1): the words of the truth text `<id>.txt`. That text joins what the page
+  shows as separate ink pieces (a word wrapped at a hyphen or dash, `breakfast-room` for `breakfast-` at a line end and `room` on
+  the next) and splits what is one piece of ink (a web page's punctuation node next to the word it touches: `Intelligence` `,`).
+- **v3** (the default of `gate`): wherever the truth has word boxes (`<id>.json`), the truth word sequence is the box words, in
+  their order, joined exactly where the ink is continuous:
+  1. a box whose text is only punctuation or symbols (Unicode categories P* and S*) is joined to each list neighbour (the box before,
+     the box after) whose layout box touches it: the horizontal gap is at most 0.5 px plus 2 % of the box height and the boxes overlap
+     vertically by at least half of the shorter one. So `Intelligence` `,` is `Intelligence,`, `1` `/` `2` is `1/2`, `(` `see` `)` is `(see)`;
+  2. nothing else is joined. Two boxes with letters or digits stay two words however close they are, so each fragment of a
+     wrapped word stays a word (`breakfast-`, `room`), and a mark with a space before it stays alone;
+  3. boxes with no text left after normalisation are dropped; a truth without a sidecar, or with no words in it, uses the truth text.
+
+  Normalisation, the bag pairing, the order distance, ECE matching and the F1 boxes are exactly as in v2 (F1 compares the boxes as
+  given, not the joined ones). Every engine's output is scored against the same sequence. A set without word boxes scores the same
+  under both versions. `scripts/test_scorer_v3.py` pins the rule; `scripts/scorer_diff.py` lists every hypothesis word whose
+  outcome differs between the versions, checks that the two truth sequences differ only by cutting the same characters differently,
+  and samples the differences for a manual check. Known limit: PDF truth cut into small-caps or letter-spaced pieces stays in pieces
+  (a mark touching only one of them joins that one).
+
 Besides CER/WER/order, `score` reports **recall-CER and recall-WER**: errors on the truth side only (a truth word that
 is missing or misread; extra hypothesis words cost nothing). They matter where truth is partial (receipts).
 
@@ -288,7 +310,11 @@ set -o noclobber; echo "gate pid=$$ $(date -Is)" > ~/WORKER-BENCH.lock || exit 7
 trap 'rm -f ~/WORKER-BENCH.lock' EXIT
 ```
 
-The scorer is not touched by the gate: its CER/WER/order/F1/ECE numbers are those of `score`.
+The gate judges on `--scorer v3` (default) and lists the other version beside it in a second table (ours, best engine and verdict
+under each); `gate.json` carries both. Tesseract's best-of values are scored again under v3 from its hypothesis directories. The
+competitor directory must hold v3 numbers: `competitors-freeze` writes both versions, and `competitors-freeze --rescore FROZEN --out
+OUT --eval EVAL` adds v3 to a directory made before, from its hypotheses alone (names and baseline flags kept; no engine runs). The
+CER/WER/order/F1/ECE numbers are those of `score` with the same `--scorer`. `scripts/full_run.sh` passes `SCORER` (default v3).
 
 ## Where the page error comes from
 

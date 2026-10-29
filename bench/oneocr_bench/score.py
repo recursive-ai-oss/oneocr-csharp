@@ -22,10 +22,14 @@ contains recognition errors; on a page with few of them it is dominated by order
 Word confidence (optional): when every hypothesis sidecar word has `text` and a confidence (`confidence`, or `conf` as written
 by the C# bench), the scorer adds expected calibration error; see `word_outcomes` and `ece`.
 
+Scorer versions (`--scorer`): v2 builds the truth word sequence from the truth text `<id>.txt`. v3 builds it from the truth's own word
+boxes (`<id>.json`) wherever they exist, see `v3_truth_words`; a truth directory without word boxes scores identically under both.
+Normalisation, the bag pairing and the order distance are the same in both.
+
 Word boxes: truth `words` carry `box` (the browser's layout rectangle) and, in bench-v2 sets, `ink` (tight to the printed ink).
 `--boxes ink` (default) scores F1 against `ink` where the truth has it, `--boxes layout` against `box`.
 
-    python -m oneocr_bench score --truth DIR --hyp DIR [--boxes ink|layout] [--json OUT]
+    python -m oneocr_bench score --truth DIR --hyp DIR [--boxes ink|layout] [--scorer v2|v3] [--json OUT]
 """
 
 from __future__ import annotations
@@ -49,6 +53,65 @@ FOLD = str.maketrans({
 def normalize(text: str) -> list[str]:
     t = unicodedata.normalize("NFC", text).translate(FOLD).replace("\ufb01", "fi").replace("\ufb02", "fl")
     return t.split()
+
+
+SCORERS = ("v2", "v3")
+DEFAULT_SCORER = "v2"
+
+# v3 joins a word box to its list neighbour when their layout boxes are at most this far apart horizontally (pixels plus a share of the
+# box height) and overlap vertically by at least half of the shorter box.
+TOUCH_PX = 0.5
+TOUCH_HEIGHT = 0.02
+TOUCH_OVERLAP = 0.5
+
+
+def _is_mark(text: str) -> bool:
+    """A word made only of punctuation or symbols (Unicode categories P* and S*), such as `,` `)` `-` `/` `$`."""
+    return bool(text) and all(unicodedata.category(c)[0] in "PS" for c in text)
+
+
+def _touch(a: list[float], b: list[float]) -> bool:
+    h = min(a[3] - a[1], b[3] - b[1])
+    if h <= 0 or min(a[3], b[3]) - max(a[1], b[1]) < TOUCH_OVERLAP * h:
+        return False
+    return max(a[0] - b[2], b[0] - a[2]) <= TOUCH_PX + TOUCH_HEIGHT * max(a[3] - a[1], b[3] - b[1])
+
+
+def v3_truth_words(words: list[dict]) -> list[str]:
+    """The truth word sequence of scorer v3, from a truth sidecar's `words` (in their order), as unnormalised strings.
+
+    Every box word is a truth word, except that a box whose text is only punctuation or symbols is joined to each neighbour in the list
+    (previous, next) whose layout box touches it: the ink is continuous there, so a reader sees one word (`Intelligence` `,` is
+    `Intelligence,`, `1` `/` `2` is `1/2`). Two letter or digit boxes are never joined, so a word the page wraps at a hyphen or dash stays
+    one word per line (`breakfast-` and `room`), as does any other pair of separate pieces. Boxes whose normalised text is empty are dropped.
+    """
+    ws = [w for w in words if normalize(w["text"])]
+    boxes = [_aabb(w, "box") for w in ws]
+    out: list[str] = []
+    joined = False  # the previous box was joined to this one
+    for i, w in enumerate(ws):
+        if joined:
+            out[-1] += w["text"]
+        else:
+            out.append(w["text"])
+        joined = (i + 1 < len(ws) and (_is_mark("".join(normalize(w["text"]))) or _is_mark("".join(normalize(ws[i + 1]["text"]))))
+                  and _touch(boxes[i], boxes[i + 1]))
+    return out
+
+
+def truth_text(truth_dir: Path, stem: str, scorer: str = DEFAULT_SCORER) -> str:
+    """The truth of one page as text: `<id>.txt` (v2), or under v3 the box words of `<id>.json` joined by newlines when it has any."""
+    txt = (truth_dir / f"{stem}.txt").read_text(encoding="utf-8")
+    if scorer == "v2":
+        return txt
+    if scorer != "v3":
+        raise ValueError(f"unknown scorer {scorer!r}: expected one of {SCORERS}")
+    side = truth_dir / f"{stem}.json"
+    if side.exists():
+        words = v3_truth_words(json.loads(side.read_text()).get("words") or [])
+        if words:
+            return "\n".join(words)
+    return txt
 
 
 def content_errors(ref: list[str], hyp: list[str]) -> tuple[int, int, int, int]:
@@ -200,7 +263,7 @@ def box_matches(truth: list[list[float]], hyp: list[list[float]], thr: float = 0
     return n
 
 
-def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink") -> dict:
+def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = DEFAULT_SCORER) -> dict:
     """Micro-averaged over pages; a missing hypothesis file counts as empty output.
 
     Word-detection F1 at IoU 0.5 is added when every page has a sidecar `<id>.json` in the hypothesis directory:
@@ -211,7 +274,11 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink") -> dict:
     Expected calibration error is added when every sidecar word has `text` and a confidence: words are matched to the page's
     truth words by `word_outcomes`; "correct" is an exact match after normalisation. `ece` counts every hypothesis word
     (unmatched ones are wrong); `ece_matched` leaves out the "extra" words, which is what a partial truth (CORD) needs.
+
+    `scorer` picks the truth word sequence (module docstring); detection F1 always uses the truth boxes as given.
     """
+    if scorer not in SCORERS:
+        raise ValueError(f"unknown scorer {scorer!r}: expected one of {SCORERS}")
     key = "ink" if boxes == "ink" else "box"
     pages = {}
     det = {"tp": 0, "truth": 0, "hyp": 0}
@@ -222,7 +289,8 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink") -> dict:
     for t in sorted(truth_dir.glob("*.txt")):
         h = hyp_dir / t.name
         text = h.read_text(encoding="utf-8", errors="replace") if h.exists() else ""
-        pages[t.stem] = score_page(t.read_text(encoding="utf-8"), text)
+        truth = truth_text(truth_dir, t.stem, scorer)
+        pages[t.stem] = score_page(truth, text)
         side = hyp_dir / f"{t.stem}.json"
         if not side.exists():
             have_boxes = have_conf = False
@@ -242,7 +310,7 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink") -> dict:
                 else:
                     rows = [(" ".join(normalize(w["text"])), _confidence(w)) for w in hw]
                     rows = [(k, c) for k, c in rows if k]
-                    status += word_outcomes(normalize(t.read_text(encoding="utf-8")), [k for k, _ in rows])
+                    status += word_outcomes(normalize(truth), [k for k, _ in rows])
                     conf += [c for _, c in rows]
     if not pages:
         raise SystemExit(f"no truth pages (<id>.txt) in {truth_dir}")
@@ -260,6 +328,7 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink") -> dict:
         "per_page": pages,
     }
     r["boxes"] = boxes
+    r["scorer"] = scorer
     r["ece"] = ece_summary(conf, status) if have_conf and conf else None
     if have_boxes and det["truth"]:
         p = det["tp"] / det["hyp"] if det["hyp"] else 0.0
@@ -269,21 +338,22 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink") -> dict:
 
 
 def summary_line(r: dict) -> str:
+    tag = "  [scorer v3]" if r.get("scorer") == "v3" else ""
     f1 = f"  F1@0.5 {r['det']['f1']:.4f} [{r['boxes']} boxes] (P {r['det']['precision']:.3f} R {r['det']['recall']:.3f})" if r["det"] else ""
     e = r.get("ece")
     ece_s = f"  ECE {e['ece']:.4f} (matched words only {e['ece_matched']:.4f}; {e['words']} words)" if e else ""
     return (f"pages {r['pages']} (missing {r['missing']})  CER {r['cer']:.4%}  WER {r['wer']:.4%}  "
-            f"order {r['order_err']:.4%}  recall-CER {r['cer_recall']:.4%}  recall-WER {r['wer_recall']:.4%}{f1}{ece_s}")
+            f"order {r['order_err']:.4%}  recall-CER {r['cer_recall']:.4%}  recall-WER {r['wer_recall']:.4%}{f1}{ece_s}{tag}")
 
 
-def main(truth: str, hyp: str, out: str | None, boxes: str = "ink") -> None:
-    r = score_dir(Path(truth), Path(hyp), boxes)
+def main(truth: str, hyp: str, out: str | None, boxes: str = "ink", scorer: str = DEFAULT_SCORER) -> None:
+    r = score_dir(Path(truth), Path(hyp), boxes, scorer)
     print(summary_line(r))
     if out:
         Path(out).write_text(json.dumps(r, indent=1) + "\n")
 
 
-def main_root(root: str, out: str | None, boxes: str = "ink") -> None:
+def main_root(root: str, out: str | None, boxes: str = "ink", scorer: str = DEFAULT_SCORER) -> None:
     """One command, every set: score <root>/<set>/<id>.txt for each set that has a directory there."""
     from .sets import SETS, set_dir
 
@@ -293,7 +363,7 @@ def main_root(root: str, out: str | None, boxes: str = "ink") -> None:
         h = Path(root) / name
         if not h.is_dir():
             continue
-        r = score_dir(set_dir(name) / "truth", h, boxes)
+        r = score_dir(set_dir(name) / "truth", h, boxes, scorer)
         res[name] = {k: v for k, v in r.items() if k != "per_page"} | {"category": spec.category}
         f1 = f"{r['det']['f1']:.3f}" if r["det"] else "-"
         e = f"{r['ece']['ece']:>6.4f} {r['ece']['ece_matched']:>6.4f}" if r["ece"] else f"{'-':>6} {'-':>6}"
