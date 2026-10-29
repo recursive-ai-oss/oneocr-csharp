@@ -81,9 +81,11 @@ def augment_real(x: torch.Tensor, widths: torch.Tensor, g: torch.Generator) -> t
     f = f + torch.randn(f.shape, generator=g, device=dev) * u(0.0, 0.03).view(b, 1, 1, 1)
     f = f.clamp(0, 1) * 255.0
     outs, ws = [], []
+    scale = u(0.85, 1.15).tolist()  # one transfer for the batch: a per-sample .item() on the GPU stalls the stream 140 times a step
+    wl = widths.tolist()
     for i in range(b):
-        wi = int(widths[i])
-        nw = max(4, int(round(wi * float(u(0.85, 1.15)[i]))))
+        wi = int(wl[i])
+        nw = max(4, int(round(wi * scale[i])))
         outs.append(torch.nn.functional.interpolate(f[i : i + 1, :, :, :wi], size=(f.shape[2], nw), mode="bilinear", align_corners=False))
         ws.append(nw)
     return pad_group(outs, ws)
@@ -261,28 +263,39 @@ def main() -> None:
                 gx, gw, _ = degrade(gx, gw, sd, gen)
             else:
                 gx, gw = augment_real(gx, gw, gen)
+            gl = gw.tolist()
             for k in range(gx.shape[0]):
-                imgs.append(gx[k : k + 1, :, :, : int(gw[k])].float())
-                ws.append(int(gw[k]))
+                imgs.append(gx[k : k + 1, :, :, : int(gl[k])].float())
+                ws.append(int(gl[k]))
             tl += gt
-        x, widths = pad_group(imgs, ws)
-        x = x.round().clamp(0, 255)
-        tgt = torch.tensor([t for ts in tl for t in ts])
-        tlen = torch.tensor([len(ts) for ts in tl])
-        ilen = torch.tensor([model.out_len(int(w)) for w in widths])
-        x = to_input(x, dev)
         for g in opt.param_groups:
             g["lr"] = lr_at(step, tc)
         model.train()
-        with torch.autocast("cuda", dtype=torch.bfloat16):
-            logits = model(x, widths)
-        lp = logits.float().log_softmax(-1).transpose(0, 1)
-        if tc.get("deterministic"):  # the CUDA CTC backward uses atomic adds, whose order varies from run to run; the CPU one is exact
-            loss = F.ctc_loss(lp.cpu(), tgt, ilen, tlen, blank=0, reduction="mean", zero_infinity=True).to(dev)
-        else:
-            loss = F.ctc_loss(lp, tgt, ilen, tlen, blank=0, reduction="mean", zero_infinity=True)
         opt.zero_grad(set_to_none=True)
-        loss.backward()
+        # `accum` > 1 splits the batch into that many micro-batches whose gradients add up, for models whose activations do not fit at the
+        # full batch (the loss is a per-line mean, so each micro-batch is weighted by its share of the lines)
+        accum = int(tc.get("accum", 1))
+        cut = [round(len(imgs) * k / accum) for k in range(accum + 1)]
+        loss_sum = 0.0
+        for m in range(accum):
+            mi, mw, mt = imgs[cut[m] : cut[m + 1]], ws[cut[m] : cut[m + 1]], tl[cut[m] : cut[m + 1]]
+            x, widths = pad_group(mi, mw)
+            x = x.round().clamp(0, 255)
+            tgt = torch.tensor([t for ts in mt for t in ts])
+            tlen = torch.tensor([len(ts) for ts in mt])
+            ilen = torch.tensor([model.out_len(int(w)) for w in widths])
+            x = to_input(x, dev)
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                logits = model(x, widths)
+            lp = logits.float().log_softmax(-1).transpose(0, 1)
+            if tc.get("deterministic"):  # the CUDA CTC backward uses atomic adds, whose order varies from run to run; the CPU one is exact
+                loss = F.ctc_loss(lp.cpu(), tgt, ilen, tlen, blank=0, reduction="mean", zero_infinity=True).to(dev)
+            else:
+                loss = F.ctc_loss(lp, tgt, ilen, tlen, blank=0, reduction="mean", zero_infinity=True)
+            share = len(mi) / len(imgs)
+            (loss * share).backward()
+            loss_sum += loss.item() * share
+        loss = torch.tensor(loss_sum)
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         opt.step()
         step += 1
