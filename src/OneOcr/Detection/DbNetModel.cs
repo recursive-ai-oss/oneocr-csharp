@@ -268,6 +268,26 @@ internal sealed class DbNetModel
             }
         }
 
+        if (config.Postprocess is { } fp && (fp.FaintTextThreshold is not null || fp.FaintBackgroundMax is not null || fp.FaintMinCells is not null || fp.FaintMinAspect is not null || fp.FaintMinConfidence is not null))
+        {
+            if (fp.FaintTextThreshold is null || fp.FaintBackgroundMax is null || fp.FaintMinCells is null || fp.FaintMinAspect is null || fp.FaintMinConfidence is null)
+            {
+                throw new OcrModelException("config.postprocess faint_text_threshold, faint_bg_max, faint_min_cells, faint_min_aspect and faint_min_confidence must be given together.");
+            }
+
+            if (fp.FaintBackgroundMax is < 0 or > 255 || fp.FaintMinCells is < 1 or > 4096 || !double.IsFinite(fp.FaintMinAspect.Value) || fp.FaintMinAspect.Value < 0
+                || !(fp.FaintMinConfidence.Value >= 0 && fp.FaintMinConfidence.Value <= 1))
+            {
+                throw new OcrModelException("config.postprocess faint_bg_max must be in [0, 255], faint_min_cells in [1, 4096], faint_min_aspect not negative and faint_min_confidence in [0, 1].");
+            }
+
+            post = post with
+            {
+                Faint = new DetectorPostprocess.FaintRule(
+                    CheckProbability(fp.FaintTextThreshold.Value, "faint_text_threshold"), fp.FaintBackgroundMax.Value, fp.FaintMinCells.Value, fp.FaintMinAspect.Value, fp.FaintMinConfidence.Value),
+            };
+        }
+
         int stem = config.Stem;
         int stemP = DetectKernels.Padded(stem);
         float[] stemRaw = ReadChecked(container, "stem.weight", stem, 1, 3, 3);

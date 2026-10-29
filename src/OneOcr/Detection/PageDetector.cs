@@ -12,7 +12,8 @@ namespace OneOcr.Detection;
 /// <param name="Bottom">Bottom edge.</param>
 /// <param name="Score">Mean probability over the component's cells.</param>
 /// <param name="Axis">The principal axis of the line's text-map component, when it has a reliable one; null otherwise.</param>
-internal readonly record struct DetectedLine(double Left, double Top, double Right, double Bottom, float Score, LineAxis? Axis = null);
+/// <param name="MinConfidence">0 for an ordinary line; for a line recovered from faint text, the confidence a word read from it needs to be kept.</param>
+internal readonly record struct DetectedLine(double Left, double Top, double Right, double Bottom, float Score, LineAxis? Axis = null, float MinConfidence = 0);
 
 /// <summary>
 /// The direction and extent of a detected line along its principal axis (docs/spec/detector-v1.md, "Line axis"). The line frame has its
@@ -159,19 +160,13 @@ internal sealed class PageDetector : IPageDetector
             canvas = _floats.Rent((long)paddedW * paddedH);
             Normalize(source, nw, nh, paddedW, paddedH, _model.Input, canvas);
             StageClock.Stop("n3 normalize", clock);
-            if (scaled is not null)
-            {
-                pixels.Return(scaled);
-                scaled = null;
-            }
-
             clock = StageClock.Start();
             DetectorMaps maps = DbNetForward.Run(_model, _path, degree, _floats, canvas, paddedH, paddedW, _limits, null, cancellationToken, pooledMaps: true);
             StageClock.Stop("n4 network", clock);
             try
             {
                 clock = StageClock.Start();
-                PageDetection found = DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits, sigma);
+                PageDetection found = DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits, sigma, source, nw, nh);
                 StageClock.Stop("n5 map decode", clock);
                 return found;
             }

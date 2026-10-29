@@ -12,7 +12,7 @@ namespace OneOcr.Layout;
 /// the straightened line's ink rectangle placed, unrotated, at the centre of the tilted one, which is what reading order compares.
 /// <paramref name="Local"/> is set when the page-wide binarization does not suit this line (see <see cref="LocalInk"/>); null means the page's.
 /// </summary>
-internal readonly record struct StripLine(LineBox Box, int Leaf, TiltedLine? Tilt = null, LocalInk? Local = null);
+internal readonly record struct StripLine(LineBox Box, int Leaf, TiltedLine? Tilt = null, LocalInk? Local = null, float MinConfidence = 0);
 
 /// <summary>
 /// Finds the text lines of a page that may have columns and ruled tables. It cuts the ink recursively into regions that have no
