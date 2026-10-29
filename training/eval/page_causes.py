@@ -195,7 +195,9 @@ def analyse(eval_root: Path, out_root: Path, name: str, refs: list[Path] | None 
         hyp_json = hyp_dir / tf.name
         hw = json.loads(hyp_json.read_text())["words"] if hyp_json.exists() else []
         hyp_txt = (hyp_dir / f"{tf.stem}.txt").read_text() if (hyp_dir / f"{tf.stem}.txt").exists() else ""
-        sp = score_page(t["text"], hyp_txt)
+        # sets whose sidecar holds only word boxes (CORD) keep the truth text in <id>.txt
+        truth_txt = t["text"] if "text" in t else (truth_dir / f"{tf.stem}.txt").read_text()
+        sp = score_page(truth_txt, hyp_txt)
         off_ce += sp["char_errors"]; off_we += sp["word_errors"]; off_oe += sp["order_errors"]; off_ref += sp["ref_words"]
         off_cm += sp["char_misses"]; off_wm += sp["word_misses"]
         # A truth text joins words the page wraps at a hyphen or dash ("breakfast-room"), while the boxes hold the two fragments the
