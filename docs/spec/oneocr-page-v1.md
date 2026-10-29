@@ -405,7 +405,9 @@ are grain and are left out (they stand between dots in a scan and must not end a
 each side, at most 0.3 of the line height wide and high, with width/height between 0.5 and 2, in the lower half of the box.
 Neighbouring dots in left-to-right order form a run while each has the first dot's baseline (within max(2 px, 0.3 of its size)) and
 size (ratio 0.6 to 1.7) and sits one pitch from the last, within 30% of the run's pitch (the second dot: 1.3 dot widths to 2 line
-heights). A gap of two or three pitches between two runs of the same pitch is a dot too faint to see, and the runs join. A leader has
+heights). A pair of dots that does not grow into a run of at least 3 uses up neither of its dots: the next candidate
+starts at the second one (a full stop and the first dot of a leader pair up under the wide limit, and the leader must still start at
+its first dot). A gap of two or three pitches between two runs of the same pitch is a dot too faint to see, and the runs join. A leader has
 at least 6 dots, 6 of them seen, a pitch of at most 2 line heights (stops set half an em apart are about 1.5 line heights apart when
 the box holds no descenders) and at least 1.3 mean dot widths. When its first dot touches the ink in front of it (less than half a
 pitch away), that dot is the sentence's full stop and is not counted. A run that reaches the right edge of the box continues: the
@@ -419,7 +421,7 @@ neither. A run with more strays than max(2, a quarter of its dots) is a few lett
 not a leader. A box shorter than 0.6 line heights is taken to hold the leader alone (the detector cut it into a strip of its own);
 it may hold at most max(4, a third of the dots) letters.
 
-**Faint leaders.** On a page whose typical line is at most 36 pixels high (about 150 to 200 dots per inch or less), the dots of a
+**Faint leaders.** On a page whose typical line is at most 48 pixels high (up to about 200 to 250 dots per inch), the dots of a
 leader are one or two pixels wide and blur takes their middle below the page's threshold, so the search above does not see them;
 and the detector, which looks at a shrunk page, often boxes the text up to the dots and not the dots. For each upright line in which
 the search found nothing, the search is made again over the line's box and 16 line heights past its right end, with the threshold

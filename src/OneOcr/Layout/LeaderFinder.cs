@@ -60,7 +60,7 @@ internal static class LeaderFinder
     internal const int MaxComponents = 20000;
 
     /// <summary>Lines up to this tall (a page set at about 150 to 200 dots per inch or less) get the faint search.</summary>
-    internal const int MaxFaintLineHeight = 36;
+    internal const int MaxFaintLineHeight = 48;
 
     /// <summary>The faint search reaches this many line heights past the end of the box.</summary>
     internal const double TailInHeights = 16.0;
@@ -219,12 +219,13 @@ internal static class LeaderFinder
                 j++;
             }
 
+            // Only a run that is kept uses up its dots. A pair that fails to grow (a full stop and the first dot of a leader, now that a
+            // spaced leader's pitch may be wide) must not swallow the dot that starts the real run.
             if (j - i + 1 >= 3)
             {
                 runs.Add((i, j, j - i));
+                i = j;
             }
-
-            i = j;
         }
 
         if (runs.Count == 0)

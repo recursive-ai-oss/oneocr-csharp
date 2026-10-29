@@ -178,6 +178,18 @@ public class LeaderTests
     }
 
     [Fact]
+    public void AFullStopThatPairsWithTheFirstDotDoesNotHideIt()
+    {
+        // A full stop 20 pixels before the leader is a possible partner of its first dot (the pitch limit is wide), but the third dot
+        // does not fit that pitch. The failed pair must not use up the first dot.
+        byte[] page = Page(50, 8, 20, extra: p => Rect(p, 30, 21, 3, 3));
+        Leader? leader = Find(page);
+        Assert.NotNull(leader);
+        Assert.Equal(20, leader.Count);
+        Assert.Equal(50, leader.From);
+    }
+
+    [Fact]
     public void BlankPageAndTextWithoutDotsAreNotLeaders()
     {
         Assert.Null(Find(Page(50, 8, 0)));
