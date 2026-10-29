@@ -19,6 +19,10 @@ internal sealed class ManifestDto
 
     // Read only from version 1 files; held raw so that a version 0 file never trips over it.
     public JsonElement? Calibration { get; init; }
+
+    // Optional, version 1 only: the curve for the confidence a page reports, when it differs from the one the pipeline decides with.
+    [JsonPropertyName("report_calibration")]
+    public JsonElement? ReportCalibration { get; init; }
 }
 
 // The image members are required for every architecture that reads pixels and absent for the word-based extraction model, whose

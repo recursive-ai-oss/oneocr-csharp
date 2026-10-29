@@ -429,7 +429,8 @@ public sealed class OcrEngine
                 StageClock.Stop("a angle search", searchClock);
             }
 
-            return finished;
+            // The filters, the joiner and the angle search have decided by now; only the reported confidence changes from here on.
+            return _recognizer.ReportCalibration is { } report ? ReportedConfidence.Apply(finished, report) : finished;
         }
         finally
         {

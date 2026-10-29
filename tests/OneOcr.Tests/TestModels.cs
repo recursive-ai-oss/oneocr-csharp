@@ -23,7 +23,7 @@ internal static class TestContainerWriter
 {
     public static byte[] Write(
         string architecture, int height, string[] charset, string configJson, IReadOnlyList<TestTensor> tensors,
-        float mean = 0.5f, float std = 0.5f, bool invert = false, string? calibrationJson = null, string? wordInputJson = null)
+        float mean = 0.5f, float std = 0.5f, bool invert = false, string? calibrationJson = null, string? wordInputJson = null, string? reportCalibrationJson = null)
     {
         // Place tensors.
         var offsets = new long[tensors.Count];
@@ -96,6 +96,13 @@ internal static class TestContainerWriter
                 w.WritePropertyName("calibration");
                 using JsonDocument cal = JsonDocument.Parse(calibrationJson);
                 cal.RootElement.WriteTo(w);
+            }
+
+            if (reportCalibrationJson is not null)
+            {
+                w.WritePropertyName("report_calibration");
+                using JsonDocument report = JsonDocument.Parse(reportCalibrationJson);
+                report.RootElement.WriteTo(w);
             }
 
             w.WriteStartObject("provenance");
@@ -229,8 +236,8 @@ internal static class TestModels
         TestContainerWriter.Write("crnn-v0", s.Height, Charset(s.Classes), ConfigJson(s), RandomTensors(s, seed));
 
     /// <summary>A version 1 container with the given calibration member (JSON text).</summary>
-    public static byte[] RandomContainerV1(Shape s, int seed, string calibrationJson) =>
-        TestContainerWriter.Write("crnn-v0", s.Height, Charset(s.Classes), ConfigJson(s), RandomTensors(s, seed), calibrationJson: calibrationJson);
+    public static byte[] RandomContainerV1(Shape s, int seed, string calibrationJson, string? reportCalibrationJson = null) =>
+        TestContainerWriter.Write("crnn-v0", s.Height, Charset(s.Classes), ConfigJson(s), RandomTensors(s, seed), calibrationJson: calibrationJson, reportCalibrationJson: reportCalibrationJson);
 
     /// <summary>A random 8-bit line image with some structure (smooth gradients plus noise), so activations are not degenerate.</summary>
     public static byte[] RandomImage(int height, int width, int seed)
