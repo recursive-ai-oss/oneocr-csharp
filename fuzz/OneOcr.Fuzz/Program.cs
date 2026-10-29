@@ -35,6 +35,8 @@ internal static class Program
             "llm-openai" => LlmTarget.RunOpenAi,
             "llm-gemini" => LlmTarget.RunGemini,
             "llm-schema" => LlmTarget.RunSchema,
+            "llm-answer" => LlmAnswerTarget.Run,
+            "training-files" => TrainingFilesTarget.Run,
             _ => throw new ArgumentException($"Unknown target '{name}'."),
         };
     }
@@ -142,7 +144,7 @@ internal static class Program
             }
         }
 
-        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + WordFreqTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
+        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + WordFreqTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed + LlmAnswerTarget.Parsed + TrainingFilesTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
         return 0;
     }
 
@@ -199,6 +201,18 @@ internal static class Program
             var many = Enumerable.Range(0, 70).Select(i => ("w" + i.ToString("D3", System.Globalization.CultureInfo.InvariantCulture), 3 + i)).ToArray();
             File.WriteAllBytes(Path.Combine(dir, "blocks.seed"), TestWordFrequencies.Build(many));
             File.WriteAllBytes(Path.Combine(dir, "empty.seed"), TestWordFrequencies.Build([]));
+            return;
+        }
+
+        if (target == "llm-answer")
+        {
+            LlmAnswerTarget.WriteSeeds(dir);
+            return;
+        }
+
+        if (target == "training-files")
+        {
+            TrainingFilesTarget.WriteSeeds(dir);
             return;
         }
 
