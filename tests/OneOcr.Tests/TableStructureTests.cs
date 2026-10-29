@@ -346,6 +346,173 @@ public class TableStructureTests
         Assert.Equal([0, 3, 1, 4, 2, 5], t.Lines.SelectMany(l => l.Fragments).Select(f => f.Strip));
     }
 
+    // ---- cells of several lines, rows cut by rules -------------------------------------------------------------------------------
+
+    private static OrderBlock Column(int firstStrip, double x0, double x1, params (double Top, int Line)[] lines) =>
+        new()
+        {
+            IsTable = false,
+            Columns = 0,
+            Lines = [.. lines.Select((l, i) => new OrderLine { Fragments = [Frag(firstStrip + i, x0, x1, l.Top, l.Top + 14, l.Line)] })],
+        };
+
+    // Three columns of text with unequal numbers of lines in row one (3, 2 and 1) and one line each in row two, a rule between the rows.
+    private static List<OrderBlock> TwoRows(bool standalone = false) =>
+    [
+        new OrderBlock { IsTable = false, IsStandalone = standalone, Columns = 0, Lines = Column(0, 0, 60, (0, 0), (20, 1), (40, 2), (80, 3)).Lines },
+        new OrderBlock { IsTable = false, Columns = 0, Lines = Column(10, 150, 220, (0, 0), (20, 1), (80, 3)).Lines },
+        new OrderBlock { IsTable = false, Columns = 0, Lines = Column(20, 300, 380, (0, 0), (80, 3)).Lines },
+    ];
+
+    private static readonly DetectedRegion TableRegion = new(3, "table", -10, -10, 400, 110, 0.9f);
+
+    private static IReadOnlyList<RuleLine> RuleAt(int y, int x0 = -10, int x1 = 400) => [new RuleLine(y, x0, x1, 2)];
+
+    [Fact]
+    public void RulesCutARegionIntoRowsWhoseCellsAreReadWholeBeforeTheNextCell()
+    {
+        List<OrderBlock> arranged = TableStructure.Infer(TwoRows(), [TableRegion], null, () => RuleAt(60));
+        OrderBlock t = Assert.Single(arranged);
+        Assert.Equal(2, t.Rows);
+        Assert.Equal(3, t.Columns);
+        // Row one: the first cell's three lines, then the second's two, then the third's one; row two: one line each.
+        Assert.Equal([0, 1, 2, 10, 11, 20, 3, 12, 21], t.Lines.SelectMany(l => l.Fragments).Select(f => f.Strip));
+        Assert.Equal(2, t.Lines.Count);
+        OrderCell[] cells = [.. t.Cells!];
+        Assert.Equal(6, cells.Length);
+        Assert.Equal(t.Lines[0].Fragments[0].Cell, t.Lines[0].Fragments[2].Cell);
+        Assert.NotEqual(t.Lines[0].Fragments[0].Cell, t.Lines[0].Fragments[3].Cell);
+    }
+
+    [Fact]
+    public void WithoutARuleTheSameRegionIsReadLineByLine()
+    {
+        OrderBlock t = Assert.Single(TableStructure.Infer(TwoRows(), [TableRegion], null, () => []));
+        Assert.Equal(4, t.Rows);
+        Assert.Equal([0, 10, 20, 1, 11, 2, 3, 12, 21], t.Lines.SelectMany(l => l.Fragments).Select(f => f.Strip));
+    }
+
+    [Fact]
+    public void ARuleUnderOneColumnOrAShortUnderlineDoesNotCutTheTable()
+    {
+        Assert.Equal(4, Assert.Single(TableStructure.Infer(TwoRows(), [TableRegion], null, () => RuleAt(60, 280, 400))).Rows);
+        Assert.Equal(4, Assert.Single(TableStructure.Infer(TwoRows(), [TableRegion], null, () => RuleAt(60, 0, 80))).Rows);
+    }
+
+    [Fact]
+    public void TwoColumnsAreReadLineByLineWhateverTheRules()
+    {
+        // A name and a value on each line, lines of the left cell in a second row: two columns are rows, not cells of several lines.
+        var left = new OrderBlock { IsTable = false, Columns = 0, Lines = Column(0, 0, 60, (0, 0), (20, 1), (40, 2), (80, 3)).Lines };
+        var right = new OrderBlock { IsTable = false, Columns = 0, Lines = Column(10, 300, 380, (0, 0), (40, 2), (80, 3)).Lines };
+        OrderBlock t = Assert.Single(TableStructure.Infer([left, right], [TableRegion], null, () => RuleAt(60)));
+        Assert.Equal([0, 10, 1, 2, 11, 3, 12], t.Lines.SelectMany(l => l.Fragments).Select(f => f.Strip));
+    }
+
+    [Fact]
+    public void RowsThatEveryColumnFillOnTheSameLinesAreNotCellsOfSeveralLines()
+    {
+        // Three columns, three lines each on common baselines, fenced together by rules: rows, read line by line.
+        OrderBlock Col(int first, double x0, double x1) => Column(first, x0, x1, (0, 0), (20, 1), (40, 2), (80, 3), (100, 4));
+        OrderBlock t = Assert.Single(TableStructure.Infer([Col(0, 0, 60), Col(10, 150, 220), Col(20, 300, 380)], [TableRegion], null, () => RuleAt(60)));
+        Assert.Equal([0, 10, 20, 1, 11, 21, 2, 12, 22, 3, 13, 23, 4, 14, 24], t.Lines.SelectMany(l => l.Fragments).Select(f => f.Strip));
+    }
+
+    [Fact]
+    public void ABlockThatWasReadAsAFieldBelongsToTheTableOnlyWhenOneBandHoldsIt()
+    {
+        // The first column's top three lines came out of the reading order as a standalone block (a wrapped paragraph reads like a field).
+        List<OrderBlock> Make(int standaloneLines) =>
+        [
+            new OrderBlock { IsTable = false, IsStandalone = true, Columns = 0, Lines = Column(0, 0, 60, new (double, int)[] { (0, 0), (20, 1), (40, 2), (80, 3) }[..standaloneLines]).Lines },
+            new OrderBlock { IsTable = false, Columns = 0, Lines = Column(10, 150, 220, (0, 0), (20, 1), (80, 3)).Lines },
+            new OrderBlock { IsTable = false, Columns = 0, Lines = Column(20, 300, 380, (0, 0), (80, 3)).Lines },
+        ];
+
+        // Within the first band: part of the table, which is read cell by cell.
+        OrderBlock t = Assert.Single(TableStructure.Infer(Make(3), [TableRegion], null, () => RuleAt(60)));
+        Assert.Equal(2, t.Rows);
+        Assert.Equal([0, 1, 2, 10, 11, 20, 12, 21], t.Lines.SelectMany(l => l.Fragments).Select(f => f.Strip));
+        // A rule runs through it (a label above a field's box, the value in it): still a field of a form, left out of the table.
+        Assert.Equal(2, TableStructure.Infer(Make(4), [TableRegion], null, () => RuleAt(60)).Count);
+        // Without rules a standalone block stays out, as before.
+        Assert.Equal(2, TableStructure.Infer(Make(3), [TableRegion], null, () => []).Count);
+    }
+
+    [Fact]
+    public void RowsOfOneLineEachAreTheSameWithOrWithoutRules()
+    {
+        List<OrderBlock> Make() =>
+        [
+            new OrderBlock { IsTable = false, Columns = 0, Lines = Column(0, 0, 60, (0, 0), (40, 1), (80, 2)).Lines },
+            new OrderBlock { IsTable = false, Columns = 0, Lines = Column(10, 300, 380, (0, 0), (40, 1), (80, 2)).Lines },
+        ];
+        OrderBlock plain = Assert.Single(TableStructure.Infer(Make(), [TableRegion], null, () => []));
+        OrderBlock ruled = Assert.Single(TableStructure.Infer(Make(), [TableRegion], null, () => [new RuleLine(30, -10, 400, 2), new RuleLine(70, -10, 400, 2)]));
+        Assert.Equal(plain.Rows, ruled.Rows);
+        Assert.Equal(plain.Lines.SelectMany(l => l.Fragments).Select(f => f.Strip), ruled.Lines.SelectMany(l => l.Fragments).Select(f => f.Strip));
+        Assert.Equal(plain.Cells!.Select(c => (c.Row, c.Column, c.ColumnSpan)), ruled.Cells!.Select(c => (c.Row, c.Column, c.ColumnSpan)));
+    }
+
+    [Fact]
+    public void ASpanningLineOverCellsOfOtherLinesKeepsTheBandReadLineByLine()
+    {
+        // Band one: a title over both columns on line 0, then one line in each column on line 1 and a second line of the left cell on line 2.
+        // The title spans columns the cells below also reach, so the cells cannot be told apart: the band is read by its lines. Three more
+        // bands of one line each keep the title from closing the gap between the columns.
+        var title = new OrderBlock { IsTable = false, Columns = 0, Lines = [new OrderLine { Fragments = [Frag(0, 0, 380, 0, 14, 0)] }] };
+        OrderBlock left = Column(1, 0, 60, (20, 1), (40, 2), (80, 3), (120, 4), (160, 5));
+        OrderBlock middle = Column(30, 150, 220, (20, 1), (80, 3), (120, 4), (160, 5));
+        OrderBlock right = Column(10, 300, 380, (20, 1), (80, 3), (120, 4), (160, 5));
+        var region = new DetectedRegion(3, "table", -10, -10, 400, 200, 0.9f);
+        OrderBlock t = Assert.Single(TableStructure.Infer([title, left, middle, right], [region], null, () => [new RuleLine(60, -10, 400, 2), new RuleLine(100, -10, 400, 2), new RuleLine(140, -10, 400, 2)]));
+        Assert.Equal(4, t.Rows);
+        Assert.Equal([0, 1, 30, 10, 2], t.Lines[0].Fragments.Select(f => f.Strip));
+    }
+
+    [Fact]
+    public void HorizontalRulesThatRunBeyondAGridMeanItIsOnlyPartOfTheTable()
+    {
+        // Verticals at x 100, 200 and 300 only, and horizontal rules that run from 20 to 480: the table has columns outside the verticals.
+        var c = new Canvas(520, 300);
+        foreach (int y in new[] { 40, 100, 160 })
+        {
+            c.H(y, 20, 480);
+        }
+
+        foreach (int x in new[] { 100, 200, 300 })
+        {
+            c.V(x, 40, 162);
+        }
+
+        Assert.Empty(c.Find());
+        // The same grid with rules that stop at its verticals is a grid.
+        var d = new Canvas(520, 300);
+        foreach (int y in new[] { 40, 100, 160 })
+        {
+            d.H(y, 100, 302);
+        }
+
+        foreach (int x in new[] { 100, 200, 300 })
+        {
+            d.V(x, 40, 162);
+        }
+
+        Assert.Single(d.Find());
+    }
+
+    [Fact]
+    public void HorizontalRulesAreFoundWhetherOrNotTheyFormAGrid()
+    {
+        var c = new Canvas(520, 300);
+        c.H(100, 20, 480);
+        c.H(200, 20, 480);
+        (int threshold, bool bright) = LineFinder.Binarize(c.Pixels);
+        List<RuleLine> rules = TableRules.HorizontalRules(c.Pixels, 520, 300, threshold, bright);
+        Assert.Equal(2, rules.Count);
+        Assert.All(rules, r => Assert.True(r.Lo <= 20 && r.Hi >= 480));
+    }
+
     private sealed class FixedSeparators(params double[] at) : ITableSeparators
     {
         public IReadOnlyList<double>? ColumnBoundaries(OcrBox region) => at;

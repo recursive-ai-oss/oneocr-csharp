@@ -242,6 +242,19 @@ internal static class Program
         var clock = Stopwatch.StartNew();
         List<RuleGrid> grids = TableRules.Find(bytes, image.Width, image.Height, threshold, inkIsBright);
         Console.WriteLine($"{grids.Count} grids in {clock.Elapsed.TotalMilliseconds:F1} ms (threshold {threshold}, ink bright {inkIsBright})");
+        if (o.ContainsKey("lines") && TableRules.CollectRuns(bytes, image.Width, image.Height, threshold, inkIsBright, out List<TableRules.Run> hr, out List<TableRules.Run> vr))
+        {
+            foreach (RuleLine l in TableRules.Merge(hr))
+            {
+                Console.WriteLine($"h y {l.Pos} x {l.Lo}-{l.Hi} t {l.Thickness}");
+            }
+
+            foreach (RuleLine l in TableRules.Merge(vr))
+            {
+                Console.WriteLine($"v x {l.Pos} y {l.Lo}-{l.Hi} t {l.Thickness}");
+            }
+        }
+
         foreach (RuleGrid g in grids)
         {
             Console.WriteLine($"rows {g.Rows} columns {g.Columns} cells {g.Cells.Count} box {g.Left},{g.Top}-{g.Right},{g.Bottom} spans {g.Cells.Count(c => c.RowSpan > 1 || c.ColumnSpan > 1)} xs {string.Join(",", g.Xs)} ys {string.Join(",", g.Ys.Take(5))}");

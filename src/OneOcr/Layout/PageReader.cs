@@ -462,7 +462,9 @@ internal static partial class PageReader
         }
 
         long t = StageClock.Start();
-        List<OrderBlock> plan = TableStructure.Infer(TableStructure.Apply(ReadingOrder.Arrange(ordered, cancellationToken), grids), regions, null);
+        List<OrderBlock> plan = TableStructure.Infer(
+            TableStructure.Apply(ReadingOrder.Arrange(ordered, cancellationToken), grids), regions, null,
+            () => TableRules.HorizontalRules(PixelSpans.AsBytes(gray.AsSpan(0, count)), width, height, threshold, inkIsBright));
         OcrPage assembled = Assemble(plan, ordered, regions, pageIndex, width, height, units, diagnostics);
         StageClock.Stop("8f order+tables+assemble", t);
         return assembled;

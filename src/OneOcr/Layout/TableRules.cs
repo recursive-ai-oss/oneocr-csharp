@@ -132,7 +132,31 @@ internal static class TableRules
     // Fraction of an edge a rule must cover for the edge to count as drawn.
     private const double EdgeCoverage = 0.6;
 
-    private readonly record struct Run(int Pos, int Lo, int Hi);
+    // Horizontal rules that run on beyond the outermost vertical rule by this share of the grid's width mark a fragment of a table.
+    private const double FragmentOverhang = 0.25;
+
+    internal readonly record struct Run(int Pos, int Lo, int Hi);
+
+    /// <summary>
+    /// The horizontal rules of a page, whether or not they belong to a ruled grid: the lines that separate the rows of a table whose
+    /// columns are not drawn. Nothing is changed. Empty when the page has no contrast or is noise.
+    /// </summary>
+    /// <param name="gray">The page, row-major.</param>
+    /// <param name="width">Page width.</param>
+    /// <param name="height">Page height.</param>
+    /// <param name="threshold">The page's binarization threshold; negative when the page has no contrast.</param>
+    /// <param name="inkIsBright">Whether ink is the bright side of the threshold.</param>
+    /// <returns>The rules, top to bottom.</returns>
+    public static List<RuleLine> HorizontalRules(ReadOnlySpan<byte> gray, int width, int height, int threshold, bool inkIsBright)
+    {
+        if (threshold < 0 || width < MinRun || height < MinRun || !CollectRuns(gray, width, height, threshold, inkIsBright, out List<Run> hRuns, out _))
+        {
+            return [];
+        }
+
+        List<RuleLine> h = Merge(hRuns);
+        return h.Count > MaxLines ? [] : h;
+    }
 
     /// <summary>Finds the ruled grids of a page. Nothing is changed.</summary>
     /// <param name="gray">The page, row-major.</param>
@@ -195,7 +219,7 @@ internal static class TableRules
 
         foreach ((List<RuleLine> mh, List<RuleLine> mv) in members.Values)
         {
-            if (mh.Count >= 2 && mv.Count >= 2 && Build(mh, mv) is { } grid && InkShare(gray, width, height, grid, threshold, inkIsBright) <= MaxInkShare)
+            if (mh.Count >= 2 && mv.Count >= 2 && Build(mh, mv) is { } grid && !IsFragment(grid, mh) && InkShare(gray, width, height, grid, threshold, inkIsBright) <= MaxInkShare)
             {
                 grids.Add(grid);
             }
@@ -248,6 +272,29 @@ internal static class TableRules
     }
 
     // The share of ink inside the grid's box. A table is mostly paper; a light panel on a dark page, read as ink, is not a table.
+    // A grid built from the verticals of part of a table: at least two of the horizontal rules run on well beyond the outer vertical rules
+    // on one side, so the table has columns whose rules are not drawn (or too faint to be found). Rows and cells of such a grid would leave
+    // those columns out; the table is read without a grid, row bands from the horizontal rules and columns from the gaps.
+    private static bool IsFragment(RuleGrid g, List<RuleLine> horizontal)
+    {
+        int overhang = (int)(FragmentOverhang * (g.Right - g.Left));
+        int left = 0, right = 0;
+        foreach (RuleLine h in horizontal)
+        {
+            if (g.Left - h.Lo > overhang)
+            {
+                left++;
+            }
+
+            if (h.Hi - g.Right > overhang)
+            {
+                right++;
+            }
+        }
+
+        return left >= 2 || right >= 2;
+    }
+
     private static double InkShare(ReadOnlySpan<byte> gray, int width, int height, RuleGrid g, int threshold, bool inkIsBright)
     {
         int x0 = Math.Clamp(g.Left, 0, width), x1 = Math.Clamp(g.Right, x0, width), y0 = Math.Clamp(g.Top, 0, height), y1 = Math.Clamp(g.Bottom, y0, height);
@@ -273,7 +320,7 @@ internal static class TableRules
     // base library and only ink pixels are visited: the columns that were ink in the row above are the only ones whose vertical run can
     // end in this row, so they are tracked in a list instead of every column being looked at in every row. The runs found are the
     // same as a pixel-by-pixel scan finds (Merge sorts them by position, which is unique per run).
-    private static bool CollectRuns(ReadOnlySpan<byte> gray, int width, int height, int threshold, bool inkIsBright, out List<Run> hRuns, out List<Run> vRuns)
+    internal static bool CollectRuns(ReadOnlySpan<byte> gray, int width, int height, int threshold, bool inkIsBright, out List<Run> hRuns, out List<Run> vRuns)
     {
         hRuns = [];
         vRuns = [];
@@ -354,7 +401,7 @@ internal static class TableRules
     }
 
     // Joins runs in adjacent rows (or columns) that overlap by most of the shorter one into lines; thick ones are dropped.
-    private static List<RuleLine> Merge(List<Run> runs)
+    internal static List<RuleLine> Merge(List<Run> runs)
     {
         runs.Sort((a, b) => a.Pos != b.Pos ? a.Pos.CompareTo(b.Pos) : a.Lo.CompareTo(b.Lo));
         var done = new List<RuleLine>();
