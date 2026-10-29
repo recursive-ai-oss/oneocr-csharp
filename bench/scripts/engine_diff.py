@@ -11,13 +11,11 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
-from rapidfuzz.distance import Levenshtein
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from oneocr_bench.score import normalize, score_page, truth_text  # noqa: E402
+from oneocr_bench.score import normalize, score_page, truth_text
 
 
 def word_class(w: str) -> str:
@@ -82,7 +80,7 @@ def main() -> None:
     ours = engines["ours"]["pages"]
     refs = [n for n in engines if n != "ours"]
     if refs:
-        print(f"\npages where our order error is furthest above the best reference (errors = word edit distance; share of the set's order errors):")
+        print("\npages where our order error is furthest above the best reference (errors = word edit distance; share of the set's order errors):")
         total_o = engines["ours"]["tot"]["order_errors"]
         rows = []
         for pid, (s, _, _) in ours.items():
@@ -93,7 +91,6 @@ def main() -> None:
         print(f"  sum of per-page excess over the best reference: {gap} errors = {100 * gap / engines['ours']['tot']['ref_words']:.2f} pp of order; our total {100 * total_o / engines['ours']['tot']['ref_words']:.2f}")
         for ex, pid, o, b, n, we in rows[: a.top]:
             print(f"  {pid}: ours {o} ({100 * o / n:.1f}%), best ref {b} ({100 * b / n:.1f}%), words {n}, our content word errors {we}")
-        cum = 0
         print("  cumulative excess by page rank: " + ", ".join(f"top{k}={100 * sum(max(r[0], 0) for r in rows[:k]) / engines['ours']['tot']['ref_words']:.2f}pp" for k in (1, 3, 5, 10)))
 
     if a.classes and refs:
