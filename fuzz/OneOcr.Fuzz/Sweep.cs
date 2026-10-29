@@ -15,7 +15,7 @@ namespace OneOcr.Fuzz;
 /// </summary>
 internal static class Sweep
 {
-    private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp", ".seed"];
+    private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"];
 
     public static int Run(string[] args)
     {
@@ -119,12 +119,16 @@ internal static class Sweep
 
     private static Action<CancellationToken>? Plan(string file, string ext, OcrEngine engine, OcrOptions options, PdfOcrOptions pdfOptions)
     {
-        if (ext == ".pdf")
+        // Corpus files carry no useful extension; their target directory says what they are.
+        string[] parts = file.Split('/');
+        bool pdfCorpus = parts.Contains("pdf") && (parts.Contains("corpus") || parts.Contains("min"));
+        bool imageCorpus = (parts.Contains("image") || parts.Contains("image-real")) && (parts.Contains("corpus") || parts.Contains("min"));
+        if (ext == ".pdf" || pdfCorpus)
         {
             return ct => RoundTrip(PdfOcr.Read(File.ReadAllBytes(file), engine, pdfOptions, ct));
         }
 
-        if (ext == ".json")
+        if (ext == ".json" && !imageCorpus)
         {
             bool review = Path.GetFileName(file).StartsWith("review", StringComparison.Ordinal);
             return _ =>
@@ -141,7 +145,7 @@ internal static class Sweep
             };
         }
 
-        if (ImageExtensions.Contains(ext) || file.Contains("corpus", StringComparison.Ordinal) && (file.Contains("/image", StringComparison.Ordinal) || file.Contains("/image-real", StringComparison.Ordinal)))
+        if (imageCorpus || (ImageExtensions.Contains(ext) && ext != ".seed"))
         {
             return ct => RoundTrip([engine.Ocr(Image.Load(File.ReadAllBytes(file)), options, ct)]);
         }
