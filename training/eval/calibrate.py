@@ -33,10 +33,13 @@ def word_samples(rows: list[dict]) -> list[tuple[str, float, bool]]:
     for r in rows:
         ref, hyp = r["ref"].split(), [w["text"] for w in r["words"]]
         ok = [False] * len(hyp)
-        for op in Levenshtein.opcodes(ref, hyp):
-            if op.tag == "equal":
-                for j in range(op.dest_start, op.dest_end):
-                    ok[j] = True
+        if "correct" in r:  # page-level rows (eval/page_samples.py) carry their own verdict per word
+            ok = [bool(v) for v in r["correct"]]
+        else:
+            for op in Levenshtein.opcodes(ref, hyp):
+                if op.tag == "equal":
+                    for j in range(op.dest_start, op.dest_end):
+                        ok[j] = True
         out += [(SCRIPTS[w["script"]], w["conf"], ok[j]) for j, w in enumerate(r["words"])]
     return out
 

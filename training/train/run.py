@@ -312,7 +312,11 @@ def main() -> None:
             # fine-tune: mean CER relative to the starting model on each validation set, plus a penalty for the line set getting worse
             if ev:
                 base = tc["val_baseline"]
-                score = (v["cer"] / base["val"] + sum(r["cer"] / base[k] for k, r in ev.items())) / (1 + len(ev))
+                # val_weights: optional per-set weight (default 1) so the sets a fine-tune is aimed at count for more
+                w = tc.get("val_weights", {})
+                score = (v["cer"] / base["val"] + sum(w.get(k, 1.0) * r["cer"] / base[k] for k, r in ev.items())) / (
+                    1 + sum(w.get(k, 1.0) for k in ev)
+                )
                 score += tc.get("val_penalty", 3.0) * max(0.0, v["cer"] / base["val"] - 1.0)
                 # hard guard: a named set more than `tol` worse than the starting model cannot give the best checkpoint
                 cur = {"val": v["cer"]} | {k: r["cer"] for k, r in ev.items()}
