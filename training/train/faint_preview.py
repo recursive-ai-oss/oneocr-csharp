@@ -21,6 +21,7 @@ def main() -> None:
     ap.add_argument("windows")
     ap.add_argument("out")
     ap.add_argument("--n", type=int, default=12)
+    ap.add_argument("--marks", action="store_true", help="draw the faint non-text marks too and save the windows")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -31,6 +32,9 @@ def main() -> None:
         r = rng.choice(recs)
         img = np.asarray(Image.open(r["path"]).convert("L"))
         faded = DetDataset.faint_text(img, rng)
+        if a.marks:
+            q = np.array([[[x0, y0], [x1, y0], [x1, y1], [x0, y1]] for x0, y0, x1, y1 in r["lines"]], np.float32)
+            faded = DetDataset.faint_marks(faded, q, np.ones(img.shape, np.uint8), rng)
         for x0, y0, x1, y1 in r["lines"]:
             if y1 - y0 > 20:
                 continue

@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 from torch.utils.data import Dataset
 
 CLASSES = ["text", "title", "list", "table", "figure", "header_footer", "form_field", "checkbox"]
@@ -273,6 +273,9 @@ class DetDataset(Dataset):
         if self.train:
             if rng.random() < rec.get("faint_p", 0.0):
                 canvas = self.faint_text(canvas, rng)
+            if wq is not None and rng.random() < rec.get("marks_p", 0.0):
+                q2, _ = clip(wq, 0.0)
+                canvas = self.faint_marks(canvas, q2, okc, rng)
             canvas = self._photometric(canvas, rng)
         out = {
             "image": torch.from_numpy(canvas)[None],
@@ -296,6 +299,57 @@ class DetDataset(Dataset):
         return out
 
     @staticmethod
+    def faint_marks(a: np.ndarray, quads: np.ndarray, ok: np.ndarray, rng: random.Random) -> np.ndarray:
+        """Draws low-contrast things that are not text (icons, chevrons, hairlines, dots, skeleton bars, soft shadows) where no
+        line box or ignore region is, so the detector learns that faint structure of text height is background.
+
+        Truth stays exact by construction: nothing here is a word and the marks never touch a labelled line.
+        """
+        h, w = a.shape
+        img = Image.fromarray(a)
+        d = ImageDraw.Draw(img)
+        boxes = np.concatenate([quads.min(1), quads.max(1)], 1) if len(quads) else np.zeros((0, 4), np.float32)
+        for _ in range(rng.randint(4, 14)):
+            sz = rng.randint(7, 18)
+            for _try in range(6):
+                x, y = rng.randint(2, max(3, w - 2 * sz - 40)), rng.randint(2, max(3, h - sz - 4))
+                ww = sz if rng.random() < 0.6 else rng.randint(sz, 6 * sz)  # bars and rules are wider than icons
+                x1, y1 = min(w - 1, x + ww), min(h - 1, y + sz)
+                if len(boxes) and (
+                    (boxes[:, 0] < x1 + 3) & (boxes[:, 2] > x - 3) & (boxes[:, 1] < y1 + 3) & (boxes[:, 3] > y - 3)
+                ).any():
+                    continue
+                if not ok[y : y1 + 1, x : x1 + 1].all():
+                    continue
+                bg = int(np.median(np.asarray(img)[y : y1 + 1, x : x1 + 1]))
+                delta = rng.uniform(6, 40) * rng.choice([-1, 1])
+                v = int(np.clip(bg + delta, 0, 255))
+                kind = rng.choice(["box", "circle", "chevron", "rule", "bars", "dot", "check", "shadow"])
+                if kind == "box":
+                    d.rectangle([x, y, x1, y1], outline=v, width=rng.choice([1, 1, 2]))
+                elif kind == "circle":
+                    d.ellipse([x, y, x + sz, y1], outline=v, width=rng.choice([1, 2]))
+                elif kind == "chevron":
+                    d.line([x, y, x + sz // 2, y1, x + sz, y], fill=v, width=rng.choice([1, 2]))
+                elif kind == "rule":
+                    d.line([x, y + sz // 2, x1, y + sz // 2], fill=v, width=rng.choice([1, 2]))
+                elif kind == "bars":  # skeleton loader: short filled bars standing where text would be
+                    for r in range(rng.randint(1, 3)):
+                        yy = y + r * (sz // 2 + 2)
+                        if yy + sz // 3 < h:
+                            d.rectangle([x, yy, x + rng.randint(sz, 5 * sz), yy + max(2, sz // 3)], fill=v)
+                elif kind == "dot":
+                    d.ellipse([x, y, x + sz // 3 + 1, y + sz // 3 + 1], fill=v)
+                elif kind == "check":
+                    d.line([x, y + sz // 2, x + sz // 3, y1, x + sz, y], fill=v, width=rng.choice([1, 2]))
+                else:  # soft shadow under an edge
+                    patch = np.asarray(img)[y : y1 + 1, x : x1 + 1].astype(np.float32)
+                    patch = patch + np.linspace(delta / 2, 0, y1 - y + 1, dtype=np.float32)[:, None]
+                    img.paste(Image.fromarray(np.clip(patch, 0, 255).astype(np.uint8)), (x, y))
+                break
+        return np.asarray(img)
+
+    @staticmethod
     def faint_text(a: np.ndarray, rng: random.Random) -> np.ndarray:
         """Lower the contrast of text against its own background while keeping the labels exact.
 
@@ -306,7 +360,7 @@ class DetDataset(Dataset):
         created where the labels say there is no text.
         """
         x = a.astype(np.float32)
-        c = rng.uniform(0.04, 0.20)
+        c = rng.uniform(0.06, 0.20)
         if rng.random() < 0.5:
             bg = np.asarray(Image.fromarray(a).filter(ImageFilter.GaussianBlur(rng.uniform(4.0, 8.0))), np.float32)
         else:
