@@ -1,6 +1,6 @@
-# Draft: `dbnet-lite-v0` and `dbnet-lite-v1` container architectures
+# `dbnet-lite-v0` and `dbnet-lite-v1` container architectures
 
-A proposed `architecture` section for the model container, for a runtime that reads the page detector. The trainer (`train.detect`),
+The training-side description of the `architecture` section of the model container for the page detector; the runtime's normative specs are `docs/spec/detector-v0.md` and `docs/spec/detector-v1.md`. The trainer (`train.detect`),
 the exporter (`export.dbnet`) and the forward parity fixtures (`parity.dbnet_fixtures`) already produce files in this shape using
 the container's existing envelope (version 1: magic, manifest, 64-byte-aligned fp16 tensors); only the architecture id, the layer
 graph, the pre- and post-processing below are new. Reference implementation of the graph on plain tensors:
