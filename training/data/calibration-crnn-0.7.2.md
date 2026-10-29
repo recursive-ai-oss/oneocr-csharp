@@ -1,7 +1,7 @@
 # Confidence calibration of crnn-v0 0.7.2: data manifest
 
 0.7.2 has the weights of 0.7.1 unchanged (the tensor region of the container is byte-identical) and a refitted `calibration` member.
-Only the calibration changed. Method: `eval/calibrate.py fit` (isotonic map per script, at most 64 knots), page-level samples from
+Only the calibration changed. This variant was not shipped: the bundled recognizer keeps 0.7.1's decision calibration and adds only a reporting curve (`calibration-crnn-0.7.3.md`). Method: `eval/calibrate.py fit` (isotonic map per script, at most 64 knots), page-level samples from
 `eval/page_samples.py`.
 
 ## Fit samples (calibration splits only)

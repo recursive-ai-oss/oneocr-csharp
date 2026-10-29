@@ -28,13 +28,13 @@ public class LeaderTests
         return page;
     }
 
-    private static void Rect(byte[] page, int x, int y, int w, int h)
+    private static void Rect(byte[] page, int x, int y, int w, int h, byte value = 0)
     {
         for (int j = y; j < y + h; j++)
         {
             for (int i = x; i < x + w; i++)
             {
-                page[(j * W) + i] = 0;
+                page[(j * W) + i] = value;
             }
         }
     }
@@ -62,6 +62,87 @@ public class LeaderTests
         Leader? leader = Find(Page(50, 12, 15));
         Assert.NotNull(leader);
         Assert.True(leader.Spaced);
+    }
+
+    [Fact]
+    public void DotsFarApartAreASpacedLeader()
+    {
+        // The stops of a form set half an em apart are 1.5 line heights apart when the box holds only ascenders and the stops are small.
+        Leader? leader = Find(Page(50, 36, 6));
+        Assert.NotNull(leader);
+        Assert.True(leader.Spaced);
+        Assert.Equal(6, leader.Count);
+    }
+
+    [Fact]
+    public void GrainBetweenTheDotsDoesNotEndTheRun()
+    {
+        // One- and two-pixel specks of a scan lie between the dots.
+        Leader? leader = Find(Page(50, 12, 15, extra: p =>
+        {
+            for (int k = 0; k < 14; k++)
+            {
+                Rect(p, 56 + (k * 12), 18, 1, 1);
+                Rect(p, 58 + (k * 12), 24, 2, 1);
+            }
+        }));
+        Assert.NotNull(leader);
+        Assert.Equal(15, leader.Count);
+    }
+
+    [Fact]
+    public void SmallLettersAreNotALeader()
+    {
+        // A line of text set so small that its x-height letters are the size of dots: seven of them happen to stand at an even pitch, but
+        // ten more letters of the same size on the same baseline do not. Together with the taller letters they are a line of text.
+        byte[] page = Page(100, 8, 7, extra: p =>
+        {
+            foreach (int x in new[] { 40, 52, 58, 73, 78, 170, 182, 188, 203, 208 })
+            {
+                Rect(p, x, 20, 4, 4);
+            }
+        });
+        Assert.Null(Find(page));
+        Assert.NotNull(Find(Page(100, 8, 7)));
+    }
+
+    [Fact]
+    public void FaintDotsAreSeenOnlyByTheFaintSearch()
+    {
+        // Dots at gray 170 are paler than the page's threshold (128) and lie beyond the end of the line's box.
+        byte[] page = Page(120, 12, 0, extra: p =>
+        {
+            for (int k = 0; k < 12; k++)
+            {
+                Rect(p, 120 + (k * 12), 21, 3, 3, 170);
+            }
+        });
+        var box = new LineBox(0, 5, 110, 25);
+        Assert.Null(LeaderFinder.Find(page, W, H, box, 128, false, 20));
+        Leader? leader = LeaderFinder.FindFaint(page, W, H, box, 128, false, 20, W);
+        Assert.NotNull(leader);
+        Assert.Equal(12, leader.Count);
+        Assert.Equal(110, leader.Left!.Value.Width);
+        Assert.Equal(0, leader.Left!.Value.X);
+    }
+
+    [Fact]
+    public void TheFaintSearchStopsAtTheNextStrip()
+    {
+        byte[] page = Page(120, 12, 0, extra: p =>
+        {
+            for (int k = 0; k < 12; k++)
+            {
+                Rect(p, 120 + (k * 12), 21, 3, 3, 170);
+            }
+        });
+        Assert.Null(LeaderFinder.FindFaint(page, W, H, new LineBox(0, 5, 110, 25), 128, false, 20, 160));
+    }
+
+    [Fact]
+    public void LargeTypeIsNotSearchedForFaintDots()
+    {
+        Assert.Null(LeaderFinder.FindFaint(Page(120, 12, 12), W, H, new LineBox(0, 5, 110, 25), 128, false, LeaderFinder.MaxFaintLineHeight + 1, W));
     }
 
     [Theory]
@@ -94,6 +175,18 @@ public class LeaderTests
         Assert.NotNull(leader);
         Assert.Equal(20, leader.Count);
         Assert.Equal(33, leader.From);
+    }
+
+    [Fact]
+    public void AFullStopThatPairsWithTheFirstDotDoesNotHideIt()
+    {
+        // A full stop 20 pixels before the leader is a possible partner of its first dot (the pitch limit is wide), but the third dot
+        // does not fit that pitch. The failed pair must not use up the first dot.
+        byte[] page = Page(50, 8, 20, extra: p => Rect(p, 30, 21, 3, 3));
+        Leader? leader = Find(page);
+        Assert.NotNull(leader);
+        Assert.Equal(20, leader.Count);
+        Assert.Equal(50, leader.From);
     }
 
     [Fact]

@@ -403,16 +403,34 @@ line is searched for a leader from its pixels before it is read; a line with one
 and the leader is put back as words, the way a text layer has it.
 
 **Finding.** In the line's ink box (8-connected components of the page's ink at the line's own threshold; more than 20,000 components
-means the line is not searched; lines narrower than 3 line heights are not searched), a *dot* is a component 2 pixels or more on each
-side, at most 0.3 of the line height wide and high, with width/height between 0.5 and 2, in the lower half of the box. Neighbouring dots
-in left-to-right order form a run while each has the first dot's baseline (within max(2 px, 0.3 of its size)) and size (ratio 0.6 to 1.7)
-and sits one pitch from the last, within 30% of the run's pitch (the second dot: 1.3 dot widths to 0.6 line heights). A gap of two or
-three pitches between two runs of the same pitch is a dot too faint to see, and the runs join. A leader has at least 6 dots, 6 of them
-seen, a pitch of at most 0.6 line heights and at least 1.3 mean dot widths. When its first dot touches the ink in front of it (less than
-half a pitch away), that dot is the sentence's full stop and is not counted. A run that reaches the right edge of the box continues: the
-search window grows by 4 line heights until the run ends inside it, bounded by the page width. The ink left of the run and the ink right
-of it (up to the first gap wider than 1.5 line heights) become the boxes of the two parts. Only upright lines of the ordinary finder are
-searched; tilted lines and lines recovered from faint text are read as before.
+means the line is not searched; lines narrower than 3 line heights are not searched), components whose box covers 3 pixels or fewer
+are grain and are left out (they stand between dots in a scan and must not end a run). A *dot* is a component 2 pixels or more on
+each side, at most 0.3 of the line height wide and high, with width/height between 0.5 and 2, in the lower half of the box.
+Neighbouring dots in left-to-right order form a run while each has the first dot's baseline (within max(2 px, 0.3 of its size)) and
+size (ratio 0.6 to 1.7) and sits one pitch from the last, within 30% of the run's pitch (the second dot: 1.3 dot widths to 2 line
+heights). A pair of dots that does not grow into a run of at least 3 uses up neither of its dots: the next candidate
+starts at the second one (a full stop and the first dot of a leader pair up under the wide limit, and the leader must still start at
+its first dot). A gap of two or three pitches between two runs of the same pitch is a dot too faint to see, and the runs join. A leader has
+at least 6 dots, 6 of them seen, a pitch of at most 2 line heights (stops set half an em apart are about 1.5 line heights apart when
+the box holds no descenders) and at least 1.3 mean dot widths. When its first dot touches the ink in front of it (less than half a
+pitch away), that dot is the sentence's full stop and is not counted. A run that reaches the right edge of the box continues: the
+search window grows by 4 line heights until the run ends inside it, bounded by the page width. The ink left of the run and the ink
+right of it (up to the first gap wider than 1.5 line heights) become the boxes of the two parts. Only upright lines of the ordinary
+finder are searched; tilted lines and lines recovered from faint text are read as before.
+
+Two checks keep small text from being taken for a leader. Other components in the box are *strays* when they are no bigger than 1.5
+times the dots (plus a pixel) and stand on their baseline, and *letters* otherwise; components of other runs of dots count as
+neither. A run with more strays than max(2, a quarter of its dots) is a few letters of a line of text set as small as dots, and is
+not a leader. A box shorter than 0.6 line heights is taken to hold the leader alone (the detector cut it into a strip of its own);
+it may hold at most max(4, a third of the dots) letters.
+
+**Faint leaders.** On a page whose typical line is at most 48 pixels high (up to about 200 to 250 dots per inch), the dots of a
+leader are one or two pixels wide and blur takes their middle below the page's threshold, so the search above does not see them;
+and the detector, which looks at a shrunk page, often boxes the text up to the dots and not the dots. For each upright line in which
+the search found nothing, the search is made again over the line's box and 16 line heights past its right end, with the threshold
+halfway from the page's threshold to the paper, but not past the left edge of the next strip on the same row (a strip lying mostly
+right of the line's middle and sharing more than half of the smaller height), which is read on its own. The rules for a leader are
+the same. The line's own box up to the first dot is the left part. Pages with taller lines do not make this second search.
 
 **Reading.** The crop of each part has the columns of the leader (and of the other part) painted with the crop's median grey before it
 is scaled. Detector strips that lie inside an extended leader are not read again. Pages and lines without a leader take the old path and
@@ -424,8 +442,8 @@ read it) and a box around the run. If the page number starts within 2.5 pitches 
 least 0.37 of the line height is *spaced* (`. . . .`: a full stop and a space advance about half an em, a full stop alone about a quarter
 of one): each dot is a word of its own, and the number stays a word of its own. Words from the two parts are joined in reading order.
 
-The constants were set on generated contents pages, lists of figures and tables in training-pool fonts, in both styles; they are not
-tuned on the benchmark sets. The step reads pixels only and adds no parser.
+The constants were set on generated contents pages, lists of figures and tables in training-pool fonts, in both styles, at 300 dots
+per inch and again reduced to 150 and 200 with blur and JPEG. The step reads pixels only and adds no parser.
 
 ## Noise filter
 

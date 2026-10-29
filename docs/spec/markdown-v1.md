@@ -11,7 +11,7 @@ ends with one line feed, or is empty when nothing was written. Pages of a sequen
 between pages that have content.
 
 Roles come from the page: `Block.Role` (header, footer), the first region that lists the block in `BlockIndices` (title, text,
-list, table, figure, header, footer, …), and table entries. A page from the local reader has none of them yet; everything below
+list, table, figure, header, footer, …), and table entries. A page read without the page detector has no regions and no block roles; everything below
 works without them, using sizes and positions.
 
 1. **Furniture is dropped.** A block with the header or footer role, or in a header or footer region, is left out unless

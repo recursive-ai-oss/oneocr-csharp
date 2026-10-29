@@ -1,6 +1,6 @@
 # docextract-v0: architecture of the document extraction model
 
-Draft of the model-container architecture `docextract-v0`: a small layout-aware transformer over the words of a page. It reads words
+Training-side description of the model-container architecture `docextract-v0` (the runtime's normative spec is `docs/spec/docextract-v0.md`): a small layout-aware transformer over the words of a page. It reads words
 (text and box) and labels them; deterministic code assembles the labels into JSON, so the model cannot produce a value that is not on
 the page. Reference implementation: `models/docextract.py` (training graph), `export/docextract.py` (`Reference`, the exported graph on
 plain tensors), `models/docextract_assemble.py` (assembly). Parity fixtures: `parity/docextract_fixtures.py`.

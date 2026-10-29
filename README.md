@@ -6,7 +6,6 @@ receipts as fields, and optional LLM vision that is checked against the page.** 
 dependency beyond .NET itself (and the OneImage / OnePDF libraries for pixels and PDFs). No native
 binaries, no `tessdata`, no network unless you configure a provider.
 
-[![NuGet](https://img.shields.io/nuget/v/RecursiveAI.OneOcr)](https://www.nuget.org/packages/RecursiveAI.OneOcr)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4)](#install)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 
@@ -16,8 +15,8 @@ machine; the method is written next to the tables so you can repeat it.
 
 ## Why OneOcr
 
-- **Free, fast, local.** The recognizer (5 MB), the page detector (1.4 MB) and the word model
-  (1.4 MB) ship inside the `RecursiveAI.OneOcr.Models` package and run on the CPU through our own
+- **Free, fast, local.** The recognizer (5 MB), the page detector (1.4 MB) and the two word models
+  (1.4 MB and 1.3 MB) ship inside the `RecursiveAI.OneOcr.Models` package and run on the CPU through our own
   SIMD kernels. Scripts: Latin (including the EU languages, Turkish and Vietnamese), Greek and
   Cyrillic in one model.
 - **A page, not a string.** The result is an `OcrPage`: blocks, lines, words and characters with
@@ -148,7 +147,7 @@ foreach (OcrBlock block in page.Blocks)
 }
 ```
 
-Other `OcrOptions` switches are `DropNoise`, `FixWordSpacing`, `FixDigitLookalikes` (reads the
+Other `OcrOptions` switches are `SearchAngle` (re-reads a badly tilted photo at other page angles when the first reading is weak), `DropNoise`, `FixWordSpacing`, `FixDigitLookalikes` (reads the
 letter `O` as `0` inside identifiers and dates) and `FixSeparators` (reads a middle dot, bullet or
 vertical bar between words from its pixels when the network gave it as a hyphen or another small
 mark). These two are the only steps after recognition that change a character. All are on by
@@ -666,7 +665,10 @@ are reported apart from the synthetic rows because their truth and their difficu
   output word. Reading-order error is the edit distance over the word sequence divided by the
   number of truth words (it includes recognition errors, so read it next to WER). Text is
   normalized by NFC, typographic quotes and dashes folded to ASCII, ligatures split, whitespace
-  collapsed; case and punctuation are kept. Receipts have partial truth (CORD leaves store and
+  collapsed; case and punctuation are kept; two apostrophes in a row count as one double quote. The truth
+  word sequence is built from the truth's word boxes where it has them (words a page wraps at a hyphen stay
+  separate, a punctuation mark touching a word joins it), the same for every engine; the older text-based
+  scoring is reported beside it. Receipts have partial truth (CORD leaves store and
   payment blocks unannotated), so they are judged on recall-CER and recall-WER, the error over truth
   words only. Word-box F1 uses boxes tight to the printed ink. ECE uses 15 equal-width bins over
   word confidence, a word being correct when it matches its truth exactly.
@@ -680,7 +682,7 @@ are reported apart from the synthetic rows because their truth and their difficu
   docTR (default and mobile) and Apple Vision (accurate) run as released packages with their stock
   models. Their output is a comparison row, never training data.
 - **Rule.** An engine is judged against the best value any measured engine reaches per metric. On
-  clean print, an error within 0.2 percentage points of the best is reported as a tie.
+  clean print, an error within 0.05 percentage points of the best is reported as a tie.
 - **Speed.** One process per run, the shipped `oneocr ocr` published NativeAOT for the host, three
   runs, mean; peak RSS from the operating system. Tesseract is timed the same way at one thread and
   at the same thread count as OneOcr.
