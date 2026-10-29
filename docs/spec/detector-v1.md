@@ -145,3 +145,42 @@ so the forward-pass parity fixtures of 0.2.1 apply unchanged. Only the page-leve
 `dbnet-lite-v1` 0.3.0 has the 0.2.x architecture and tensor layout with new weights (a fine-tune of 0.2.1 on windows of real web pages and
 light-on-dark synthetic pages, blended 1:3 with its starting weights). Its page rule is `rule_sigma_min` 0.1235, `rule_junk_max`
 1,000,000 (the junk-density condition never holds back the rule) and `rule_text_threshold` 0.5. It has its own forward-pass fixtures.
+
+## Faint text on dark backgrounds (post-processing, any detector version)
+
+Light text a few percent brighter than a dark background (small menu and footer text on dark bands) reaches the text map with
+probabilities of only a few percent, below `text_threshold`, so the ordinary labelling misses it. A model may carry a second,
+much lower threshold that is used only where the text sits on a dark background. All five members of `config.postprocess` are given
+together, or none (some of them: the file is rejected). Without them nothing below applies and the output is as before.
+
+| member | meaning |
+|---|---|
+| `faint_text_threshold` | text probability above which a cell is on in the second labelling (0.02 in the first model) |
+| `faint_bg_max` | largest median gray value (0 to 255) of a candidate's cell box that counts as a dark background (110) |
+| `faint_min_cells` | fewest cells of a candidate (6) |
+| `faint_min_aspect` | smallest width over height of a candidate's cell box (1.5) |
+| `faint_min_confidence` | smallest calibrated word confidence kept from a recovered line (0.9) |
+
+**Candidates.** Skipped on pages where the page-conditional rule above chose its threshold (camera pages). Otherwise: the cells of every
+ordinary component and their 8-neighbours are removed from the map (so a line's own fringe is never a candidate), the rest is labelled
+with `faint_text_threshold` (4-connected, as the ordinary labelling) and a component is a candidate when it has at least
+`faint_min_cells` cells (and at least the ordinary minimum), its cell box is at least `faint_min_aspect` times as wide as tall, it does not
+overlap an ordinary component's cell box by more than a third of the smaller box, and the median gray value of the pixels under its cell box
+(detector-scale page, one cell is two pixels) is at most `faint_bg_max`.
+
+**Extension.** The map holds only the most visible stretch of a faint line, so the candidate is followed along its rows on the gray page: a column of
+the candidate's rows has ink when one of its pixels is at least 5 above the median and the column's mean is not above `faint_bg_max`; the box grows
+left and right over ink columns, across gaps of up to its own height (at least 6 pixels), and stops before an ordinary line that shares at least half its
+rows. The box is then grown like an ordinary line (`k * text_expand` of its shorter side), and dropped when it covers more than a quarter of the smaller of
+itself and an ordinary line's grown box.
+
+**Order.** Recovered lines come after the ordinary lines; they take no part in snapping layout regions to lines.
+
+**Reading.** A recovered line is cropped and recognized like any other, but (a) it takes no part in the page's typical line height, so the other
+lines are cropped exactly as without it, (b) words under `faint_min_confidence` and single-character words are dropped from it, (c) a line that has no
+word left, or whose ink box covers more than a quarter of the smaller of itself and an ordinary line's ink box, is dropped. The page therefore
+changes only where a recovered line survives.
+
+The script `training/export/add_faint_rule.py` writes the five members into a container's manifest and leaves the tensors untouched.
+Constants were chosen on held-out tune pages only (screenshots of real pages, synthetic screens, scans, layouts, phone pages and receipts): on every
+tune set except the real-screenshot one the output is byte-identical to the container without the members.

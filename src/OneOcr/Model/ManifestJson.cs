@@ -135,6 +135,26 @@ internal sealed class PostprocessDto
     /// <summary>Text threshold used on pages the rule selects.</summary>
     [JsonPropertyName("rule_text_threshold")]
     public double? RuleTextThreshold { get; init; }
+
+    /// <summary>Probability above which a cell is on in the faint-text second pass; the recovery needs all five <c>faint_*</c> members.</summary>
+    [JsonPropertyName("faint_text_threshold")]
+    public double? FaintTextThreshold { get; init; }
+
+    /// <summary>Largest median gray value (0 to 255) of a candidate's box that still counts as a dark background.</summary>
+    [JsonPropertyName("faint_bg_max")]
+    public int? FaintBackgroundMax { get; init; }
+
+    /// <summary>Fewest text-map cells of a recovered line.</summary>
+    [JsonPropertyName("faint_min_cells")]
+    public int? FaintMinCells { get; init; }
+
+    /// <summary>Smallest width over height of a recovered line's cell box.</summary>
+    [JsonPropertyName("faint_min_aspect")]
+    public double? FaintMinAspect { get; init; }
+
+    /// <summary>Smallest word confidence kept from a recovered line.</summary>
+    [JsonPropertyName("faint_min_confidence")]
+    public double? FaintMinConfidence { get; init; }
 }
 
 internal sealed class DocExtractConfigDto

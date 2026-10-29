@@ -67,6 +67,35 @@ internal static partial class PageReader
         }
     }
 
+    // A line recovered from faint text is dropped when it lies over a line that was found the ordinary way: it would read the same text twice.
+    private static void DropRecoveredDuplicates(OrderStrip?[] read, List<StripLine> strips)
+    {
+        for (int i = 0; i < strips.Count; i++)
+        {
+            if (strips[i].MinConfidence <= 0 || read[i] is null)
+            {
+                continue;
+            }
+
+            LineBox a = strips[i].Box;
+            for (int j = 0; j < strips.Count; j++)
+            {
+                if (strips[j].MinConfidence > 0 || read[j] is null)
+                {
+                    continue;
+                }
+
+                LineBox b = strips[j].Box;
+                long w = Math.Min(a.Right, b.Right) - Math.Max(a.X, b.X), h = Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Y, b.Y);
+                if (w > 0 && h > 0 && 4 * w * h > Math.Min((long)a.Width * a.Height, (long)b.Width * b.Height))
+                {
+                    read[i] = null;
+                    break;
+                }
+            }
+        }
+    }
+
     private static OcrPage ReadStrips(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, ResizerPool resizers, Gray8[] gray, int width, int height,
         List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<string> notes, List<RuleGrid> grids, int pageIndex, double? dpi, int degree,
@@ -82,7 +111,19 @@ internal static partial class PageReader
         var boxes = new List<LineBox>(strips.Count);
         foreach (StripLine s in strips)
         {
-            boxes.Add(s.Box);
+            // Lines recovered from faint text do not take part in the page's typical line height, so they never change how the others are cropped.
+            if (s.MinConfidence <= 0)
+            {
+                boxes.Add(s.Box);
+            }
+        }
+
+        if (boxes.Count == 0)
+        {
+            foreach (StripLine s in strips)
+            {
+                boxes.Add(s.Box);
+            }
         }
 
         int typical = LinePreprocessor.TypicalHeight(boxes);
@@ -208,6 +249,16 @@ internal static partial class PageReader
                             : MakeWord(w, page, width, height, lineThreshold, lineBright, ink, crops[index], images[k].Width, includeChars));
                     }
 
+                    // A line recovered from faint text is kept only for the words the recognizer reads with confidence.
+                    if (strips[index].MinConfidence > 0)
+                    {
+                        words.RemoveAll(w => w.Confidence < strips[index].MinConfidence || w.Text.Length < 2);
+                        if (words.Count == 0)
+                        {
+                            continue;
+                        }
+                    }
+
                     read[index] = new OrderStrip
                     {
                         Leaf = strips[index].Leaf,
@@ -232,6 +283,8 @@ internal static partial class PageReader
         }
 
         ParallelRun.For(groups.Count, degree, ReadGroup, cancellationToken);
+
+        DropRecoveredDuplicates(read, strips);
 
         // Noise is removed before ordering, so lines, blocks, tables and text are built from what is left.
         int junkWords = junk is null ? 0 : JunkFilter.Apply(read, junk);

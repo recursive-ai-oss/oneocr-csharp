@@ -162,8 +162,10 @@ internal static class DetectorLines
             for (int i = 0; i < detection.Lines.Count; i++)
             {
                 int leaf = LeafOf(detection, i);
+                int before = strips.Count;
                 if (TiltedLines.TryInkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, strips, leaf, darkInk))
                 {
+                    MarkRecovered(strips, before, detection.Lines[i].MinConfidence);
                     continue;
                 }
 
@@ -171,7 +173,7 @@ internal static class DetectorLines
                 LocalInk? local = InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes, darkInk);
                 foreach (LineBox b in boxes)
                 {
-                    strips.Add(new StripLine(b, leaf, Local: local));
+                    strips.Add(new StripLine(b, leaf, Local: local, MinConfidence: detection.Lines[i].MinConfidence));
                 }
             }
 
@@ -190,6 +192,20 @@ internal static class DetectorLines
             }
 
             throw;
+        }
+    }
+
+    // A line recovered from faint text carries the confidence its words need; its strips (a tilted line makes one) are marked here.
+    private static void MarkRecovered(List<StripLine> strips, int from, float minConfidence)
+    {
+        if (minConfidence <= 0)
+        {
+            return;
+        }
+
+        for (int s = from; s < strips.Count; s++)
+        {
+            strips[s] = strips[s] with { MinConfidence = minConfidence };
         }
     }
 
