@@ -41,6 +41,7 @@ import tempfile
 import time
 import unicodedata
 import urllib.request
+from itertools import zip_longest
 from pathlib import Path
 
 import numpy as np
@@ -64,6 +65,9 @@ SCAN_PER_DOC = 25
 MAX_PER_DOC = {"clean-real": 4, "layout-real": 5, "degraded-real": 5}
 UA = "oneocr-bench-fetch/1.0 (https://github.com/recursive-ai-oss/oneocr-csharp; evaluation documents, a few requests per run)"
 LIG = {"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi", "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st"}
+# A page that carries a third party's notice is not ours to redistribute: drop it, whatever else is true of it.
+COPYRIGHT_NOTICE = re.compile(r"©|\(c\)\s*(?:19|20)\d\d|used with permission|all rights reserved", re.IGNORECASE)
+MAX_FETCH_BYTES = 80_000_000
 BAD_CHARS = re.compile("[\ufffd\ue000-\uf8ff\u0000-\u001f\u007f-\u009f]")
 WORD_RE = re.compile(r'<word xMin="([\d.]+)" yMin="([\d.]+)" xMax="([\d.]+)" yMax="([\d.]+)">(.*?)</word>', re.DOTALL)
 PAGE_RE = re.compile(r'<page width="([\d.]+)" height="([\d.]+)">')
@@ -87,7 +91,9 @@ def fetch(a) -> None:
             if not dest.exists():
                 req = urllib.request.Request(e["url"], headers={"User-Agent": UA})
                 with urllib.request.urlopen(req, timeout=120) as r:
-                    data = r.read()
+                    data = r.read(a.max_bytes + 1)
+                if len(data) > a.max_bytes:
+                    raise ValueError(f"larger than the {a.max_bytes} byte cap")
                 if not data.startswith(b"%PDF"):
                     raise ValueError("not a PDF")
                 dest.write_bytes(data)
@@ -218,6 +224,8 @@ def judge(path: Path, page: int, truth_page: dict) -> tuple[dict | None, str, di
         return None, "too few words", info
     if any(w["b"][2] - w["b"][0] < 1.0 or w["b"][3] - w["b"][1] < 2.0 for w in raw):
         return None, "degenerate word box", info
+    if COPYRIGHT_NOTICE.search(" ".join(w["t"] for w in raw)):
+        return None, "copyright or permission notice in the text", info
     if any(BAD_CHARS.search(w["t"]) for w in raw):
         return None, "replacement, private-use or control characters", info
     if truth_page.get("error"):
@@ -347,7 +355,7 @@ def cut(a) -> None:
             continue
         n = r["pages"]
         rng = random.Random(f"{base}:{r['file']}")
-        pages = sorted(rng.sample(range(1, n + 1), min(n, SCAN_PER_DOC)))
+        pages = sorted(rng.sample(range(1, n + 1), min(n, a.scan_per_doc)))
         tp = dotnet_run(a.pdftruth, path, pages)
         for p in pages:
             if p not in tp:
@@ -376,6 +384,11 @@ def cut(a) -> None:
     def take(set_name: str, pool: list[dict]) -> None:
         pool = [c for c in pool if (c["file"], c["page"]) not in used]
         rng.shuffle(pool)
+        # round-robin over publishers, so that one publisher's many easy pages do not fill the set
+        by_src: dict[str, list[dict]] = {}
+        for c in pool:
+            by_src.setdefault(c["source"], []).append(c)
+        pool = [c for row in zip_longest(*by_src.values()) for c in row if c]
         per: dict[str, int] = {}
         for c in pool:
             if len(chosen[set_name]) >= targets[set_name]:

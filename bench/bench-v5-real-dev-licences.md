@@ -1,0 +1,14 @@
+# bench-v5-real-dev: sources and licence notes
+
+Evaluation pages only; no page of this set may enter any training set. Page text is the PDF's own text layer; pages carrying
+a ©, a "(c) year" sign, "used with permission" or "all rights reserved", and pages with an embedded image, are dropped. The
+PDFs are not redistributed; `bench-v5-real-dev-urls.json` lists every source URL and `bench-v5-real-dev-seeds.json` pins the sampling seed.
+
+| Publisher | PDFs | Notice (primary source) |
+|---|---|---|
+| GPO / govinfo.gov | 149 | 17 U.S.C. 105(a) (law.cornell.edu/uscode/text/17/105): "Copyright protection under this title is not available for any work of the United States Government". GovInfo (govinfo.gov/about/policies#copyright): "public documents can generally be reprinted without legal restriction. However, Government publications may contain copyrighted material which was used with permission of the copyright owner." |
+| IRS (irs.gov/pub/irs-pdf) | 118 | No site-wide copyright statement on a primary IRS page; rests on 17 U.S.C. 105 and the Internal Revenue Manual (irs.gov/irm/part30/irm_30-004-008): "a paper, report, publication or any other work prepared by an employee as part of the employee's official duties" is a work of the United States Government "not afforded copyright protection". |
+| NIST (nvlpubs.nist.gov) | 66 | nist.gov/open/license: "Works authored by NIST employees are not subject to Copyright protection within the United States; foreign rights are reserved." and "Some works published by NIST may have been written by third parties and may be subject to copyright protection." (pages with a third-party notice are dropped by the filter). nist.gov/copyrights-disclaimers: "With the exception of material marked as copyrighted, information presented on NIST sites are considered public information and may be distributed or copied." |
+| NTSB (ntsb.gov) | 20 | ntsb.gov/about/Pages/Website-Policies.aspx (checked 2026-10-26): "... was prepared by employees of the United States Government as part of their official duties and, therefore, is not subject to copyright. By publishing its reports and recommendations and opening public dockets, the NTSB has placed the contents prepared by its staff in the public domain. This material may be freely copied ..." |
+| EIA (eia.gov) | 4 | eia.gov/about/copyrights_reuse.php (checked 2026-10-26): "U.S. government publications are in the public domain and are not subject to copyright protection. You may use and/or distribute any of our data, files, databases, reports, graphics, charts, and other information products that are available on this website." |
+| Federal Reserve (federalreserve.gov) | 4 | federalreserve.gov/disclaimer.htm (checked 2026-10-26): "Copyright/trademark: Unless otherwise indicated, information on Board's website is in the public domain and may be copied and distributed without permission. Please cite to the Board as the source of the information." |
