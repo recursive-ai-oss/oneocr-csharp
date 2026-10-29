@@ -1,10 +1,10 @@
-# Production recognizer, receipt stage (R+): fine-tune from the stage-2 checkpoint with the Gemini/Sonnet-labelled engine crops of generated receipt photos and CORD v2 train crops, mask/quantity and web lines kept
+# Production recognizer, receipt stage (R+): fine-tune from the stage-1 final checkpoint (the stage-2 fine-tune was within noise and is not used) with the Gemini/Sonnet-labelled engine crops of generated receipt photos and CORD v2 train crops, mask/quantity and web lines kept
 # in the mix, and a phone guard in selection (word crops rectified from held-out phone-style pages, no worse than the starting model).
 # Selection on validation only, relative to the starting model. ${ONEOCR_HOME} is the state directory, ${ONEOCR_GEN} the engine crops of the generated
 # receipt photos, ${ONEOCR_FT} the CORD crops, ${ONEOCR_V6} the targeted-error data.
 name: crnn-rplus
 seed: 242
-init_from: ${ONEOCR_HOME}/runs/crnn-prod2/best.pt
+init_from: ${ONEOCR_HOME}/runs/crnn-prod1/final.pt
 arch: crnn-v0
 charset: data/charset-v1.txt
 line_set: configs/lines-v4.yaml
