@@ -123,6 +123,8 @@ def main() -> None:
     rp.add_argument("--seeds")
     rp.add_argument("--pdftruth", help="cut: PdfTruth.dll")
     rp.add_argument("--exclude", help="cut: file of SHA-256 hashes of PDFs that may be in training data")
+    rp.add_argument("--max-bytes", type=int, default=realpdf.MAX_FETCH_BYTES, help="fetch: skip files larger than this")
+    rp.add_argument("--scan-per-doc", type=int, default=realpdf.SCAN_PER_DOC, help="cut: pages sampled per PDF")
     rp.add_argument("--clean", type=int, default=30)
     rp.add_argument("--layout", type=int, default=40)
     rp.add_argument("--degraded", type=int, default=40)
