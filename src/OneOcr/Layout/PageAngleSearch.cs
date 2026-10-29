@@ -66,6 +66,7 @@ internal static class PageAngleSearch
         }
 
         share = all == 0 ? 0 : (double)sure / all;
+        Trace?.Invoke(string.Create(CultureInfo.InvariantCulture, $"weak? share {share:0.####} chars {all} words {page.Words.Count}"));
         return Always || share < WeakShare;
     }
 

@@ -74,10 +74,10 @@ def main() -> None:
         f, _ = misses(truth, Path(a.forced), stem, a.scorer)
         total += n
         best = max(p["scores"].values(), default=0.0)
-        rows.append({"stem": stem, "n": n, "base": b, "forced": f, "gain_ratio": best / p["first"] if p.get("first") else 0.0, **p})
-    print("page    share  cover   ink  chars first   best/first  base forced")
+        rows.append({"stem": stem, "n": n, "base": b, "forced": f, "gain_ratio": best / p["first"] if p.get("first") else 0.0, "angle": max(p["scores"], key=p["scores"].get) if p["scores"] else 0, **p})
+    print("page    share  cover   ink  chars first   best/first  base forced angle")
     for r in sorted(rows, key=lambda r: r["base"] - r["forced"], reverse=True)[:30]:
-        print(f"{r['stem']:7s} {r['share']:.3f} {r.get('cover', -1):.3f} {r.get('ink', -1):.3f} {r['chars']:5d} {r.get('first', 0):7.1f} {r['gain_ratio']:7.2f}  {r['base']:5d} {r['forced']:5d}")
+        print(f"{r['stem']:7s} {r['share']:.3f} {r.get('cover', -1):.3f} {r.get('ink', -1):.3f} {r['chars']:5d} {r.get('first', 0):7.1f} {r['gain_ratio']:7.2f}  {r['base']:5d} {r['forced']:5d} {r['angle']:5d}")
     print("\nworst (forced search loses):")
     for r in sorted(rows, key=lambda r: r["forced"] - r["base"], reverse=True)[:8]:
         print(f"{r['stem']:7s} {r['share']:.3f} {r.get('cover', -1):.3f} {r.get('ink', -1):.3f} {r['chars']:5d} {r.get('first', 0):7.1f} {r['gain_ratio']:7.2f}  {r['base']:5d} {r['forced']:5d}")
