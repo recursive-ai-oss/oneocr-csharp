@@ -290,7 +290,7 @@ Word breaks the network left out are put in by two further rules, after the ink-
   gap (`Genealogy|` `Search`). The same address-word guard as for the ink-gap rule applies. Two bars in a row stay together.
 - *Fused capital I.* A network word that is a capital `I` followed by two or more lower-case ASCII letters is cut after the `I`
   when the stretch is at least `FusedIGap` (4) pixels and `FusedIExtra` (2) more than the line's letter gap, the rest is in the
-  word frequency table with `q >= FrequencyWordQuarter` (24) and the whole word, lower-cased, is not in the table with
+  word frequency table with `q >= FusedIWordQuarter` (20; `agree` has 23) and the whole word, lower-cased, is not in the table with
   `q >= FrequencyMinQuarter` (10) (`Iagree` → `I agree`; `Index` and `Ian` are words and stay). It needs a word frequency table.
 4. *Addresses, web addresses and amounts* (`widest[p] <= CodeGap` = 6 and, on lines with at least `MinSpacesForGap` network spaces,
    at most `FrequencyRatio` times the median word gap): none of these has a space in it, so a break goes where the two words are

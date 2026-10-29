@@ -159,6 +159,17 @@ public class WordSegmenterTests
         Assert.Equal(cut, plan is not null && plan[0]);
     }
 
+    [Theory]
+    [InlineData(54, true)] // a word of a few dozen occurrences in the table's books is common enough to cut after the I
+    [InlineData(10, false)] // a rare word is not
+    public void TheWordAfterAFusedCapitalIDoesNotHaveToBeFrequentInTheBooks(int count, bool cut)
+    {
+        WordFrequencyModel table = Frequencies(("agree", count), ("the", 60000));
+        (int, int)[] ink = [(5, 7), (13, 18), (21, 26), (29, 34), (37, 42), (45, 50)];
+        bool[]? plan = WordSegmenter.Plan(Chars("Iagree", ink), new bool[5], Image(60, ink), 60, 32, null, table);
+        Assert.Equal(cut, plan is not null && plan[0]);
+    }
+
     [Fact]
     public void ACapitalIFusedToAWordIsLeftAloneWhenTheWholeIsAWord()
     {

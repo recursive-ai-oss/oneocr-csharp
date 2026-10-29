@@ -9,6 +9,7 @@ apart from reading errors: the truth indices of the matched words, in the order 
 
   missed          no recognized box covers 30% of the word
   merged-gap      ... and the fused text is exactly the neighbours joined without a space (a space not read)
+  merged-touching ... and the truth words' boxes touch (no printed space: a mark kept in its own DOM node): a truth artifact
   merged-line     one recognized box also covers a neighbour on the same line (fusion across a gap)
   merged-lines    ... a neighbour on another line (fusion across lines)
   split-space     two or more recognized boxes each cover 30% of the word and read together give the word (a space inserted)
@@ -111,6 +112,21 @@ def polarity(img, box) -> str:
     return "light-on-dark" if median < 110 else "dark-on-light"
 
 
+def contrast(img, box) -> float:
+    """Spread between the 1st and 99th percentile of the gray values inside the box, 0..1: how visible the word is."""
+    x0, y0, x1, y1 = (int(round(v)) for v in box)
+    w, h = img.size
+    x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, w), min(y1, h)
+    if x1 - x0 < 1 or y1 - y0 < 1:
+        return 0.0
+    vals = sorted(img.crop((x0, y0, x1, y1)).get_flattened_data())
+    return (vals[min(int(len(vals) * 0.99), len(vals) - 1)] - vals[int(len(vals) * 0.01)]) / 255.0
+
+
+def xbin(c: float) -> str:
+    return "<0.1" if c < 0.1 else "<0.25" if c < 0.25 else "<0.5" if c < 0.5 else ">=0.5"
+
+
 def hbin(h: float) -> str:
     return "<8" if h < 8 else "<12" if h < 12 else "<16" if h < 16 else "<24" if h < 24 else "<40" if h < 40 else ">=40"
 
@@ -154,7 +170,7 @@ def runs(seq, tw):
     return out[:30]
 
 
-def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
+def analyse(eval_root: Path, out_root: Path, name: str, refs: list[Path] | None = None) -> dict:
     truth_dir, pages_dir, hyp_dir = eval_root / name / "truth", eval_root / name / "pages", out_root / name
     cls = defaultdict(lambda: [0, 0, 0])  # words, truth chars, char errors
     cls_wrong_words = Counter()
@@ -163,6 +179,7 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
     miss = defaultdict(lambda: defaultdict(lambda: [0, 0]))  # slice -> key -> words, chars (words with no recognized box under them)
     examples = defaultdict(list)
     extras = defaultdict(lambda: [0, 0])  # key -> words, chars
+    vis = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, 0]))  # contrast bin -> engine -> words, chars, words read exactly, chars of those
     confusions = Counter()
     breaks = Counter()
     wrong_words = []
@@ -170,6 +187,7 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
     page_rows = {}
     tot_chars = tot_words = 0
     off_ce = off_we = off_oe = off_ref = off_cm = off_wm = 0
+    frag_ce = frag_we = 0  # the same hypothesis scored against the truth boxes' words instead of the truth text
     order_only = 0
     extra_chars = extra_words = 0
     for tf in sorted(truth_dir.glob("*.json")):
@@ -180,6 +198,10 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
         sp = score_page(t["text"], hyp_txt)
         off_ce += sp["char_errors"]; off_we += sp["word_errors"]; off_oe += sp["order_errors"]; off_ref += sp["ref_words"]
         off_cm += sp["char_misses"]; off_wm += sp["word_misses"]
+        # A truth text joins words the page wraps at a hyphen or dash ("breakfast-room"), while the boxes hold the two fragments the
+        # engine reads: scoring the same output against the fragments isolates what that join costs.
+        spf = score_page("\n".join(w["text"] for w in t["words"]), hyp_txt)
+        frag_ce += spf["char_errors"]; frag_we += spf["word_errors"]
         tw = [w for w in t["words"] if norm(w["text"])]
         tb = [aabb(w.get("ink_quad") or w.get("ink") or w["box"]) for w in tw]
         hb = [[float(v) for v in w["box"]] for w in hw]
@@ -191,6 +213,17 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
             if p.exists():
                 img = Image.open(p).convert("L")
                 break
+        ref_bags = []
+        ref_boxes = []
+        for rd in refs or []:
+            rj = rd / name / tf.name
+            if rj.exists():
+                rw = json.loads(rj.read_text())
+                ref_bags.append(Counter(norm(x["text"]) for x in (rw.get("words") or [])))
+                ref_boxes.append([(norm(x["text"]), aabb(x["box"])) for x in (rw.get("words") or [])])
+            else:
+                ref_bags.append(None)
+                ref_boxes.append(None)
         font = t.get("font", "-")
         tpl = t.get("template") or t.get("kind") or (t.get("degradation") and json.dumps(t["degradation"], sort_keys=True)[:40]) or "-"
         used = set()
@@ -224,6 +257,11 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
                     group = sorted([i] + nb, key=lambda k: tb[k][0])
                     if same and "".join(norm(tw[k]["text"]) for k in group) == hx[best]:
                         c = "merged-gap"  # the pieces are all there, only the space between them was not read
+                        gaps = [tb[b][0] - tb[a][2] for a, b in zip(group, group[1:])]
+                        if max(gaps) <= 1.0:
+                            # The truth boxes touch or overlap: no space is printed there (a comma or full stop kept in its own DOM node,
+                            # a link ending at a mark), so reading the pieces as one word is right and the truth's split is the artifact.
+                            c = "merged-touching"
                     err = n  # the official pairing charges the whole word: it is unmatched and the fused word is extra
                 elif len(main) >= 2:
                     pieces = [hx[j] for j in sorted(main, key=lambda j: hb[j][0])]
@@ -247,14 +285,35 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
             cls[c][0] += 1; cls[c][1] += n; cls[c][2] += err
             if c == "missed":
                 pol0 = polarity(img, tb[i]) if img is not None else "?"
-                for sl, key in (("height", hbin(h)), ("polarity", pol0), ("category", w.get("category", "-")), ("shape", shape(text))):
+                cx = contrast(img, tb[i]) if img is not None else -1.0
+                read_by = sum(1 for bag in ref_bags if bag is not None and bag.get(text, 0) > 0)
+                for sl, key in (("height", hbin(h)), ("polarity", pol0), ("category", w.get("category", "-")), ("shape", shape(text)),
+                                ("polarity+height", f"{pol0} {hbin(h)}"), ("contrast", xbin(cx)), ("polarity+contrast", f"{pol0} {xbin(cx)}")):
                     miss[sl][key][0] += 1; miss[sl][key][1] += n
-            if err > 0 and c in ("matched", "box", "split-space", "split-other", "merged-gap") and len(examples[c]) < 400:
+                if ref_bags:
+                    # Information only: how many of the reference engines' outputs on this page contain the word (page-level bag).
+                    key = f"{read_by} of {sum(1 for b in ref_bags if b is not None)}"
+                    miss["read by reference engines"][key][0] += 1; miss["read by reference engines"][key][1] += n
+            if err > 0 and c in ("matched", "box", "split-space", "split-other", "merged-gap", "merged-touching") and len(examples[c]) < 400:
                 examples[c].append([tf.stem, text, " ".join(hx[j] for j in sorted(main, key=lambda j: hb[j][0])), round(h, 1), font])
             if err > 0:
                 cls_wrong_words[c] += 1
                 if len(wrong_words) < 200000:
                     wrong_words.append((tf.stem, text, hx[best] if main else "", c))
+            if img is not None:
+                xb = xbin(contrast(img, tb[i]))
+                vis[xb]["words"][0] += 1; vis[xb]["words"][1] += n
+                cur = vis[xb]["ours"]
+                cur[0] += 1; cur[1] += n
+                if err == 0 and c in ("matched", "box"):
+                    cur[2] += 1; cur[3] += n
+                for ri, boxes in enumerate(ref_boxes):
+                    if boxes is None:
+                        continue
+                    cur = vis[xb][f"ref{ri}"]
+                    cur[0] += 1; cur[1] += n
+                    if any(rt == text and a > 0 and inter(tb[i], rb) / a > 0.3 for rt, rb in boxes):
+                        cur[2] += 1; cur[3] += n
             page_cls[c] += err
             page_chars += n
             all_words.append([tf.stem, i, text, hx[best] if main else "", c, err, round(h, 1)])
@@ -303,17 +362,18 @@ def analyse(eval_root: Path, out_root: Path, name: str) -> dict:
     attributed = sum(v[2] for v in cls.values()) + extra_chars
     return {
         "set": name, "truth_chars": tot_chars, "truth_words": tot_words, "attributed_errors": attributed,
+        "fragment_truth": {"cer": frag_ce / max(tot_chars, 1), "wer": frag_we / max(off_ref, 1)},
         "official": {"cer": off_ce / max(tot_chars, 1), "wer": off_we / max(off_ref, 1), "order": off_oe / max(off_ref, 1),
                      "recall_cer": off_cm / max(tot_chars, 1), "recall_wer": off_wm / max(off_ref, 1)},
         "classes": {k: {"words": v[0], "chars": v[1], "errors": v[2], "wrong_words": cls_wrong_words[k]} for k, v in cls.items()},
         "extra": {"chars": extra_chars, "words": extra_words, "by": {k: v for k, v in sorted(extras.items())}},
-        "missed_slices": {a: dict(b) for a, b in miss.items()}, "examples": dict(examples), "kinds": dict(kinds), "breaks": dict(breaks.most_common(12)), "order_only": order_only / max(tot_words, 1),
+        "missed_slices": {a: dict(b) for a, b in miss.items()}, "visibility": {k: {e: v for e, v in d.items() if e != "words"} for k, d in vis.items()}, "examples": dict(examples), "kinds": dict(kinds), "breaks": dict(breaks.most_common(12)), "order_only": order_only / max(tot_words, 1),
         "slices": {n: {k: v for k, v in sorted(t.items())} for n, t in (("height", by_h), ("polarity", by_pol), ("conf", by_conf), ("font", by_font), ("template", by_tpl), ("category", by_cat), ("shape", by_shape))},
         "all_words": all_words, "confusions": [[a, b, n] for (a, b), n in confusions.most_common(25)], "pages": page_rows,
     }
 
 
-def show(r: dict) -> None:
+def show(r: dict, aggregate: bool = False) -> None:
     tc, tw, o = r["truth_chars"], r["truth_words"], r["official"]
     att = max(r["attributed_errors"], 1)
     partial = r["set"].startswith("receipts")  # truth covers part of the page: judged on recall, extras are free
@@ -325,8 +385,11 @@ def show(r: dict) -> None:
         wscale = o["wer"] * tw / max(sum(v["wrong_words"] for v in r["classes"].values()) + r["extra"]["words"], 1)
     print(f"\n===== {r['set']}: {tw} truth words, {tc} chars | official CER {100 * o['cer']:.2f} WER {100 * o['wer']:.2f} order {100 * o['order']:.2f}"
           f" recall-CER {100 * o['recall_cer']:.2f} recall-WER {100 * o['recall_wer']:.2f} | attributed {100 * r['attributed_errors'] / tc:.2f}% (scale to official CER x{scale:.2f})")
+    f = r["fragment_truth"]
+    print(f"  truth join artifact: scored against the truth boxes' words the same output has CER {100 * f['cer']:.2f} WER {100 * f['wer']:.2f}"
+          f" (the hyphen/dash-wrap join costs {100 * (o['cer'] - f['cer']):.2f} / {100 * (o['wer'] - f['wer']):.2f} pp)")
     print("  cause                   words  wrong   %truth-chars  CER-pp(scaled)  WER-pp(scaled)")
-    for c in ("missed", "merged-gap", "merged-line", "merged-lines", "split-space", "split-other", "box", "matched"):
+    for c in ("missed", "merged-gap", "merged-touching", "merged-line", "merged-lines", "split-space", "split-other", "box", "matched"):
         v = r["classes"].get(c)
         if v:
             print(f"  {c:22s} {v['words']:6d} {v['wrong_words']:6d}   {100 * v['errors'] / tc:8.3f}     {100 * v['errors'] / tc * scale:8.3f}      {100 * v['wrong_words'] / tw * wscale:8.3f}")
@@ -347,18 +410,25 @@ def show(r: dict) -> None:
         print(f"  by {sl}:", "; ".join(x[1] for x in sorted(rows, reverse=True)[:8]))
     for sl, d in r.get("missed_slices", {}).items():
         print(f"  missed words by {sl}:", "; ".join(f"{k}: {v[0]}w/{v[1]}c" for k, v in sorted(d.items(), key=lambda kv: -kv[1][1])[:8]))
-    for c, ex in r.get("examples", {}).items():
+    for c, ex in ([] if aggregate else r.get("examples", {}).items()):
         print(f"  examples {c} (page, truth, read, height, font):", " | ".join(f"{e[0]} {e[1]!r}->{e[2]!r} h{e[3]}" for e in ex[:10]))
+    if r.get("visibility"):
+        print("  truth words read exactly by contrast (1st-99th percentile spread inside the ink box); ours, then the reference engines in the order given:")
+        for k in ("<0.1", "<0.25", "<0.5", ">=0.5"):
+            d = r["visibility"].get(k)
+            if d:
+                print(f"    contrast {k}: {d['ours'][0]}w/{d['ours'][1]}c  exact " + " | ".join(f"{e}: {100 * v[2] / max(v[0], 1):.1f}%" for e, v in sorted(d.items())))
     print("  where split-space breaks fall:", r.get("breaks"))
     print("  extras:", "; ".join(f"{k} {v[0]}w/{v[1]}c" for k, v in r["extra"]["by"].items()))
     print("  top confusions (truth->hyp):", " ".join(f"{a}>{b}:{n}" for a, b, n in r["confusions"][:14]))
-    worst = sorted(r["pages"].items(), key=lambda kv: -kv[1]["cer"] * kv[1]["chars"])[:8]
-    print("  worst pages by CER contribution (share of the set's official char errors):")
-    tot_err = sum(p["cer"] * p["chars"] for p in r["pages"].values()) or 1
-    for pid, p in worst:
-        dom = max(p["classes"].items(), key=lambda kv: kv[1])[0] if p["classes"] and max(p["classes"].values()) > 0 else "-"
-        print(f"    {pid}: CER {100 * p['cer']:.2f} ({100 * p['cer'] * p['chars'] / tot_err:.0f}% of set) WER {100 * p['wer']:.2f} order {100 * p['order']:.2f} order-only {100 * p['order_only']:.2f}"
-              f" extra {p['extra_chars']}c, dominant {dom} {p['classes'].get(dom, 0)}c; {p['meta']}; found {p['words_found']}/{p['truth_words']} words")
+    if not aggregate:
+        worst = sorted(r["pages"].items(), key=lambda kv: -kv[1]["cer"] * kv[1]["chars"])[:8]
+        print("  worst pages by CER contribution (share of the set's official char errors):")
+        tot_err = sum(p["cer"] * p["chars"] for p in r["pages"].values()) or 1
+        for pid, p in worst:
+            dom = max(p["classes"].items(), key=lambda kv: kv[1])[0] if p["classes"] and max(p["classes"].values()) > 0 else "-"
+            print(f"    {pid}: CER {100 * p['cer']:.2f} ({100 * p['cer'] * p['chars'] / tot_err:.0f}% of set) WER {100 * p['wer']:.2f} order {100 * p['order']:.2f} order-only {100 * p['order_only']:.2f}"
+                  f" extra {p['extra_chars']}c, dominant {dom} {p['classes'].get(dom, 0)}c; {p['meta']}; found {p['words_found']}/{p['truth_words']} words")
     by_tpl = defaultdict(lambda: [0, 0.0, 0])
     for p in r["pages"].values():
         v = by_tpl[p["meta"].split("/")[0]]
@@ -366,10 +436,11 @@ def show(r: dict) -> None:
         v[1] += p["order_only"] * p["truth_words"]
         v[2] += p["truth_words"]
     print("  order-only damage by template/kind (pages, share of truth words):", "; ".join(f"{k}: {v[0]}p {100 * v[1] / max(v[2], 1):.1f}%" for k, v in sorted(by_tpl.items(), key=lambda kv: -kv[1][1])[:8]))
-    wo = sorted(r["pages"].items(), key=lambda kv: -kv[1]["order_only"] * kv[1]["truth_words"])[:5]
-    print("  worst pages by order-only damage:", "; ".join(f"{k} {100 * p['order_only']:.1f}% ({p['meta']})" for k, p in wo))
-    for k, p in wo[:3]:
-        print(f"    {k} block runs (block:words): " + " ".join(f"{b}:{n}" for b, n in p["block_runs"]))
+    if not aggregate:
+        wo = sorted(r["pages"].items(), key=lambda kv: -kv[1]["order_only"] * kv[1]["truth_words"])[:5]
+        print("  worst pages by order-only damage:", "; ".join(f"{k} {100 * p['order_only']:.1f}% ({p['meta']})" for k, p in wo))
+        for k, p in wo[:3]:
+            print(f"    {k} block runs (block:words): " + " ".join(f"{b}:{n}" for b, n in p["block_runs"]))
 
 
 if __name__ == "__main__":
@@ -378,10 +449,15 @@ if __name__ == "__main__":
     ap.add_argument("--out", required=True)
     ap.add_argument("--sets", nargs="+", default=SETS)
     ap.add_argument("--json", default=None)
+    ap.add_argument("--ref", nargs="*", default=[], help="other engines' output roots (<root>/<set>/<id>.json with words) for the 'read by' slice; information only")
+    ap.add_argument("--aggregate", action="store_true", help="print no single words or pages (for sets whose pages must stay unseen)")
     a = ap.parse_args()
     res = {}
     for s in a.sets:
-        res[s] = analyse(Path(a.eval), Path(a.out), s)
-        show(res[s])
+        res[s] = analyse(Path(a.eval), Path(a.out), s, [Path(x) for x in a.ref])
+        show(res[s], a.aggregate)
+        if a.aggregate:
+            for k in ("examples", "all_words", "pages"):
+                res[s].pop(k, None)
     if a.json:
         Path(a.json).write_text(json.dumps(res, indent=1))
