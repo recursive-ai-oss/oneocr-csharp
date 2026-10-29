@@ -1,0 +1,77 @@
+# Tiny-text word-space fine-tune: from the shipped recognizer, the receipt-stage mix of crnn-rplus plus two sources of small type with
+# exact truth (Chromium-rendered interface and running text at 9-14 css px; the small-type lines of the public-domain web set), so
+# word gaps of two to four pixels are seen often. Selection is on held-out validation only, relative to the starting model, with
+# guards on clean-print numbers and codes (figures), receipts, phone crops and the line sets that carry the existing wins.
+# ${ONEOCR_HOME} is the state directory, ${ONEOCR_BASE} the starting checkpoint, ${ONEOCR_TINY} the output of gen/make_tinygap.sh; the other
+# roots are those of crnn-rplus.
+name: crnn-tinygap
+seed: 113
+init_from: ${ONEOCR_BASE}
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_PREV}/data/lines-v4
+run_dir: ${ONEOCR_HOME}/runs/crnn-tinygap
+main_override:
+  p: { resample: 0.5, resample2: 0.25 }
+  ranges: { tilt_deg: [0.0, 0.3] }
+sources:
+  - name: adaptive
+    kind: pack
+    dir: ${ONEOCR_V6}/data/lines-v6/clean/adapt_train
+    line_set: configs/lines-v6.yaml
+    side: adapt
+    per_batch: 12
+    provenance: exact-truth synthetic (configs/lines-v6.yaml)
+    adaptive:
+      stream_dir: ${ONEOCR_V6}/data/lines-v6/clean/adapt_stream
+      every: 3000
+      gamma: 0.7
+      clip: [0.4, 4.0]
+      smooth: 0.5
+      beta: 1.0
+      bins:
+        em: [6, 8, 10, 12, 14, 16, 21, 30, 60, 100]
+        blur_rel: [0.0, 0.03, 0.06, 0.09, 0.125, 0.16]
+        contrast: [45, 65, 90, 130, 180, 256]
+        noise: [0, 2, 4, 6, 8, 12]
+  - { name: receipt-synth, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/train", line_set: configs/lines-v5.yaml, side: receipt, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: gap-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/gaps_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: ui-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 12, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: tight-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/tight_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 12, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: mask-qty, kind: pack, dir: "${ONEOCR_MASKS}/clean/mq_train", line_set: configs/lines-masks.yaml, side: rcpt, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-masks.yaml)" }
+  - { name: web-lines, kind: crops, dir: "${ONEOCR_WEB}/train", per_batch: 25, provenance: "exact truth: DOM text of public-domain web pages rendered by Chromium (gen/web_lines.py, data/font_allowlist.yaml)" }
+  - { name: cord-train, kind: crops, dir: "${ONEOCR_FT}/data/cord-lines/train/finder", per_batch: 12, provenance: "CORD v2 train annotations, CC BY 4.0" }
+  - { name: gen-receipt-engine, kind: crops, dir: "${ONEOCR_GEN}/crops/train/finder", per_batch: 12, provenance: "receipt photos generated with Google Gemini 3.1 Flash Image, transcribed by Anthropic Claude Sonnet; engine line crops (gen/receipt_photos.py)" }
+  - { name: web-small, kind: crops, dir: "${ONEOCR_TINY}/web-small/train", per_batch: 10, provenance: "exact truth: DOM text of public-domain web pages rendered by Chromium, lines of 14 px ink height or less (gen/web_lines.py, data/font_allowlist.yaml; train/subset_crops.py)" }
+  - { name: ui-tiny, kind: crops, dir: "${ONEOCR_TINY}/ui-tiny/train", per_batch: 16, provenance: "exact-truth synthetic: text written by the generator, read back from the Chromium DOM (gen/ui_lines.py, configs/ui-lines-tiny.yaml)" }
+extra_val:
+  receipt_synth: ${ONEOCR_FT}/data/lines-v5/val
+  gaps: ${ONEOCR_FT}/data/lines-v5/gaps_val
+  ui: ${ONEOCR_FT}/data/lines-v5/ui_val
+  tight: ${ONEOCR_FT}/data/lines-v5/tight_val
+  web: ${ONEOCR_WEB}/heldout
+  web_small: ${ONEOCR_TINY}/web-small/heldout
+  ui_tiny: ${ONEOCR_TINY}/ui-tiny/val
+  cord_dev: ${ONEOCR_FT}/data/cord-lines/val/finder
+  gen_dev: ${ONEOCR_GEN}/crops/dev/finder
+  mask: ${ONEOCR_MASKS}/mask_val
+  qty: ${ONEOCR_MASKS}/qty_val
+  phone: ${ONEOCR_PHONE}
+  figures: ${ONEOCR_V6}/data/lines-v6/figures_val
+  small: ${ONEOCR_V6}/data/lines-v6/small_val
+  reader: ${ONEOCR_V6}/data/lines-v6/reader_val
+  shot: ${ONEOCR_V6}/data/lines-v6/shot_val
+train:
+  steps: 6000
+  batch: 140
+  lr: 0.00003
+  warmup: 200
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 500
+  ckpt_every: 500
+  val_penalty: 3.0
+  # a set may not get worse than the starting model beyond the tolerance (relative CER / WER), or its checkpoint cannot be the best one
+  guard: { val: 0.02, ui: 0.02, tight: 0.02, shot: 0.02, web: 0.02, phone: 0.0, figures: 0.02, cord_dev: 0.02, gen_dev: 0.02, mask: 0.05, qty: 0.05 }
+  guard_wer: { shot: 0.0, ui: 0.02, tight: 0.02, phone: 0.0, web: 0.02, figures: 0.02, web_small: 0.0, ui_tiny: 0.0, gen_dev: 0.02, cord_dev: 0.02 }

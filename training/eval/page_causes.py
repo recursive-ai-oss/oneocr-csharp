@@ -182,6 +182,8 @@ def analyse(eval_root: Path, out_root: Path, name: str, refs: list[Path] | None 
     vis = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, 0]))  # contrast bin -> engine -> words, chars, words read exactly, chars of those
     confusions = Counter()
     breaks = Counter()
+    gap_pairs = defaultdict(lambda: [0, 0])  # printed gap between neighbouring truth words (px) -> pairs, pairs read as one word
+    split_by_h = defaultdict(lambda: [0, 0])  # word height bin -> words of 4+ chars, words cut by an inserted space
     wrong_words = []
     all_words = []  # every truth word: page, index, text, read text, class, char errors, height
     page_rows = {}
@@ -232,6 +234,7 @@ def analyse(eval_root: Path, out_root: Path, name: str, refs: list[Path] | None 
         page_cls = Counter()
         page_chars = 0
         match_of_hyp = {}
+        best_box = [None] * len(tw)
         for i, w in enumerate(tw):
             text = norm(w["text"])
             n = len(text)
@@ -251,6 +254,7 @@ def analyse(eval_root: Path, out_root: Path, name: str, refs: list[Path] | None 
             conf = None
             if main:
                 best = max(main, key=lambda j: inter(tb[i], hb[j]) / max(a + area(hb[j]) - inter(tb[i], hb[j]), 1e-9))
+                best_box[i] = best
                 iou = inter(tb[i], hb[best]) / max(a + area(hb[best]) - inter(tb[i], hb[best]), 1e-9)
                 nb = [k for k in range(len(tb)) if k != i and area(tb[k]) > 0 and inter(tb[k], hb[best]) > 0.5 * area(tb[k])]
                 if nb:
@@ -285,6 +289,9 @@ def analyse(eval_root: Path, out_root: Path, name: str, refs: list[Path] | None 
                 for j in main:
                     match_of_hyp.setdefault(j, i)
             cls[c][0] += 1; cls[c][1] += n; cls[c][2] += err
+            if n >= 4 and c in ("matched", "box", "split-space", "split-other"):
+                split_by_h[hbin(h)][0] += 1
+                split_by_h[hbin(h)][1] += c == "split-space"
             if c == "missed":
                 pol0 = polarity(img, tb[i]) if img is not None else "?"
                 cx = contrast(img, tb[i]) if img is not None else -1.0
@@ -334,6 +341,18 @@ def analyse(eval_root: Path, out_root: Path, name: str, refs: list[Path] | None 
                         table[key][0] += 1; table[key][1] += n
             if "category" in w:
                 by_cat[w["category"]][0] += 1; by_cat[w["category"]][1] += n; by_cat[w["category"]][2] += err
+        for i in range(len(tw)):
+            hi = tb[i][3] - tb[i][1]
+            nxt = [k for k in range(len(tw)) if k != i and abs((tb[k][1] + tb[k][3]) / 2 - (tb[i][1] + tb[i][3]) / 2) < 0.4 * max(hi, 1) and tb[k][0] - tb[i][2] >= -1.0]
+            if not nxt or best_box[i] is None:
+                continue
+            k = min(nxt, key=lambda k: tb[k][0])
+            g = tb[k][0] - tb[i][2]
+            if g > 1.5 * max(hi, 1):
+                continue  # a column or cell gap, not a word space
+            key = f"{g:.0f}px" if g < 8 else "8+px"
+            gap_pairs[key][0] += 1
+            gap_pairs[key][1] += best_box[k] == best_box[i]
         # extras: recognized boxes not covered by any truth word
         pe = 0
         for j in range(len(hb)):
@@ -369,7 +388,7 @@ def analyse(eval_root: Path, out_root: Path, name: str, refs: list[Path] | None 
                      "recall_cer": off_cm / max(tot_chars, 1), "recall_wer": off_wm / max(off_ref, 1)},
         "classes": {k: {"words": v[0], "chars": v[1], "errors": v[2], "wrong_words": cls_wrong_words[k]} for k, v in cls.items()},
         "extra": {"chars": extra_chars, "words": extra_words, "by": {k: v for k, v in sorted(extras.items())}},
-        "missed_slices": {a: dict(b) for a, b in miss.items()}, "visibility": {k: {e: v for e, v in d.items() if e != "words"} for k, d in vis.items()}, "examples": dict(examples), "kinds": dict(kinds), "breaks": dict(breaks.most_common(12)), "order_only": order_only / max(tot_words, 1),
+        "missed_slices": {a: dict(b) for a, b in miss.items()}, "visibility": {k: {e: v for e, v in d.items() if e != "words"} for k, d in vis.items()}, "examples": dict(examples), "kinds": dict(kinds), "breaks": dict(breaks.most_common(12)), "gap_pairs": dict(gap_pairs), "split_by_height": dict(split_by_h), "order_only": order_only / max(tot_words, 1),
         "slices": {n: {k: v for k, v in sorted(t.items())} for n, t in (("height", by_h), ("polarity", by_pol), ("conf", by_conf), ("font", by_font), ("template", by_tpl), ("category", by_cat), ("shape", by_shape))},
         "all_words": all_words, "confusions": [[a, b, n] for (a, b), n in confusions.most_common(25)], "pages": page_rows,
     }
@@ -421,6 +440,9 @@ def show(r: dict, aggregate: bool = False) -> None:
             if d:
                 print(f"    contrast {k}: {d['ours'][0]}w/{d['ours'][1]}c  exact " + " | ".join(f"{e}: {100 * v[2] / max(v[0], 1):.1f}%" for e, v in sorted(d.items())))
     print("  where split-space breaks fall:", r.get("breaks"))
+    gp = r.get("gap_pairs") or {}
+    print("  neighbour pairs by printed gap, read as one word (space not read): " + "; ".join(f"{k} {v[1]}/{v[0]}" for k, v in sorted(gp.items(), key=lambda kv: (len(kv[0]), kv[0]))))
+    print("  words of 4+ chars cut by an inserted space, by height: " + "; ".join(f"{k} {v[1]}/{v[0]}" for k, v in sorted((r.get("split_by_height") or {}).items())))
     print("  extras:", "; ".join(f"{k} {v[0]}w/{v[1]}c" for k, v in r["extra"]["by"].items()))
     print("  top confusions (truth->hyp):", " ".join(f"{a}>{b}:{n}" for a, b, n in r["confusions"][:14]))
     if not aggregate:
