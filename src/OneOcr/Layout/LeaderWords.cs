@@ -20,6 +20,11 @@ internal static class LeaderWords
         after.RemoveAll(w => w.Text.All(c => c == '.'));
         var words = new List<OcrWord>(before.Count + after.Count + 1);
         words.AddRange(before);
+        if (leader.Spaced)
+        {
+            return JoinSpaced(after, leader, includeChars, words);
+        }
+
         string dots = new('.', leader.Count);
         var box = new OcrBox(leader.From, leader.Top, leader.To, leader.Bottom);
         IReadOnlyList<OcrChar> dotChars = [];
@@ -54,6 +59,21 @@ internal static class LeaderWords
             words.Add(after[i]);
         }
 
+        return words;
+    }
+
+    // Stops set one by one are words of their own, and the page number after them is a word of its own, as in a text layer.
+    private static List<OcrWord> JoinSpaced(List<OcrWord> after, Leader leader, bool includeChars, List<OcrWord> words)
+    {
+        double half = Math.Max(1.0, leader.Pitch / 4);
+        foreach (int center in leader.Centers)
+        {
+            var box = new OcrBox(Math.Max(leader.From, center - half), leader.Top, Math.Min(leader.To, center + half), leader.Bottom);
+            IReadOnlyList<OcrChar> chars = includeChars ? [new OcrChar(".", box, 1f)] : [];
+            words.Add(new OcrWord(".", box, Confidence, 1f, OcrSource.Ocr, chars));
+        }
+
+        words.AddRange(after);
         return words;
     }
 }

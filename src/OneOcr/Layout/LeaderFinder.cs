@@ -15,7 +15,8 @@ namespace OneOcr.Layout;
 /// <param name="Bottom">The bottom row (exclusive) of the dots.</param>
 /// <param name="Left">The box around the ink left of the run, or null when there is none.</param>
 /// <param name="Right">The box around the ink right of the run (the page number), up to the first wide gap, or null when there is none.</param>
-internal sealed record Leader(int From, int To, int Count, double Pitch, int[] Centers, int Top, int Bottom, LineBox? Left, LineBox? Right);
+/// <param name="Spaced">Whether the stops are set one by one with a space between them (<c>. . . .</c>, as tax forms do) rather than as a run (<c>.....</c>).</param>
+internal sealed record Leader(int From, int To, int Count, double Pitch, int[] Centers, int Top, int Bottom, LineBox? Left, LineBox? Right, bool Spaced);
 
 /// <summary>
 /// Finds a dot leader in a line from its pixels (<c>docs/spec/oneocr-page-v1.md</c>, "Dot leaders"). The recognizer reads text, and a
@@ -42,6 +43,12 @@ internal static class LeaderFinder
 
     /// <summary>The distance to the next dot may differ from the run's pitch by this share (jitter of the rounding to pixels).</summary>
     internal const double PitchTolerance = 0.3;
+
+    /// <summary>
+    /// A run whose pitch is at least this fraction of the line's height is spaced: a full stop followed by a space advances about half an
+    /// em, a full stop alone about a quarter, and a line is about an em high.
+    /// </summary>
+    internal const double SpacedPitchFraction = 0.37;
 
     /// <summary>The search window grows by this many line heights each time a run reaches its right edge.</summary>
     internal const double WindowGrowthInHeights = 4.0;
@@ -248,7 +255,8 @@ internal static class LeaderFinder
         return new Leader(
             x0 + from, x0 + to, bestCount, p, centers, y0 + top, y0 + bottom,
             leftLast < 0 ? null : new LineBox(x0 + leftFirst, y0 + leftTop, leftLast - leftFirst + 1, leftBottom - leftTop + 1),
-            rightLast < 0 ? null : new LineBox(x0 + rightFirst, y0 + rightTop, rightLast - rightFirst + 1, rightBottom - rightTop + 1));
+            rightLast < 0 ? null : new LineBox(x0 + rightFirst, y0 + rightTop, rightLast - rightFirst + 1, rightBottom - rightTop + 1),
+            p >= SpacedPitchFraction * lineHeight);
     }
 
     // Whether component next continues the run that starts at first and ends at last: same baseline and size as its first dot, and a

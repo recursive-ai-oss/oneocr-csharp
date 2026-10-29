@@ -1,10 +1,11 @@
 """Tables of contents and lists of figures with dot leaders, rendered by Chromium at 300 DPI with exact truth.
 
-    uv run python scripts/gen_leader_sets.py OUT [COUNT] [SEED] [FONTDIR]
+    uv run python scripts/gen_leader_sets.py OUT [COUNT] [SEED] [FONTDIR] [STYLE]
 
 Each page is a list of entries (`Figure 3. Collision geometry ........ 12`, wrapped titles with the leader on the last line, chapter
 lines with a number in front). The leader is a run of full stops whose count is chosen so that it fills the space up to the page
-number, and the stops and the number are one word in the truth (`.......12`) as in a text layer that comes from a PDF.
+number, and the stops and the number are one word in the truth (`.......12`) as in a text layer that comes from a PDF. STYLE `spaced` writes the leader as full stops separated by spaces
+(`. . . . . 12`, the style of tax forms), where every stop is a word of its own; `mixed` alternates the two by page.
 Fonts are open training-pool families given by FONTDIR (a directory with `PTSerif-Regular.ttf`, `PTSerif-Bold.ttf`, `PTSans-Regular.ttf`,
 `PTSans-Bold.ttf`, `CrimsonText-Regular.ttf`, `CrimsonText-Bold.ttf`), never the families the evaluation sets hold out.
 """
@@ -41,12 +42,13 @@ FIT = """([] ) => {
     const num = k.dataset.num, rr = e.getBoundingClientRect();
     const r = document.createRange(); r.selectNodeContents(t);
     const rects = r.getClientRects(); let last = rects[rects.length - 1];
-    const probe = document.createElement('span'); probe.style.whiteSpace = 'nowrap'; k.textContent = '.'.repeat(50) + num;
+    const unit = k.dataset.sp === '1' ? '. ' : '.';
+    k.textContent = unit.repeat(50) + num;
     const wAll = k.getBoundingClientRect().width; k.textContent = num; const wNum = k.getBoundingClientRect().width;
     const dot = (wAll - wNum) / 50;
     const room = rr.right - last.right - wNum - 0.35 * parseFloat(getComputedStyle(e).fontSize);
     const n = Math.max(0, Math.floor(room / dot));
-    k.textContent = '.'.repeat(Math.min(n, +k.dataset.max)) + num;
+    k.textContent = unit.repeat(Math.min(n, +k.dataset.max)) + num;
   }
 }"""
 
@@ -65,12 +67,12 @@ def title(rng: random.Random, paras: list[list[str]], lo: int, hi: int) -> str:
     return s[:1].upper() + s[1:]
 
 
-def entry(label: str, text: str, page: int, indent: bool = False) -> str:
+def entry(label: str, text: str, page: int, indent: bool = False, spaced: bool = False) -> str:
     return (f"<div class='e{' c2' if indent else ''}'><span class='t'>{e(label + text)}</span>"
-            f"<span class='k' data-num='{page}' data-max='400'>{page}</span></div>")
+            f"<span class='k' data-num='{page}' data-sp='{int(spaced)}' data-max='400'>{page}</span></div>")
 
 
-def render(count: int, seed: int, out: Path, set_name: str, fontdir: Path) -> list[dict]:
+def render(count: int, seed: int, out: Path, set_name: str, fontdir: Path, style: str = "glued") -> list[dict]:
     from playwright.sync_api import sync_playwright
 
     paras = load_paragraphs()
@@ -89,18 +91,19 @@ def render(count: int, seed: int, out: Path, set_name: str, fontdir: Path) -> li
             fonts = (f"@font-face{{font-family:'{fam}';src:url('{(fontdir / reg).resolve().as_uri()}');font-weight:400}}"
                      f"@font-face{{font-family:'{fam}';src:url('{(fontdir / bold).resolve().as_uri()}');font-weight:700}}")
             page_no = rng.randint(1, 9)
+            spaced = style == "spaced" or (style == "mixed" and i % 2 == 1)
             rows = []
             head = {"figures": "Figures", "contents": "Contents", "tables": "Tables"}[kind]
             for j in range(rng.randint(14, 20)):
                 page_no += rng.choice([0, 1, 1, 2, 3, 5, 8, 14])
                 if kind == "figures":
-                    rows.append(entry(f"Figure {j + 1}. ", title(rng, paras, 3, 17), page_no))
+                    rows.append(entry(f"Figure {j + 1}. ", title(rng, paras, 3, 17), page_no, spaced=spaced))
                 elif kind == "tables":
-                    rows.append(entry(f"Table {j // 3 + 1}-{j % 3 + 1}. ", title(rng, paras, 3, 15), page_no))
+                    rows.append(entry(f"Table {j // 3 + 1}-{j % 3 + 1}. ", title(rng, paras, 3, 15), page_no, spaced=spaced))
                 else:
                     sub = rng.random() < 0.4
                     lab = f"{j // 4 + 1}.{j % 4 + 1} " if sub else f"{j // 4 + 1} "
-                    rows.append(entry(lab, title(rng, paras, 1, 9), page_no, indent=sub))
+                    rows.append(entry(lab, title(rng, paras, 1, 9), page_no, indent=sub, spaced=spaced))
             doc = SKEL.format(fonts=fonts, w=W_CSS, h=H_CSS, m=m, fam=fam, fs=fs, ind=1.5, gap=rng.choice([0.5, 0.7, 0.9]),
                               body=f"<h1>{e(head)}</h1>" + "".join(rows))
             page = ctx.new_page()
@@ -120,7 +123,7 @@ def render(count: int, seed: int, out: Path, set_name: str, fontdir: Path) -> li
             tw = truth_words(words, SCALE)
             add_ink(tw, img)
             truth = {"id": pid, "set": set_name, "seed": seed, "page_index": i, "kind": kind, "font": fam,
-                     "font_px": round(fs, 2), "image": {"width": W_PX, "height": H_PX, "dpi": 300}, "words": tw, "text": text_of(tw)}
+                     "font_px": round(fs, 2), "leader": "spaced" if spaced else "glued", "image": {"width": W_PX, "height": H_PX, "dpi": 300}, "words": tw, "text": text_of(tw)}
             entries.append(write_page(out, pid, png_bytes(img), "png", truth))
         browser.close()
     return entries
@@ -131,6 +134,7 @@ if __name__ == "__main__":
     count = int(sys.argv[2]) if len(sys.argv) > 2 else 18
     seed = int(sys.argv[3]) if len(sys.argv) > 3 else 20290101
     fontdir = Path(sys.argv[4]) if len(sys.argv) > 4 else Path("fonts")
+    style = sys.argv[5] if len(sys.argv) > 5 else "glued"
     name = out.name
-    ents = render(count, seed, out, name, fontdir)
+    ents = render(count, seed, out, name, fontdir, style)
     print(f"{name}: {len(ents)} pages in {out}")
