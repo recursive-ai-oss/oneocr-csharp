@@ -60,7 +60,7 @@ each dataset with the operative clauses.
 
 ### CORD v2
 
-Receipt images and annotations for training the detector, the recognizer's receipt fine-tune and the extraction model's
+Receipt images and annotations for training the detector, the recognizer's receipt stage and the extraction model's
 receipt examples, and for evaluation numbers.
 
 - Park, S., Shin, S., Lee, B., Lee, J., Surh, J., Seo, M., Lee, H.: "CORD: A Consolidated Receipt Dataset for Post-OCR
@@ -109,7 +109,7 @@ are kept; no page text is stored in the table or the repository.
 
 ### Web pages of US federal agencies (recognizer fine-tuning lines)
 
-The recognizer `crnn-v0` 0.6.3 was fine-tuned on text lines cut from screenshots of public web pages of US federal agencies whose own
+The recognizer `crnn-v0` 0.7.1 was trained on text lines cut from screenshots of public web pages of US federal agencies whose own
 website notices place their content in the public domain: eia.gov, consumerfinance.gov, doi.gov, ntsb.gov, gsa.gov, energy.gov and fda.gov
 (sites marked held-out in that file are never trained on). The page list is
 `training/data/web_urls.txt`; each publisher's notice, quoted and dated, is in `training/data/web_sources.yaml`. No attribution is legally required for
@@ -128,7 +128,7 @@ were not used for training. The same terms and handling apply: no page text or s
 
 ### Generated receipt photos
 
-The receipt fine-tune of the recognizer (`crnn-v0` 0.6.2 and later) also used 1,166 photographs of receipts generated with Google's
+The receipt stage of the recognizer training (`crnn-v0` 0.6.2 and later, including 0.7.1) also used 1,166 photographs of receipts generated with Google's
 Gemini image model (`gemini-3.1-flash-image`) from varied text prompts, and a transcription of each image made by a Claude Sonnet
 model. Text lines were cut from the generated images with the page reader and aligned to the transcription; lines the transcriber marked
 unsure were not used. The photos depict invented stores and purchases; they are not photographs of real receipts. The images and the
