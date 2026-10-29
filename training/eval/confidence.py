@@ -10,13 +10,13 @@ Hypothesis records written here: {"id", "ref", "hyp", "words": [{"text", "conf",
 
 from __future__ import annotations
 
-import bisect
 import json
 from pathlib import Path
 
 import numpy as np
 import torch
 
+from eval.calibrate import apply_map  # noqa: F401 - defined beside the fit, which must not need torch
 from eval.scoring import line_script
 from train.data import LineSet, to_input
 
@@ -71,17 +71,3 @@ def hypotheses(model, data: LineSet, charset: list[str], device: str = "cuda", b
 
 def write_hyps(rows: list[dict], path: str | Path) -> None:
     Path(path).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
-
-
-def apply_map(x: float, knots: dict) -> float:
-    """Monotone piecewise-linear map through (x[i], y[i]); constant beyond the first and last knot. Container rule: float64
-    `y0 + (y1 - y0) * ((r - x0) / (x1 - x0))` without FMA (Python floats), cast to float32 at the end."""
-    xs, ys = knots["x"], knots["y"]
-    if x <= xs[0]:
-        y = ys[0]
-    elif x >= xs[-1]:
-        y = ys[-1]
-    else:
-        i = bisect.bisect_right(xs, x)
-        y = ys[i - 1] + (ys[i] - ys[i - 1]) * ((x - xs[i - 1]) / (xs[i] - xs[i - 1]))
-    return float(np.float32(y))

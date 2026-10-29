@@ -38,19 +38,25 @@ def warp(img: Image.Image, h: np.ndarray, size: tuple[int, int], fill) -> Image.
 
 
 def move_words(words: list[dict], h: np.ndarray, scale: float = 1.0) -> list[dict]:
-    """Transform each truth word's box corners with `h` then `scale`; adds `quad`, rewrites `box`."""
+    """Transform each truth word's box corners with `h` then `scale`; adds `quad`, rewrites `box`.
+
+    The ink box (`ink`, when present) moves the same way: `ink_quad` is its transformed corners, `ink` their box.
+    """
+
+    def move(box):
+        x0, y0, x1, y1 = box
+        q = apply_h(h, np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float)) * scale
+        flat = [round(float(v), 1) for v in q.flatten()]
+        aabb = [round(float(q[:, 0].min()), 1), round(float(q[:, 1].min()), 1),
+                round(float(q[:, 0].max()), 1), round(float(q[:, 1].max()), 1)]
+        return flat, aabb
+
     out = []
     for w in words:
-        x0, y0, x1, y1 = w["box"]
-        q = apply_h(h, np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], float)) * scale
         d = dict(w)
-        d["quad"] = [round(float(v), 1) for v in q.flatten()]
-        d["box"] = [
-            round(float(q[:, 0].min()), 1),
-            round(float(q[:, 1].min()), 1),
-            round(float(q[:, 0].max()), 1),
-            round(float(q[:, 1].max()), 1),
-        ]
+        d["quad"], d["box"] = move(w["box"])
+        if "ink" in w:
+            d["ink_quad"], d["ink"] = move(w["ink"])
         out.append(d)
     return out
 

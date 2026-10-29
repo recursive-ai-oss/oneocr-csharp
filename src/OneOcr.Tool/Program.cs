@@ -11,10 +11,16 @@ internal static class Program
         oneocr - fine-tune the OneOcr line recognizer on your own documents
 
         usage:
+          oneocr ocr    --in <image or folder> [--out <dir>] [--model <file> --detector <file> [--wordlm <file>] [--wordfreq <file>]] [--degree N] [--json] [--stats <file>]
           oneocr train  --model <file> --work <dir> [--docs <dir>] [labelling options] [training options]
+          oneocr train  --extract <schema.json> --model <docextract file> --work <dir> [--docs <dir>] [labelling options] [extraction options]
           oneocr eval   --model <file> --work <dir> [--seed N] [--held-out F]
           oneocr review export --work <dir> --out <dir> [--include-reviewed]
           oneocr review import --work <dir> --file <review.json>
+
+        ocr reads PNG and JPEG pages with the bundled models (or with --model and --detector files, and --wordlm for the word character model, --wordfreq for the word frequency table) and writes <name>.txt per
+        page into --out (one page with no --out prints the text); --json adds <name>.page.json, the page model; --stats writes
+        the model load time, time per page and peak memory as JSON. Local only, never touches the network.
 
         train labels the images in --docs with a language model (when --docs is given), then fine-tunes --model on the
         lines the local reader and the model agree on. Without --docs it trains on the labels already in --work (for
@@ -33,6 +39,17 @@ internal static class Program
           --lr X (1e-4)       --seed N (1)       --held-out F (0.2)     --max-cer F (0: lines must read the same)
           --degree N (min(4, cores))             --stop-after N
           --restart           throw away the checkpoint and start over (needed after a review import or new labels)
+
+        train --extract fine-tunes the document-extraction model for your own document type: --extract names a JSON Schema
+        whose top-level scalar properties are the fields; the labelling model reads each page for them, only values found
+        on the page become labels, and a new tag head (and, gently, the backbone) is trained on them. --model is a
+        docextract model file. The report gives per-field accuracy on held-out pages before and after, agreement with the
+        labelling model and a suggested LocalFirst threshold. Pages are read locally with the bundled models.
+
+        extraction options:
+          --out <file> (<work>/model.onm)  --steps N (200)  --batch N (8)  --lr X (3e-3)  --seed N (1)  --held-out F (0.2)
+          --backbone-scale X (0.05; 0 trains only the new head)  --field-weight X (3)  --max-words N (384)
+          --instruction <text>  --degree N  --stop-after N  --restart
 
         Keys given with --key are visible to other users of the machine in the process list; prefer --key-from-env.
         """;
@@ -55,6 +72,8 @@ internal static class Program
 
             switch (args[0])
             {
+                case "ocr":
+                    return OcrCommand.Run(new Flags(args.AsSpan(1)));
                 case "train":
                     return await TrainAsync(new Flags(args.AsSpan(1)), cts.Token).ConfigureAwait(false);
                 case "eval":
@@ -88,6 +107,11 @@ internal static class Program
     private static async Task<int> TrainAsync(Flags f, CancellationToken ct)
     {
         string docs = f.Optional("docs") ?? string.Empty;
+        if (f.Optional("extract") is { } schemaFile)
+        {
+            return await TrainExtractionAsync(f, schemaFile, docs, ct).ConfigureAwait(false);
+        }
+
         OcrTrainerOptions options = Options(f, new Progress<string>(static m => Console.Error.WriteLine(m)));
         LlmClient? client = null;
         try
@@ -118,6 +142,65 @@ internal static class Program
 
             TrainingReport report = trainer.Train(ct);
             Console.Out.WriteLine(OcrTrainer.ToJson(report));
+            return 0;
+        }
+        finally
+        {
+            client?.Dispose();
+        }
+    }
+
+    private static async Task<int> TrainExtractionAsync(Flags f, string schemaFile, string docs, CancellationToken ct)
+    {
+        ExtractionSchema schema = ExtractionSchema.FromJsonSchema(File.ReadAllText(schemaFile));
+        foreach (string note in schema.Notes)
+        {
+            Console.Error.WriteLine("schema: " + note);
+        }
+
+        var options = new ExtractionTrainerOptions
+        {
+            ModelPath = f.Required("model"),
+            Schema = schema,
+            WorkDirectory = f.Required("work"),
+            OutputModelPath = f.Optional("out"),
+            Steps = f.Int("steps", 200),
+            BatchSize = f.Int("batch", 8),
+            LearningRate = f.Double("lr", 3e-3),
+            Seed = f.Int("seed", 1),
+            HeldOutFraction = f.Double("held-out", 0.2),
+            BackboneScale = f.Double("backbone-scale", 0.05),
+            FieldTagWeight = f.Double("field-weight", 3),
+            MaxWordsPerPage = f.Int("max-words", 384),
+            Instruction = f.Optional("instruction"),
+            MaxDegreeOfParallelism = f.Int("degree", 0),
+            StopAfterSteps = f.Int("stop-after", 0),
+            Restart = f.Switch("restart"),
+            Progress = new Progress<string>(static m => Console.Error.WriteLine(m)),
+        };
+        LlmClient? client = docs.Length > 0 ? Client(f) : null;
+        try
+        {
+            f.Done();
+            var trainer = new ExtractionTrainer(options, client);
+            if (docs.Length > 0)
+            {
+                ExtractionLabelSummary s = await trainer.LabelFolderAsync(docs, null, ct).ConfigureAwait(false);
+                Console.Error.WriteLine(
+                    $"labelled {s.Documents} documents ({s.AlreadyLabelled} already done, {s.Unreadable} skipped): {s.Usable} usable, {s.DroppedUngrounded} dropped for a value not on the page, " +
+                    $"{s.FieldsLabelled} fields; spent about ${s.CostUsd.ToString("0.0000", CultureInfo.InvariantCulture)}");
+                foreach (string note in s.Diagnostics)
+                {
+                    Console.Error.WriteLine("  " + note);
+                }
+
+                if (s.BudgetReached)
+                {
+                    Console.Error.WriteLine("The spend cap was reached; training on what is labelled. Run again with a higher --budget-usd to label the rest.");
+                }
+            }
+
+            Console.Out.WriteLine(ExtractionTrainer.ToJson(trainer.Train(ct)));
             return 0;
         }
         finally

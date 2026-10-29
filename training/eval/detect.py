@@ -21,6 +21,7 @@ from train.detect_data import CLASSES, LAYOUT_SHRINK_CAP, LAYOUT_STRIDE, TEXT_SH
 TEXT_THRESHOLD = 0.3
 LAYOUT_THRESHOLD = 0.6  # picked on DocLayNet val (sweep in eval.detect_eval)
 EXPAND_LAYOUT = 0.85
+ORIENT_CONFIDENCE = 0.9  # below this the page is left unrotated
 LONG_SIDE = 1024
 MULTIPLE = 32
 
@@ -166,6 +167,40 @@ def match_counts(pred: np.ndarray, gt: np.ndarray, iou: float = 0.5) -> tuple[in
     return tp, len(pred), len(gt)
 
 
+def match_flags(pred: np.ndarray, gt: np.ndarray, iou: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
+    """One-to-one greedy matching by descending IoU: which predictions and which truths found a partner."""
+    mp, mg = np.zeros(len(pred), bool), np.zeros(len(gt), bool)
+    if len(pred) == 0 or len(gt) == 0:
+        return mp, mg
+    m = iou_matrix(pred, gt)
+    for flat in np.argsort(-m, axis=None):
+        i, j = divmod(int(flat), m.shape[1])
+        if m[i, j] < iou:
+            break
+        if mp[i] or mg[j]:
+            continue
+        mp[i] = mg[j] = True
+    return mp, mg
+
+
+def in_boxes(centres: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+    """For each (x, y) centre: does it lie inside any of the boxes."""
+    if len(boxes) == 0 or len(centres) == 0:
+        return np.zeros(len(centres), bool)
+    x, y = centres[:, 0:1], centres[:, 1:2]
+    return ((x >= boxes[None, :, 0]) & (x <= boxes[None, :, 2]) & (y >= boxes[None, :, 1]) & (y <= boxes[None, :, 3])).any(1)
+
+
+def match_counts_ignoring(pred: np.ndarray, gt: np.ndarray, ignore: np.ndarray, iou: float = 0.5) -> tuple[int, int, int]:
+    """Like match_counts, but a prediction that found no truth and sits (by its centre) in an ignore region is not counted.
+
+    Ignore regions are text the source could not verify (see train.detect_data.load_web_records): finding it is neither right nor wrong.
+    """
+    mp, mg = match_flags(pred, gt, iou)
+    free = ~mp & in_boxes(np.stack([(pred[:, 0] + pred[:, 2]) / 2, (pred[:, 1] + pred[:, 3]) / 2], 1), ignore) if len(pred) else mp
+    return int(mp.sum()), int(len(pred) - free.sum()), len(gt)
+
+
 def prf(tp: int, npred: int, ngt: int) -> dict:
     p = tp / max(npred, 1)
     r = tp / max(ngt, 1)
@@ -205,28 +240,71 @@ def layout_ap(gt_images: list[dict], gt_anns: list[dict], dets: list[dict], clas
 
 
 def coco_layout_gt(records: list[dict]) -> tuple[list[dict], list[dict]]:
+    """COCO ground truth; classes a source does not label (its `cmask`) are left out of truth and detections alike."""
     images, anns = [], []
     for i, r in enumerate(records):
         images.append({"id": i})
         for c, x0, y0, x1, y1 in r["layout"]:
-            anns.append({"id": len(anns) + 1, "image_id": i, "category_id": int(c), "bbox": [x0, y0, x1 - x0, y1 - y0],
-                         "area": (x1 - x0) * (y1 - y0), "iscrowd": 0})  # fmt: skip
+            if r.get("cmask", [1] * 8)[int(c)]:
+                anns.append({"id": len(anns) + 1, "image_id": i, "category_id": int(c), "bbox": [x0, y0, x1 - x0, y1 - y0],
+                             "area": (x1 - x0) * (y1 - y0), "iscrowd": 0})  # fmt: skip
     return images, anns
+
+
+def merge_split(pred: list, gt: list) -> tuple[int, int, int, int]:
+    """(merged predictions, predictions, split truths, truths) for one page and class.
+
+    A prediction is merged when it holds the bulk (>= 70 % of the area) of two or more truth boxes; a truth is split when
+    two or more predictions each hold at least 30 % of it. Both count adjacent same-class regions the model cannot tell apart.
+    """
+    if not pred or not gt:
+        return 0, len(pred), 0, len(gt)
+    P, G = np.array(pred, np.float32), np.array(gt, np.float32)
+    ix = np.clip(np.minimum(P[:, None, 2], G[None, :, 2]) - np.maximum(P[:, None, 0], G[None, :, 0]), 0, None)
+    iy = np.clip(np.minimum(P[:, None, 3], G[None, :, 3]) - np.maximum(P[:, None, 1], G[None, :, 1]), 0, None)
+    inter = ix * iy
+    ga = np.maximum((G[:, 2] - G[:, 0]) * (G[:, 3] - G[:, 1]), 1e-9)
+    frac = inter / ga[None, :]
+    return int(((frac >= 0.7).sum(1) >= 2).sum()), len(pred), int(((frac >= 0.3).sum(0) >= 2).sum()), len(gt)
+
+
+def eval_boxes(lines: list) -> np.ndarray:
+    """Truth lines (boxes or quads) as axis-aligned boxes."""
+    out = [(ln[0], ln[1], ln[2], ln[3]) if len(ln) == 4 else (min(ln[0::2]), min(ln[1::2]), max(ln[0::2]), max(ln[1::2])) for ln in lines]
+    return np.array(out, np.float32).reshape(-1, 4)
 
 
 def score_maps(maps: list[dict], recs: list[dict], **post) -> dict:
     """Layout AP on all pages, text P/R/F1 on those that carry line boxes, for one post-processing setting."""
     dets, tp = [], np.zeros(3, np.int64)
-    orient_ok = 0
+    orient_ok = turned = 0
+    ms = np.zeros(4, np.int64)
     for i, (m, r) in enumerate(zip(maps, recs, strict=True)):
         res = decode(m, **post)
+        cm = r.get("cmask", [1] * 8)
+        for c in range(len(cm)):
+            if cm[c]:
+                ms += merge_split([b for cc, _, b in res["layout"] if cc == c], [g[1:] for g in r["layout"] if int(g[0]) == c])
         for c, sc, b in res["layout"]:
+            if not cm[int(c)]:
+                continue
             dets.append({"image_id": i, "category_id": int(c), "bbox": [b[0], b[1], b[2] - b[0], b[3] - b[1]], "score": sc})
         orient_ok += int(res["orient"].argmax() == 0)
+        turned += int(res["orient"].argmax() != 0 and res["orient"].max() >= ORIENT_CONFIDENCE)
         if r.get("lines") is not None:
-            tp += match_counts(res["text"], np.array(r["lines"], np.float32).reshape(-1, 4))
+            if r.get("ignore"):
+                tp += match_counts_ignoring(res["text"], eval_boxes(r["lines"]), eval_boxes(r["ignore"]))
+            else:
+                tp += match_counts(res["text"], eval_boxes(r["lines"]))
     images, anns = coco_layout_gt(recs)
-    out = {"pages": len(recs), "layout": layout_ap(images, anns, dets), "orient_upright_acc": orient_ok / max(len(recs), 1)}
+    out = {
+        "pages": len(recs),
+        "layout": layout_ap(images, anns, dets),
+        "orient_upright_acc": orient_ok / max(len(recs), 1),
+        "orient_turned_confident": turned / max(len(recs), 1),
+        "merged_pred_rate": ms[0] / max(ms[1], 1),
+        "split_truth_rate": ms[2] / max(ms[3], 1),
+    }
     if tp[2] > 0:
         out["text"] = prf(*[int(v) for v in tp])
     return out

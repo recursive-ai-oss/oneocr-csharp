@@ -66,7 +66,7 @@ def dice(p: torch.Tensor, g: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
 
 
 def det_loss(out: dict, b: dict, lc: dict) -> dict:
-    valid = b["text_valid"].view(-1, 1, 1, 1)
+    valid = b["text_valid"].view(-1, 1, 1, 1) * b["text_ok"]
     gt, thr_gt, thr_m = b["prob"], b["thr"], b["thr_mask"]
     logit = out["prob"].float()
     p = logit.sigmoid()
@@ -81,7 +81,7 @@ def det_loss(out: dict, b: dict, lc: dict) -> dict:
         top = nl.topk(nneg).values.sum()
     else:
         top = bce.sum() * 0
-    l_s = ((bce * pos).sum() + top) / max(npos + nneg, 1)
+    l_s = ((bce * pos * b["pos_w"]).sum() + top) / max(npos + nneg, 1)
     t = out["thresh"].float().sigmoid()
     l_b = dice(torch.sigmoid(50 * (p - t)), gt, valid.expand_as(gt))
     mm = thr_m * valid
@@ -128,6 +128,8 @@ def main() -> None:
     train_recs, bounds, weights, prov = [], [], [], {}
     for src in cfg["sources"]:
         recs = load_records(src["name"], root, "train", src)
+        if src.get("faint_p"):  # share of windows drawn with low-contrast text (DetDataset.faint_text)
+            recs = [{**r, "faint_p": src["faint_p"]} for r in recs]
         bounds.append((len(train_recs), len(train_recs) + len(recs)))
         weights.append(src["weight"])
         train_recs += recs
@@ -136,10 +138,13 @@ def main() -> None:
             "with_line_boxes": sum(r["lines"] is not None for r in recs),
             "label_source": src["label_source"],
         }
-    val_recs = []
+    val_sets = {}
     for src in cfg["sources"]:
-        val_recs += load_records(src["name"], root, "val", src)[: tc["val_pages"]]
-    ds = DetDataset(train_recs, cfg["size"], True, seed, tuple(cfg["scale"]), cfg["rot_p"])
+        v = load_records(src["name"], root, "val", src)
+        val_sets[src["name"]] = v[:: max(1, len(v) // tc["val_pages"])][: tc["val_pages"]]
+    ds = DetDataset(
+        train_recs, cfg["size"], True, seed, tuple(cfg["scale"]), cfg["rot_p"], cfg.get("min_core", 0.0), cfg.get("small_weight", 1.0)
+    )
 
     macs = count_macs(model, 1024, 736)["total"]
     manifest = {
@@ -210,8 +215,11 @@ def main() -> None:
             acc, n_acc = {}, 0
         if step % tc["eval_every"] == 0 or step == tc["steps"]:
             model.eval()
-            v = evaluate_records(model, val_recs, dev)
-            score = v["layout"]["mAP"] + (v["text"]["f1"] if "text" in v else 0.0)
+            v = {n: evaluate_records(model, recs, dev) for n, recs in val_sets.items()}
+            # CORD labels only part of each receipt, so its precision means nothing: it contributes text recall
+            score = sum(
+                r["layout"]["mAP"] + (r["text"]["recall" if n == "cord" else "f1"] if "text" in r else 0.0) for n, r in v.items()
+            ) / len(v)
             emit({"step": step, "val": v, "score": score})
             if score > best:  # picked on validation pages only
                 best = score

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Compiles every code sample of the README, so the samples cannot drift from the API. Not run, not packed. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>OneOcr.Samples</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/OneOcr/OneOcr.csproj" />
+    <ProjectReference Include="../../src/OneOcr.Llm/OneOcr.Llm.csproj" />
+    <ProjectReference Include="../../src/OneOcr.Training/OneOcr.Training.csproj" />
+    <ProjectReference Include="../../src/OneOcr.Pdf/OneOcr.Pdf.csproj" />
+    <ProjectReference Include="../../src/OneOcr.Models.Documents/OneOcr.Models.Documents.csproj" />
+  </ItemGroup>
+
+</Project>

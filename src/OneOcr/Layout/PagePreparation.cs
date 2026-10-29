@@ -1,5 +1,6 @@
 using System.Globalization;
 using OneImage;
+using OneOcr.Detection;
 using OneOcr.Kernels;
 
 namespace OneOcr.Layout;
@@ -31,6 +32,18 @@ internal sealed class PreparedPage
     public PageFrame Frame { get; }
 
     public List<string> Notes { get; }
+
+    /// <summary>The page detector's reading of <see cref="Pixels"/> when preparing the page already made it, so the reader need not detect again.</summary>
+    public PageDetection? Detection { get; init; }
+
+    /// <summary>
+    /// The page as it was before it was straightened (turned upright already), with the frame that maps its own turns back to the input
+    /// and the notes made up to that point. The angle search turns this page by other angles than the estimated skew.
+    /// </summary>
+    public SearchSource? Source { get; init; }
+
+    /// <summary>The binarization (threshold, whether ink is bright) of <see cref="Pixels"/> when preparing the page already made it on those pixels.</summary>
+    public (int Level, bool InkIsBright)? Level { get; init; }
 
     /// <summary>
     /// The page as the caller gets it: carried back through the frame when the page was straightened or its quarter turn is reported in
@@ -66,6 +79,9 @@ internal sealed class PreparedPage
     }
 }
 
+/// <summary>The pixels the angle search turns: the page before straightening, its size, the quarter turns the frame carries, and the notes so far.</summary>
+internal sealed record SearchSource(Gray8[] Pixels, int Width, int Height, int FrameWidth, int FrameHeight, int FrameQuarter, IReadOnlyList<string> Notes);
+
 /// <summary>Orientation and deskew: the step between the page's pixels and line finding.</summary>
 internal static class PagePreparation
 {
@@ -78,6 +94,78 @@ internal static class PagePreparation
     /// <summary>The slope a page is straightened by: the estimate when it is a clear tilt, otherwise 0.</summary>
     public static int ActedSlope(SkewEstimate estimate) => Math.Abs(estimate.Slope) >= MinSlope && estimate.Gain >= MinGain ? estimate.Slope : 0;
 
+    // The slope the page's text lines are straightened by (0 when the page is not clearly tilted).
+    private static int SearchSlope(Gray8[] pixels, int w, int h, out (int Level, bool InkIsBright) binarization)
+    {
+        long clock = StageClock.Start();
+        int slope = SearchSlopeUntimed(pixels, w, h, out binarization);
+        StageClock.Stop("4 deskew search", clock);
+        return slope;
+    }
+
+    private static int SearchSlopeUntimed(Gray8[] pixels, int w, int h, out (int Level, bool InkIsBright) binarization)
+    {
+        ReadOnlySpan<byte> bytes = PixelSpans.AsBytes(pixels.AsSpan(0, w * h));
+        (int threshold, bool inkIsBright) = LineFinder.Binarize(bytes);
+        binarization = (threshold, inkIsBright);
+        if (threshold < 0)
+        {
+            return 0;
+        }
+
+        using InkGrid grid = InkGrid.Build(bytes, w, h, threshold, inkIsBright);
+        SkewEstimate estimate = SkewEstimator.Estimate(grid);
+        int slope = ActedSlope(estimate);
+        // A tilt is only a tilt when the lines run across the page: with the lines running up and down (an orientation decision that
+        // left a sideways page as it is) the "slope" is noise.
+        return slope != 0 && SkewEstimator.EstimateTurned(grid).Contrast > estimate.Contrast ? 0 : slope;
+    }
+
+    // Straightens an upright-tilted page and reads the head on the straightened page. Null when the page cannot be prepared this way
+    // (the straightened page would exceed the pixel limit, or the head asks for a turn); nothing is left behind then.
+    private static PreparedPage? TryStraightFirst(
+        HeadOrientation head, Gray8[] gray, int width, int height, int slope, OcrLimits limits, BufferPool<Gray8> pool, int degree, List<Gray8[]> owned,
+        List<string> notes, CancellationToken cancellationToken)
+    {
+        var frame = new PageFrame(width, height, 0, slope);
+        long canvas = (long)frame.DeskewedWidth * frame.DeskewedHeight;
+        if (canvas > limits.MaxImagePixels)
+        {
+            return null;
+        }
+
+        Gray8[] straight = pool.Rent(canvas);
+        bool kept = false;
+        try
+        {
+            long clock = StageClock.Start();
+            byte background = PageRotation.Background(PixelSpans.AsBytes(gray.AsSpan(0, width * height)));
+            PageRotation.Deskew(gray, width, height, frame.Sin, frame.Cos, background, straight, frame.DeskewedWidth, frame.DeskewedHeight, degree, cancellationToken);
+            StageClock.Stop("5 deskew warp", clock);
+            PageDetection detection = head.Look(straight, frame.DeskewedWidth, frame.DeskewedHeight, degree, cancellationToken);
+            if (PageOrientation.QuarterTurnsClockwise(detection) != 0)
+            {
+                return null;
+            }
+
+            owned.Add(straight);
+            kept = true;
+            notes.Add(string.Create(CultureInfo.InvariantCulture, $"The text lines were tilted by {frame.SkewDegrees:0.0} degrees and were straightened."));
+            return new PreparedPage(straight, frame.DeskewedWidth, frame.DeskewedHeight, frame, notes, owned, pool)
+            {
+                Detection = detection,
+                Source = new SearchSource(gray, width, height, width, height, 0, []),
+            };
+        }
+        finally
+        {
+            if (!kept)
+            {
+                pool.Return(straight);
+            }
+        }
+    }
+
     public static PreparedPage Prepare(
         Gray8[] gray, int width, int height, bool orient, bool deskew, IOrientationDetector detector, OcrLimits limits,
         BufferPool<Gray8> pool, int degree, OrientationEvidence evidence, bool quarterInInputFrame, CancellationToken cancellationToken)
@@ -86,6 +174,26 @@ internal static class PagePreparation
         var notes = new List<string>();
         try
         {
+            // Straightening first. On a tilted page whose lines run across it the orientation head would be read twice: once on the
+            // tilted page (to learn the quarter turn) and once more on the straightened page the reader needs anyway. The head is
+            // trained on flat pages, so it is read on the straightened page only; if it then asks for a turn the page is prepared
+            // the usual way (turn first, then straighten), which is the one place a tilted page costs an extra detection.
+            int? upright = null;
+            (int Level, bool InkIsBright) uprightLevel = default;
+            if (orient && deskew && detector is HeadOrientation head)
+            {
+                int tilt = SearchSlope(gray, width, height, out uprightLevel);
+                upright = tilt;
+                if (tilt != 0)
+                {
+                    PreparedPage? early = TryStraightFirst(head, gray, width, height, tilt, limits, pool, degree, owned, notes, cancellationToken);
+                    if (early is not null)
+                    {
+                        return early;
+                    }
+                }
+            }
+
             int quarter = orient ? (detector.Detect(new OrientationInput(gray, width, height, degree, evidence), cancellationToken) / 90) & 3 : 0;
             Gray8[] pixels = gray;
             int w = width, h = height;
@@ -103,29 +211,27 @@ internal static class PagePreparation
             }
 
             int slope = 0;
+            (int Level, bool InkIsBright)? level = null;
             if (deskew)
             {
-                ReadOnlySpan<byte> bytes = PixelSpans.AsBytes(pixels.AsSpan(0, w * h));
-                (int threshold, bool inkIsBright) = LineFinder.Binarize(bytes);
-                if (threshold >= 0)
+                // The search above looked at these very pixels when no turn was made.
+                // The classical check (run when the head asked for a turn) erases ruling lines from the pixels, so a search made before it
+                // is stale.
+                if (quarter == 0 && upright is int known && !evidence.PixelsMayHaveChanged)
                 {
-                    using InkGrid grid = InkGrid.Build(bytes, w, h, threshold, inkIsBright);
-                    SkewEstimate estimate = SkewEstimator.Estimate(grid);
-                    slope = ActedSlope(estimate);
-                    if (slope != 0)
-                    {
-                        // A tilt is only a tilt when the lines run across the page: with the lines running up and down (an orientation
-                        // decision that left a sideways page as it is) the "slope" is noise.
-                        if (SkewEstimator.EstimateTurned(grid).Contrast > estimate.Contrast)
-                        {
-                            slope = 0;
-                        }
-                    }
+                    slope = known;
+                    level = uprightLevel;
+                }
+                else
+                {
+                    slope = SearchSlope(pixels, w, h, out (int, bool) searched);
+                    level = searched;
                 }
             }
 
             // With the quarter turn reported in the input frame the frame carries it back; otherwise the turned page is the page and
             // the frame covers the deskew turn alone.
+            var source = new SearchSource(pixels, w, h, quarterInInputFrame ? width : w, quarterInInputFrame ? height : h, quarterInInputFrame ? quarter : 0, [.. notes]);
             var frame = quarterInInputFrame ? new PageFrame(width, height, quarter, slope) : new PageFrame(w, h, 0, slope);
             if (slope != 0)
             {
@@ -140,14 +246,17 @@ internal static class PagePreparation
                     Gray8[] straight = pool.Rent(canvas);
                     owned.Add(straight);
                     byte background = PageRotation.Background(PixelSpans.AsBytes(pixels.AsSpan(0, w * h)));
+                    long clock = StageClock.Start();
                     PageRotation.Deskew(pixels, w, h, frame.Sin, frame.Cos, background, straight, frame.DeskewedWidth, frame.DeskewedHeight, degree, cancellationToken);
+                    StageClock.Stop("5 deskew warp", clock);
                     pixels = straight;
+                    level = null;
                     (w, h) = (frame.DeskewedWidth, frame.DeskewedHeight);
                     notes.Add(string.Create(CultureInfo.InvariantCulture, $"The text lines were tilted by {frame.SkewDegrees:0.0} degrees and were straightened."));
                 }
             }
 
-            return new PreparedPage(pixels, w, h, frame, notes, owned, pool);
+            return new PreparedPage(pixels, w, h, frame, notes, owned, pool) { Level = level, Source = source };
         }
         catch
         {

@@ -1,0 +1,113 @@
+# Public web sources for the web text-line set (gen/web_lines.py). Each publisher is a US federal agency whose own website notice,
+# quoted below, places its web content in the public domain; the notice was read on the date given. Pages that show a (c) / (C) /
+# "used with permission" / "all rights reserved" notice are dropped at render time, and images are never drawn, so third-party
+# photographs and logos the notices carve out do not enter the data. Sites that block the crawler's honest User-Agent, or whose
+# notice could not be read, are not listed.
+#
+# split: "train" or "heldout" (whole sites, so the held-out slice shares no site, template or page with training).
+# seeds: pages whose links the discover step follows (same host, listed prefixes only). The result is pinned in web_urls.txt.
+crawler:
+  token: oneocr-training-fetch
+  info_url: https://github.com/recursive-ai-oss/oneocr-csharp
+  min_interval_s: 2.5          # between two requests to one host; a longer robots.txt Crawl-delay wins
+publishers:
+  - id: eia
+    host: www.eia.gov
+    split: train
+    seeds: [/, /todayinenergy/, /analysis/, /about/, /petroleum/, /electricity/, /naturalgas/, /energyexplained/]
+    prefixes: [/]
+    exclude: [/opendata, /beta, /state/seds/, /dnav/ng/hist_xls, /outlooks/steo/data/browser]
+    terms:
+      url: https://www.eia.gov/about/copyrights_reuse.php
+      quote: "U.S. government publications are in the public domain and are not subject to copyright protection. You may use and/or distribute any of our data, files, databases, reports, graphics, charts, and other information products that are available on this website."
+      checked: 2026-10-26
+  - id: cfpb
+    host: www.consumerfinance.gov
+    split: train
+    seeds: [/, /consumer-tools/, /ask-cfpb/, /about-us/, /rules-policy/, /enforcement/, /data-research/, /complaint/]
+    prefixes: [/consumer-tools, /ask-cfpb, /about-us, /rules-policy, /enforcement, /data-research, /compliance, /owning-a-home, /start-small-save-up, /consumer-tools/]
+    exclude: [/es/, /complaint/process]
+    terms:
+      url: https://www.consumerfinance.gov/privacy/website-privacy-policy/
+      quote: "Website content: Information created by the CFPB is in the public domain and you may reproduce, publish, or otherwise use it without the Bureau's permission. Please consider appropriate citation to the Bureau as the source. Copyrighted materials created by entities outside the CFPB ..."
+      checked: 2026-10-26
+  - id: justice
+    host: www.justice.gov
+    split: heldout
+    seeds: [/, /news, /crt, /civil, /criminal, /atr, /enrd, /usao, /archives]
+    prefixes: [/news, /crt, /civil, /criminal, /atr, /enrd, /olc, /opa, /jmd, /archives, /about]
+    exclude: [/usao-, /opa/pr/, /media]
+    terms:
+      url: https://www.justice.gov/legalpolicies
+      quote: "Copyright Status and Citation: Unless otherwise indicated, information on Department of Justice websites is in the public domain and may be copied and distributed without permission. Citation of the Department of Justice as source of the information is appreciated, as appropriate."
+      checked: 2026-10-26
+  - id: doi
+    host: www.doi.gov
+    split: train
+    seeds: [/, /news, /priorities, /employees, /ocio, /pmb, /library]
+    prefixes: [/news, /priorities, /employees, /ocio, /pmb, /library, /about, /ocl, /pam, /oepc]
+    exclude: []
+    terms:
+      url: https://www.doi.gov/copyright
+      quote: "Generally, materials produced by federal agencies are in the public domain and may be reproduced without permission. However, not all materials appearing on this web site are in the public domain. Some materials have been donated or obtained from individuals or organizations and may be subject to copyright restrictions."
+      checked: 2026-10-26
+  - id: ntsb
+    host: www.ntsb.gov
+    split: train
+    seeds: [/, /news/Pages/default.aspx, /investigations/Pages/Investigations.aspx, /safety/Pages/default.aspx, /about/Pages/default.aspx]
+    prefixes: [/news, /investigations, /safety, /about, /advocacy, /Pages]
+    exclude: [/_layouts, /Documents]
+    terms:
+      url: https://www.ntsb.gov/about/Pages/Website-Policies.aspx
+      quote: "... was prepared by employees of the United States Government as part of their official duties and, therefore, is not subject to copyright. By publishing its reports and recommendations and opening public dockets, the NTSB has placed the contents prepared by its staff in the public domain. This material may be freely copied ..."
+      checked: 2026-10-26
+  - id: gsa
+    host: www.gsa.gov
+    split: train
+    seeds: [/, /about-us, /buy-through-us, /real-estate, /technology, /policy-regulations, /governmentwide-initiatives]
+    prefixes: [/about-us, /buy-through-us, /real-estate, /technology, /policy-regulations, /governmentwide-initiatives, /resources-for-programs-and-agencies]
+    exclude: []
+    terms:
+      url: https://www.gsa.gov/website-information/website-policies
+      quote: "Works produced by federal government employees in the course of their employment are generally not protected by copyright and are in the public domain in the U.S. Citation of the GSA site and a link back is much appreciated. We sometimes use photos or graphics that we licensed or that are restricted."
+      checked: 2026-10-26
+  - id: energy
+    host: www.energy.gov
+    split: train
+    seeds: [/, /science-innovation, /eere/office-energy-efficiency-renewable-energy, /ceser/office-cybersecurity-energy-security-and-emergency-response, /articles, /node]
+    prefixes: [/science-innovation, /eere, /ceser, /articles, /topics, /energysaver, /oe, /ne, /fecm, /lpo, /cmei]
+    exclude: [/sites/default/files]
+    terms:
+      url: https://www.energy.gov/web-policies
+      quote: "Copyright, Restrictions and Permissions Notice: Government information at DOE websites is in the public domain. Public domain information may be freely distributed and copied, but it is requested that in any subsequent use the Department of Energy be given appropriate acknowledgement."
+      checked: 2026-10-26
+  - id: fda
+    host: www.fda.gov
+    split: train
+    seeds: [/consumers, /food, /drugs, /medical-devices, /news-events, /about-fda, /animal-veterinary, /cosmetics]
+    prefixes: [/consumers, /food, /drugs, /medical-devices, /news-events, /about-fda, /animal-veterinary, /cosmetics, /safety, /patients]
+    exclude: [/media/, /files/, /media]
+    terms:
+      url: https://www.fda.gov/about-fda/about-website/website-policies
+      quote: "Linking to or Copying Information on the FDA Website: Unless otherwise noted, the contents of the FDA website (www.fda.gov) - both text and graphics - are not copyrighted. They are in the public domain and may be republished, reprinted and otherwise used freely by anyone without the need to obtain permission from FDA."
+      checked: 2026-10-26
+  - id: nrc
+    host: www.nrc.gov
+    split: heldout
+    seeds: [/, /about-nrc.html, /reactors.html, /materials.html, /waste.html, /reading-rm.html, /public-involve.html, /info-finder.html]
+    prefixes: [/about-nrc, /reactors, /materials, /waste, /reading-rm, /public-involve, /info-finder, /security, /docs]
+    exclude: [/docs/ML, /reading-rm/doc-collections/nuregs/staff]
+    terms:
+      url: https://www.nrc.gov/about-nrc/site-disclaimer
+      quote: "NRC's website constitutes a U.S. Government Work under federal copyright law and as such, it is not subject to copyright. It is freely available for non-exclusive rights in publication or reproduction for any purpose, in any form, and there are no restrictions on use."
+      checked: 2026-10-26
+  - id: federalreserve
+    host: www.federalreserve.gov
+    split: heldout
+    seeds: [/newsevents.htm, /monetarypolicy.htm, /aboutthefed.htm, /supervisionreg.htm, /economy_at_a_glance.htm, /paymentsystems.htm, /consumerscommunities.htm]
+    prefixes: [/newsevents, /monetarypolicy, /aboutthefed, /supervisionreg, /economy_at_a_glance, /paymentsystems, /consumerscommunities, /publications, /econres]
+    exclude: [/mediacenter, /videos, /feeds]
+    terms:
+      url: https://www.federalreserve.gov/disclaimer.htm
+      quote: "Copyright/trademark: Unless otherwise indicated, information on Board's website is in the public domain and may be copied and distributed without permission. Please cite to the Board as the source of the information."
+      checked: 2026-10-26

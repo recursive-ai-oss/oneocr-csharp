@@ -8,14 +8,17 @@ using OneOcr.Layout;
 
 // Runs the OCR engine over a directory of page images for the scorer in bench/oneocr_bench, and checks line finding.
 //
-//   OneOcr.Bench run   --model FILE [--detector FILE] --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]] [--words 1] [--pagejson 1]
+//   OneOcr.Bench run   [--model FILE] [--detector FILE] --pages DIR --out DIR [--degree N] [--repeat K] [--beam W [--lm FILE]] [--words 1] [--pagejson 1]
 //       writes <page-id>.txt for every <page-id>.png and timing.json: the one-time model load, per page the image
 //       decode time and the median-of-K recognition time, and the process's peak working set. --degree 0 is the library default.
 //       --words 1 also writes <page-id>.json, the scorer's word sidecar {"words":[{"box":[x0,y0,x1,y1],"text":..,"conf":..,"conf_raw":..}]}
 //       from OcrEngine.Ocr (greedy; word boxes are ink extents; calibrated and raw word confidence). It runs after the timed loop, so timings are unaffected.
+//       --sepoff 1 keeps the separators as the network read them (OcrOptions.FixSeparators off).
 //       --noorient 1 reads with orientation detection and deskew off (the text of a page that needs neither is the same either way).
 //       --metaonly 1 skips the timed text run and its .txt (with --meta 1: orientation and skew only).
 //       --meta 1 also writes <page-id>.meta.json {"orientation":..,"skew":..} as the engine reports them.
+//       --trace 1 prints resident and heap size after every page, the engine pools, the largest mappings and the live heap at the end;
+//       --alloc 1 totals allocations by type and size class (ALLOC_SIZES=1 splits large ones by size); --gc N collects generation N-1 after every page.
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
 //       compares found text lines with lines derived from the truth word boxes (precision and recall at IoU >= 0.5) and times
 //       grayscale conversion, line finding and line preprocessing per page.
@@ -28,6 +31,8 @@ using OneOcr.Layout;
 //       median time of the page detector (scaling, network, decoding) and of the network alone; see DetectBench.cs.
 //   OneOcr.Bench docextract --model FILE [--words 150,300] [--degree 1] [--repeat 15] [--path avx2]
 //       median time of the document-extraction forward pass and assembly for pages of the given word counts; see DocExtractBench.cs.
+//   OneOcr.Bench docextract-eval --model FILE --pages DIR --out FILE.jsonl [--degree 1] [--path avx2]
+//       reads every <id>.page.json in DIR with the extraction model and writes the assembled fields, one JSON line per page; see DocExtractEval.cs.
 //   OneOcr.Bench randommodel --out FILE
 //       writes a random-weight model of the intended size, to exercise the pipeline before trained weights exist (the text is garbage).
 //
@@ -55,13 +60,20 @@ internal static class Program
             "randommodel" => RandomModel(options),
             "kernels" => Kernels(options),
             "decode" => DecodeBench.Run(options),
+            "group" => GroupBench.Run(options),
+            "gemm" => GemmBench.Run(options),
+            "ocrhash" => OcrHash.Run(options),
             "trainstep" => TrainBench.Run(options),
             "detect" => DetectBench.Run(options),
             "docextract" => DocExtractBench.Run(options),
+            "docextract-eval" => DocExtractEval.Run(options),
             "strips" => Strips(options),
             "detlines" => DetLines(options),
+            "noise" => Noise(options),
             "grids" => Grids(options),
             "skew" => Skew(options),
+            "reach" => WordReach.Run(options),
+            "profile" => Profile(options),
             _ => 2,
         };
     }
@@ -167,6 +179,58 @@ internal static class Program
         return 0;
     }
 
+    // Per page of a folder, the page-noise measures and whether the rule applies: OneOcr.Bench noise --pages DIR --detector FILE (a model with the rule), or --time 1
+    private static int Noise(Dictionary<string, string> o)
+    {
+        if (o.ContainsKey("time"))
+        {
+            // Cost of the noise estimate on a detector-sized page (1024 x 724).
+            var rng = new Random(1);
+            var page = new Gray8[1024 * 724];
+            for (int i = 0; i < page.Length; i++)
+            {
+                page[i] = new Gray8((byte)rng.Next(256));
+            }
+
+            double sink = 0;
+            for (int i = 0; i < 20; i++)
+            {
+                sink += OneOcr.Detection.PageNoise.Sigma(page, 1024, 724);
+            }
+
+            var clock = Stopwatch.StartNew();
+            for (int i = 0; i < 200; i++)
+            {
+                sink += OneOcr.Detection.PageNoise.Sigma(page, 1024, 724);
+            }
+
+            Console.WriteLine($"Sigma 1024x724: {clock.Elapsed.TotalMilliseconds / 200:F3} ms ({sink:F0})");
+            return 0;
+        }
+
+        var detector = new OneOcr.Detection.PageDetector(
+            OneOcr.Detection.DbNetModel.FromContainer(OneOcr.Model.ModelContainer.Load(Need(o, "detector"), null), OneOcr.OcrLimits.Default),
+            OneOcr.OcrLimits.Default, OneOcr.Kernels.Dispatch.Best);
+        var pixels = new OneOcr.BufferPool<Gray8>(1L << 28, 1);
+        var resizers = new ResizerPool();
+        foreach (string file in Directory.GetFiles(Need(o, "pages")).Order(StringComparer.Ordinal))
+        {
+            if (!(file.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            Image image = Image.Load(file);
+            var gray = new Gray8[image.Width * image.Height];
+            image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+            OneOcr.Detection.PageDetection d = detector.Detect(gray, image.Width, image.Height, pixels, resizers, 1, System.Threading.CancellationToken.None);
+            Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"{Path.GetFileNameWithoutExtension(file)}\t{d.Sigma * 4.047:F0}\t{d.Sigma:R}\t{d.Junk:R}\t{(d.RuleApplied ? 1 : 0)}\t{d.Lines.Count}"));
+        }
+
+        return 0;
+    }
+
     // Prints the ruled grids of one page: OneOcr.Bench grids --image FILE
     private static int Grids(Dictionary<string, string> o)
     {
@@ -178,6 +242,19 @@ internal static class Program
         var clock = Stopwatch.StartNew();
         List<RuleGrid> grids = TableRules.Find(bytes, image.Width, image.Height, threshold, inkIsBright);
         Console.WriteLine($"{grids.Count} grids in {clock.Elapsed.TotalMilliseconds:F1} ms (threshold {threshold}, ink bright {inkIsBright})");
+        if (o.ContainsKey("lines") && TableRules.CollectRuns(bytes, image.Width, image.Height, threshold, inkIsBright, out List<TableRules.Run> hr, out List<TableRules.Run> vr))
+        {
+            foreach (RuleLine l in TableRules.Merge(hr))
+            {
+                Console.WriteLine($"h y {l.Pos} x {l.Lo}-{l.Hi} t {l.Thickness}");
+            }
+
+            foreach (RuleLine l in TableRules.Merge(vr))
+            {
+                Console.WriteLine($"v x {l.Pos} y {l.Lo}-{l.Hi} t {l.Thickness}");
+            }
+        }
+
         foreach (RuleGrid g in grids)
         {
             Console.WriteLine($"rows {g.Rows} columns {g.Columns} cells {g.Cells.Count} box {g.Left},{g.Top}-{g.Right},{g.Bottom} spans {g.Cells.Count(c => c.RowSpan > 1 || c.ColumnSpan > 1)} xs {string.Join(",", g.Xs)} ys {string.Join(",", g.Ys.Take(5))}");
@@ -224,10 +301,72 @@ internal static class Program
         return 0;
     }
 
+    // Mean per-stage time of the page reader over a folder of pages: OneOcr.Bench profile --model F [--detector F] --pages DIR [--degree N] [--limit N]
+    private static int Profile(Dictionary<string, string> o)
+    {
+        int degree = Int(o, "degree", 1), limit = Int(o, "limit", int.MaxValue);
+        OcrEngine engine = OcrEngine.Load(Need(o, "model"));
+        if (o.TryGetValue("detector", out string? detectorFile))
+        {
+            engine = engine.WithDetector(detectorFile);
+        }
+
+        if (o.TryGetValue("wordlm", out string? wordLm))
+        {
+            engine = engine.WithWordModel(OneOcr.Decoding.CharLanguageModel.Load(wordLm));
+        }
+
+        if (o.TryGetValue("wordfreq", out string? wordFreq))
+        {
+            engine = engine.WithWordFrequencies(OneOcr.Decoding.WordFrequencyModel.Load(wordFreq));
+        }
+
+        string[] files = [.. Directory.GetFiles(Need(o, "pages")).Where(f => f.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)).Order(StringComparer.Ordinal).Take(limit)];
+        engine.Ocr(Image.Load(files[0]), new OcrOptions { MaxDegreeOfParallelism = degree });
+        OneOcr.StageClock.Enabled = true;
+        OneOcr.StageClock.Take();
+        var totals = new SortedDictionary<string, double>(StringComparer.Ordinal);
+        double wall = 0;
+        var clock = new Stopwatch();
+        TimeSpan gcPause0 = GC.GetTotalPauseDuration();
+        int gen0 = GC.CollectionCount(0), gen1 = GC.CollectionCount(1), gen2 = GC.CollectionCount(2);
+        long allocated = GC.GetTotalAllocatedBytes(false);
+        foreach (string f in files)
+        {
+            Image image = Image.Load(f);
+            clock.Restart();
+            engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
+            wall += clock.Elapsed.TotalMilliseconds;
+            foreach (var (k, v) in OneOcr.StageClock.Take())
+            {
+                totals[k] = totals.GetValueOrDefault(k) + v;
+            }
+        }
+
+        TimeSpan gcPause = GC.GetTotalPauseDuration() - gcPause0;
+        Console.WriteLine($"{files.Length} pages, degree {degree}, mean ms per page:");
+        foreach (var (k, v) in totals)
+        {
+            Console.WriteLine($"  {k,-28} {v / files.Length,8:F1}");
+        }
+
+        Console.WriteLine($"  {"total",-28} {wall / files.Length,8:F1}");
+        Console.WriteLine($"  gc pause ms per page {gcPause.TotalMilliseconds / files.Length:F2}, gen0 {GC.CollectionCount(0) - gen0}, gen1 {GC.CollectionCount(1) - gen1}, gen2 {GC.CollectionCount(2) - gen2}, allocated MB per page {(GC.GetTotalAllocatedBytes(false) - allocated) / 1048576.0 / files.Length:F1}");
+        return 0;
+    }
+
     private static int RandomModel(Dictionary<string, string> o)
     {
         File.WriteAllBytes(Need(o, "out"), OneOcr.Tests.TestModels.RandomContainer(OneOcr.Tests.TestModels.Full, 1));
         return 0;
+    }
+
+    private static OneOcr.Layout.JunkParameters ParseJunk(string spec)
+    {
+        string[] p = spec.Split(':');
+        return new OneOcr.Layout.JunkParameters(
+            float.Parse(p[0], CultureInfo.InvariantCulture), double.Parse(p[1], CultureInfo.InvariantCulture), int.Parse(p[2], CultureInfo.InvariantCulture), 0.9f, 3,
+            p.Length > 3 ? int.Parse(p[3], CultureInfo.InvariantCulture) : 8, p.Length > 4 ? float.Parse(p[4], CultureInfo.InvariantCulture) : 0.99f, p.Length > 5 ? float.Parse(p[5], CultureInfo.InvariantCulture) : 0.9f, p.Length > 6 ? int.Parse(p[6], CultureInfo.InvariantCulture) : 3);
     }
 
     private static int Run(Dictionary<string, string> o)
@@ -235,9 +374,54 @@ internal static class Program
         string pages = Need(o, "pages"), outDir = Need(o, "out");
         int degree = Int(o, "degree", 0), repeat = Math.Max(1, Int(o, "repeat", 1));
         Directory.CreateDirectory(outDir);
+        if (o.TryGetValue("tilt", out string? tilt))
+        {
+            // --tilt off | --tilt DEG:MAXDEG:CELLS:ELONGATION[:NOISE]: the thresholds for reading a line along its own axis (see TiltedLines).
+            if (tilt == "off")
+            {
+                TiltedLines.ToleranceSin = 2;
+            }
+            else
+            {
+                string[] f = tilt.Split(':');
+                TiltedLines.ToleranceSin = Math.Sin(double.Parse(f[0], CultureInfo.InvariantCulture) * Math.PI / 180);
+                TiltedLines.MaxSin = Math.Sin(double.Parse(f[1], CultureInfo.InvariantCulture) * Math.PI / 180);
+                TiltedLines.MinCells = int.Parse(f[2], CultureInfo.InvariantCulture);
+                TiltedLines.MinElongation = double.Parse(f[3], CultureInfo.InvariantCulture);
+                TiltedLines.NoiseFactor = f.Length > 4 ? double.Parse(f[4], CultureInfo.InvariantCulture) : 0;
+            }
+        }
 
+        bool angleOff = false;
+        if (Int(o, "angletrace", 0) != 0)
+        {
+            PageAngleSearch.Trace = line => Console.WriteLine("  angle " + line);
+        }
+
+        if (o.TryGetValue("angle", out string? angle))
+        {
+            // --angle off | force | SHARE:MARGIN[:MAXSTEP[:COARSE]]: the page angle search off, on every page, or with other thresholds (see PageAngleSearch).
+            if (angle == "off")
+            {
+                angleOff = true;
+            }
+            else if (angle == "force")
+            {
+                PageAngleSearch.Always = true;
+            }
+            else
+            {
+                string[] f = angle.Split(':');
+                PageAngleSearch.WeakShare = double.Parse(f[0], CultureInfo.InvariantCulture);
+                PageAngleSearch.Margin = double.Parse(f[1], CultureInfo.InvariantCulture);
+                PageAngleSearch.MaxStep = f.Length > 2 ? int.Parse(f[2], CultureInfo.InvariantCulture) : PageAngleSearch.MaxStep;
+                PageAngleSearch.CoarseStep = f.Length > 3 ? int.Parse(f[3], CultureInfo.InvariantCulture) : PageAngleSearch.CoarseStep;
+            }
+        }
+
+        using AllocTrace? allocTrace = Int(o, "alloc", 0) != 0 ? new AllocTrace() : null;
         var clock = Stopwatch.StartNew();
-        OcrEngine engine = OcrEngine.Load(Need(o, "model"));
+        OcrEngine engine = o.ContainsKey("model") ? OcrEngine.Load(o["model"]) : OcrEngine.LoadBundled();
         if (o.TryGetValue("beam", out string? beamWidth))
         {
             // --beam W [--lm FILE]: beam search of width W, with the character model when one is named.
@@ -248,13 +432,42 @@ internal static class Program
                 LanguageModel = o.TryGetValue("lm", out string? lmPath) ? OneOcr.Decoding.CharLanguageModel.Load(lmPath) : null,
             });
         }
+        if (o.TryGetValue("wordlm", out string? wordLm))
+        {
+            // --wordlm FILE: the character model that helps decide word breaks (see OcrEngine.WithWordModel).
+            engine = engine.WithWordModel(OneOcr.Decoding.CharLanguageModel.Load(wordLm));
+        }
+
+        if (o.TryGetValue("wordfreq", out string? wordFreq))
+        {
+            // --wordfreq FILE: the word frequency table that takes back spaces inside words (see OcrEngine.WithWordFrequencies).
+            engine = engine.WithWordFrequencies(OneOcr.Decoding.WordFrequencyModel.Load(wordFreq));
+        }
+
         if (o.TryGetValue("detector", out string? detectorFile))
         {
             engine = engine.WithDetector(detectorFile);
         }
 
         double loadMs = clock.Elapsed.TotalMilliseconds;
+        if (Int(o, "trace", 0) != 0)
+        {
+            Console.WriteLine($"  live after load: {GC.GetTotalMemory(true) / 1048576.0:F1} MB, rss {Process.GetCurrentProcess().WorkingSet64 / 1048576.0:F0} MB");
+        }
 
+
+        // --junk off | MAXCONF:REL:MAXH: the noise filter off, or with other thresholds than the defaults (for tuning them).
+        // --respace off: no pixel check of word spaces (the page path before it existed).
+        bool respace = !(o.TryGetValue("respace", out string? respaceSpec) && respaceSpec == "off");
+        // --controls off: keep radio buttons and checkboxes read as letters (the filter's control rule off).
+        bool controlsOff = o.TryGetValue("controls", out string? controlsSpec) && controlsSpec == "off";
+        // --digits off: keep an O read inside a number as the letter (OcrOptions.FixDigitLookalikes off).
+        bool digitsOff = o.TryGetValue("digits", out string? digitsSpec) && digitsSpec == "off";
+        OcrOptions Page() => !o.TryGetValue("junk", out string? junkSpec)
+            ? new OcrOptions { MaxDegreeOfParallelism = degree, SearchAngle = !angleOff, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff"), JunkTuning = controlsOff ? new OneOcr.Layout.JunkParameters(ControlConfidence: 0) : null }
+            : junkSpec == "off"
+                ? new OcrOptions { MaxDegreeOfParallelism = degree, SearchAngle = !angleOff, DropNoise = false, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff") }
+                : new OcrOptions { MaxDegreeOfParallelism = degree, SearchAngle = !angleOff, JunkTuning = ParseJunk(junkSpec), FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff") };
         bool noOrient = Int(o, "noorient", 0) != 0, metaOnly = Int(o, "metaonly", 0) != 0, writeWords = Int(o, "words", 0) != 0, writePageJson = Int(o, "pagejson", 0) != 0;
         var results = new List<(string Id, double DecodeMs, double OcrMs, int Chars)>();
         var errors = new List<(string Id, string Message)>();
@@ -274,8 +487,8 @@ internal static class Program
                 {
                     clock.Restart();
                     text = noOrient
-                        ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, IncludeChars = false }).ToText()
-                        : engine.ToText(image, degree);
+                        ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, SearchAngle = false, IncludeChars = false }).ToText()
+                        : o.ContainsKey("junk") || angleOff || !respace || controlsOff || digitsOff || o.ContainsKey("sepoff") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
                     times.Add(clock.Elapsed.TotalMilliseconds);
                 }
 
@@ -290,12 +503,20 @@ internal static class Program
 
                 if (writeWords || writePageJson)
                 {
-                    OcrPage page = engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
+                    OcrPage page = engine.Ocr(image, Page());
                     WriteWordSidecar(Path.Combine(outDir, id + ".json"), page);
                     if (writePageJson)
                     {
                         File.WriteAllText(Path.Combine(outDir, id + ".page.json"), OcrPageJson.ToJson([page]), new UTF8Encoding(false));
                     }
+                }
+
+                if (Int(o, "feat", 0) != 0)
+                {
+                    OcrPage f = engine.Ocr(image, Page());
+                    PageAngleSearch.IsWeak(f, out double share);
+                    bool searched = f.Diagnostics.Any(d => d.StartsWith("The first reading was weak", StringComparison.Ordinal));
+                    File.WriteAllText(Path.Combine(outDir, id + ".feat"), string.Create(CultureInfo.InvariantCulture, $"{share:0.####}\t{f.SkewDegrees:0.###}\t{f.Words.Count}\t{PageAngleSearch.Score(f):0.##}\t{(searched ? 1 : 0)}\n"));
                 }
 
                 if (Int(o, "meta", 0) != 0)
@@ -309,6 +530,25 @@ internal static class Program
 
                 results.Add((id, decodeMs, Median(times), text.Length));
                 Console.WriteLine($"{id}: {Median(times):F0} ms, {text.Length} chars");
+                if (Int(o, "gc", 0) != 0)
+                {
+                    GC.Collect(Int(o, "gc", 0) - 1, GCCollectionMode.Forced, true, Int(o, "gc", 0) == 3);
+                }
+
+                if (Int(o, "trace", 0) != 0)
+                {
+                    var proc = Process.GetCurrentProcess();
+                    Console.WriteLine($"  rss {proc.WorkingSet64 / 1048576.0:F0} peak {proc.PeakWorkingSet64 / 1048576.0:F0} MB, heap {GC.GetGCMemoryInfo().HeapSizeBytes / 1048576.0:F0} MB, committed {GC.GetGCMemoryInfo().TotalCommittedBytes / 1048576.0:F0} MB");
+                    foreach (string line in File.ReadLines("/proc/self/smaps_rollup"))
+                    {
+                        if (line.StartsWith("Rss", StringComparison.Ordinal) || line.StartsWith("Anonymous", StringComparison.Ordinal))
+                        {
+                            Console.Write("  " + line.Replace(" ", "").Replace("kB", ""));
+                        }
+                    }
+
+                    Console.WriteLine();
+                }
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
@@ -316,6 +556,56 @@ internal static class Program
                 errors.Add((id, e.GetType().Name + ": " + e.Message));
                 Console.Error.WriteLine($"{id}: ERROR {e.GetType().Name}: {e.Message}");
                 File.WriteAllText(Path.Combine(outDir, id + ".error.txt"), e + "\n", new UTF8Encoding(false));
+            }
+        }
+
+        allocTrace?.Print();
+        if (Int(o, "trace", 0) != 0)
+        {
+            foreach (var field in typeof(OcrEngine).GetFields(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance))
+            {
+                if (field.FieldType.IsGenericType && field.FieldType.GetGenericTypeDefinition().Name.StartsWith("BufferPool", StringComparison.Ordinal))
+                {
+                    object pool = field.GetValue(engine)!;
+                    long retained = (long)pool.GetType().GetField("_retainedBytes", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(pool)!;
+                    long created = (long)pool.GetType().GetProperty("CreatedBytes")!.GetValue(pool)!;
+                    long peak = (long)pool.GetType().GetProperty("PeakOutstandingBytes")!.GetValue(pool)!;
+                    Console.WriteLine($"  pool {field.Name} {field.FieldType.GenericTypeArguments[0].Name}: retained {retained / 1048576.0:F1} MB, created {created / 1048576.0:F1} MB, peak outstanding {peak / 1048576.0:F1} MB");
+                }
+            }
+
+            {
+                object rec = typeof(OcrEngine).GetField("_recognizer", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(engine)!;
+                object pool = rec.GetType().GetProperty("ScratchPool", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(rec)!;
+                long retained = (long)pool.GetType().GetField("_retainedBytes", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(pool)!;
+                long created = (long)pool.GetType().GetProperty("CreatedBytes")!.GetValue(pool)!;
+                long peak = (long)pool.GetType().GetProperty("PeakOutstandingBytes")!.GetValue(pool)!;
+                Console.WriteLine($"  pool scratch float: retained {retained / 1048576.0:F1} MB, created {created / 1048576.0:F1} MB, peak outstanding {peak / 1048576.0:F1} MB");
+            }
+
+            Console.WriteLine($"  live after full collection: {GC.GetTotalMemory(true) / 1048576.0:F1} MB");
+        }
+
+        if (Int(o, "trace", 0) != 0)
+        {
+            // Largest resident mappings, to tell managed heap from native allocations and mapped files.
+            string? header = null;
+            var regions = new List<(long Kb, string Name)>();
+            foreach (string line in File.ReadLines("/proc/self/smaps"))
+            {
+                if (line.Length > 0 && Uri.IsHexDigit(line[0]) && line.Contains('-', StringComparison.Ordinal) && line.Contains(' ', StringComparison.Ordinal) && !line.StartsWith("Rss", StringComparison.Ordinal))
+                {
+                    header = line;
+                }
+                else if (line.StartsWith("Rss:", StringComparison.Ordinal) && header is not null)
+                {
+                    regions.Add((long.Parse(line.AsSpan(4, line.Length - 6).Trim(), CultureInfo.InvariantCulture), header));
+                }
+            }
+
+            foreach (var (kb, name) in regions.OrderByDescending(r => r.Kb).Take(14))
+            {
+                Console.WriteLine($"  map {kb / 1024.0:F1} MB {name}");
             }
         }
 

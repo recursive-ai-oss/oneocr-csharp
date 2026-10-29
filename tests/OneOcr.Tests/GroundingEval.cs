@@ -58,10 +58,11 @@ public static class GroundingEval
         bool invoice = rng.Next(2) == 0;
         string cur = new[] { "EUR", "USD", "GBP", "CHF" }[rng.Next(4)];
         var lines = new List<List<(string Token, int Field)>>();
-        var fields = new List<(string Printed, bool IsNumber, decimal? Amount, string? Iso)>();
-        int Tag(string printed, bool number = false, decimal? amount = null, string? iso = null)
+        var fields = new List<(string Printed, bool IsNumber, decimal? Amount, string? Iso, string? Name)>();
+        // Header values get meaningful property names (a real schema names its fields); line items stay f<n>.
+        int Tag(string printed, bool number = false, decimal? amount = null, string? iso = null, string? name = null)
         {
-            fields.Add((printed, number, amount, iso));
+            fields.Add((printed, number, amount, iso, name));
             return fields.Count - 1;
         }
 
@@ -69,7 +70,7 @@ public static class GroundingEval
         IEnumerable<(string, int)> Tokens(string printed, int id) => printed.Split(' ').Select(t => (t, id));
 
         string vendor = Vendors[rng.Next(Vendors.Length)] + " " + Suffix[rng.Next(Suffix.Length)];
-        lines.Add([.. Tokens(vendor, Tag(vendor))]);
+        lines.Add([.. Tokens(vendor, Tag(vendor, name: "vendor"))]);
         DateTime date = new DateTime(2024, 1, 1).AddDays(rng.Next(0, 900));
         string iso = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         string printedDate = rng.Next(5) switch
@@ -83,10 +84,10 @@ public static class GroundingEval
         if (invoice)
         {
             string number = "INV-" + rng.Next(1000, 9999).ToString(CultureInfo.InvariantCulture);
-            lines.Add([T("Invoice"), T("No:"), (number, Tag(number))]);
+            lines.Add([T("Invoice"), T("No:"), (number, Tag(number, name: "invoiceNumber"))]);
         }
 
-        lines.Add([T(invoice ? "Date:" : "Receipt"), .. Tokens(printedDate, Tag(printedDate, iso: iso))]);
+        lines.Add([T(invoice ? "Date:" : "Receipt"), .. Tokens(printedDate, Tag(printedDate, iso: iso, name: "date"))]);
         decimal total = 0;
         int items = rng.Next(2, 5);
         for (int i = 0; i < items; i++)
@@ -99,9 +100,9 @@ public static class GroundingEval
 
         decimal tax = Math.Round(total * 0.19m, 2);
         string st = Amount(total, style), tx = Amount(tax, style), tt = Amount(total + tax, style);
-        lines.Add([T("Subtotal"), (st, Tag(st, true, total))]);
-        lines.Add([T("Tax"), T("19%"), (tx, Tag(tx, true, tax))]);
-        lines.Add([T("Total"), (cur, Tag(cur)), (tt, Tag(tt, true, total + tax))]);
+        lines.Add([T("Subtotal"), (st, Tag(st, true, total, name: "subtotal"))]);
+        lines.Add([T("Tax"), T("19%"), (tx, Tag(tx, true, tax, name: "tax"))]);
+        lines.Add([T("Total"), (cur, Tag(cur, name: "currency")), (tt, Tag(tt, true, total + tax, name: "total"))]);
 
         OcrPage page = GroundingSupport.Layout([.. lines.Select(l => new TestLine(string.Join(' ', l.Select(static t => t.Token))))]);
         var idx = new Dictionary<int, List<int>>();
@@ -127,7 +128,7 @@ public static class GroundingEval
         var ef = new List<EvalField>();
         for (int f = 0; f < fields.Count; f++)
         {
-            ef.Add(new EvalField("/f" + f, fields[f].Printed, [.. idx[f]], fields[f].IsNumber, fields[f].Amount, fields[f].Iso));
+            ef.Add(new EvalField("/" + (fields[f].Name ?? "f" + f), fields[f].Printed, [.. idx[f]], fields[f].IsNumber, fields[f].Amount, fields[f].Iso));
         }
 
         return new EvalDoc("gen" + n.ToString(CultureInfo.InvariantCulture), page, ef);
@@ -315,7 +316,7 @@ public static class GroundingEval
         public Dictionary<Variant, (int N, int Ok)> ByVariant = [];
         public int HallTp, HallFp, HallFn;
         public Dictionary<GroundingState, (int N, double Conf)> Conf = [];
-        public int Docs, ReaskCalls;
+        public int Docs, ReaskCalls, LocalKept, FalseRoleConflict, Calls, NamedTotal, NamedFalseRoleConflict;
         public List<string> Misses = [];
 
         public string Report(string title)
@@ -324,6 +325,11 @@ public static class GroundingEval
             var sb = new StringBuilder();
             sb.Append("### ").AppendLine(title);
             sb.AppendLine($"documents {Docs}, fields {Total}, re-ask calls {ReaskCalls}");
+            if (LocalKept + FalseRoleConflict > 0)
+            {
+                sb.AppendLine($"local model: fields kept locally {P(LocalKept, Total):P1} ({LocalKept}/{Total}); calls {Calls} for {Docs} documents; role conflicts on values that should ground {P(FalseRoleConflict, Total):P2} ({FalseRoleConflict}/{Total}); of the {NamedTotal} fields whose property name the local model knows {P(NamedFalseRoleConflict, NamedTotal):P2} ({NamedFalseRoleConflict}/{NamedTotal})");
+            }
+
             sb.AppendLine($"state accuracy {P(StateOk, Total):P2} ({StateOk}/{Total})");
             sb.AppendLine($"ungrounded detection: precision {P(HallTp, HallTp + HallFp):P2}, recall {P(HallTp, HallTp + HallFn):P2} (tp {HallTp}, fp {HallFp}, fn {HallFn})");
             sb.AppendLine($"box on the right place (IoU >= 0.5 with a true occurrence): {P(BoxOk, BoxChecked):P2} ({BoxOk}/{BoxChecked})");
@@ -366,7 +372,8 @@ public static class GroundingEval
     private static OcrBox Union(IEnumerable<OcrBox> boxes) =>
         new(boxes.Min(static b => b.Left), boxes.Min(static b => b.Top), boxes.Max(static b => b.Right), boxes.Max(static b => b.Bottom));
 
-    public static async Task<Tally> RunAsync(IEnumerable<EvalDoc> docs, int seed, string provider = "openai")
+    public static async Task<Tally> RunAsync(
+        IEnumerable<EvalDoc> docs, int seed, string provider = "openai", ILocalFieldExtractor? local = null, LlmRouting routing = LlmRouting.LlmOnly)
     {
         var tally = new Tally();
         int di = 0;
@@ -378,14 +385,28 @@ public static class GroundingEval
             var h = new ScriptedHandler().Then(GroundingSupport.Shape(provider, answer));
             using var http = new HttpClient(h);
             using var client = new LlmClient(GroundingSupport.Provider(provider, http), GroundingSupport.Options());
-            LlmReadResult r = await client.ReadAsync(GroundingSupport.Blank(doc.Page), doc.Page, new LlmReadOptions { Outputs = LlmOutputs.Json, JsonSchema = schema });
+            LlmReadResult r = await client.ReadAsync(GroundingSupport.Blank(doc.Page), doc.Page, new LlmReadOptions { Outputs = LlmOutputs.Json, JsonSchema = schema, LocalExtractor = local, Routing = routing });
             tally.Docs++;
-            tally.ReaskCalls += r.Calls - 1;
+            tally.ReaskCalls += Math.Max(0, r.Calls - 1);
+            tally.Calls += r.Calls;
             foreach (Planned p in plan)
             {
                 GroundedField? got = r.Fields.FirstOrDefault(f => f.Path == p.Field.Path);
                 GroundingState? actual = got?.State;
                 tally.Total++;
+                if (got?.Source == OcrSource.Ocr)
+                {
+                    tally.LocalKept++;
+                }
+
+                bool named = !(p.Field.Path.Length > 2 && p.Field.Path[1] == 'f' && char.IsAsciiDigit(p.Field.Path[2]));
+                tally.NamedTotal += named ? 1 : 0;
+                if (actual == GroundingState.RoleConflict && p.Expect != GroundingState.RoleConflict && p.Expect != GroundingState.Ungrounded)
+                {
+                    tally.FalseRoleConflict++;
+                    tally.NamedFalseRoleConflict += named ? 1 : 0;
+                }
+
                 bool ok = actual == p.Expect;
                 if (ok)
                 {
@@ -480,6 +501,37 @@ public class GroundingEvalTests
             Assert.True((double)t.HallTp / (t.HallTp + t.HallFn) >= 0.99, report.ToString());
             Assert.True((double)t.HallTp / (t.HallTp + t.HallFp) >= 0.99, report.ToString());
             Assert.True((double)t.BoxOk / t.BoxChecked >= 0.99, report.ToString());
+        }
+
+        Environment.GetEnvironmentVariable("ONEOCR_GROUNDING_EVAL_OUT").AppendReport(report.ToString());
+    }
+
+    /// <summary>
+    /// Opt-in measurement with a trained extraction model (<c>ONEOCR_DOCEXTRACT_MODEL</c>): how many fields <see cref="LlmRouting.LocalFirst"/> keeps local and how
+    /// often the role check wrongly flags a value that is right. The scripted answers are the page's own printed values, so every flag on a value that should
+    /// ground is a false alarm of the local model.
+    /// </summary>
+    [Fact]
+    public async Task The_role_check_and_local_first_with_the_trained_extraction_model()
+    {
+        string? model = Environment.GetEnvironmentVariable("ONEOCR_DOCEXTRACT_MODEL");
+        Assert.SkipWhen(model is null || !File.Exists(model), "ONEOCR_DOCEXTRACT_MODEL is not set.");
+        var local = new DocumentFieldExtractor(global::OneOcr.Documents.DocumentExtractor.Load(model!));
+        var report = new StringBuilder();
+        var sets = new List<(string Name, List<EvalDoc> Docs, int Seed)> { ("generated forms and receipts", GroundingEval.Generate(300, 1000), 5) };
+        string? cord = Environment.GetEnvironmentVariable("ONEOCR_CORD_EVAL");
+        if (cord is not null && File.Exists(cord))
+        {
+            sets.Add(("CORD v2 test receipts", CordEval.Load(cord), 11));
+        }
+
+        foreach ((string name, List<EvalDoc> docs, int seed) in sets)
+        {
+            foreach (LlmRouting routing in new[] { LlmRouting.LlmOnly, LlmRouting.LocalFirst })
+            {
+                GroundingEval.Tally t = await GroundingEval.RunAsync(docs, seed, "openai", local, routing);
+                report.AppendLine(t.Report($"{name}, scripted answers, trained extraction model as local model, routing {routing}"));
+            }
         }
 
         Environment.GetEnvironmentVariable("ONEOCR_GROUNDING_EVAL_OUT").AppendReport(report.ToString());

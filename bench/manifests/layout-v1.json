@@ -6,9 +6,10 @@
  "pages": [
   {
    "id": "p001",
-   "words": 824,
+   "words": 825,
    "image_sha256": "bef79171acf75b22cc57273ece2c20b13ba5c5f56d54e537ef594759f42ea613",
-   "truth_sha256": "ee5156cc740786dbea1dd57e49cbea45eee418b92abd155cbeb419d77d295d37",
+   "truth_sha256": "7c5f2c2758b3b6aa1a16768f42c073fe1a4a14f9ac29f3256e3445641c702120",
+   "text_sha256": "d867d33a9eb6b821897bdc83c87e58069dd9c8754190938d57a741c7d3728d90",
    "font": "Gelasio",
    "kind": "article2"
   },
@@ -16,7 +17,8 @@
    "id": "p002",
    "words": 588,
    "image_sha256": "389c9f03da474915322692d5bb3340c06a7eed8840d195cda090713b81f0b10c",
-   "truth_sha256": "df4e69e755adb817d52a8a5a343c3d540704bc4320bff0c7159016d6f018f93f",
+   "truth_sha256": "fa0aeecbb7b4b3784bbf8c79317d07b0e85e379b0b183a4a050877410157b9b8",
+   "text_sha256": "c8d51b23b20029789a6b88484648f470d1e740d7a295407e754542a4d7ab0de5",
    "font": "Carlito",
    "kind": "article3"
   },
@@ -24,7 +26,8 @@
    "id": "p003",
    "words": 212,
    "image_sha256": "f968b2b5cec0fae1e3acc082ebfcc48aa9e61473d62f4174a79c8256a412af02",
-   "truth_sha256": "834a39cfa47be0820cc72c70b099d3e15cf2c876986d7de8547aff571eb25eb9",
+   "truth_sha256": "2d5291b0ab15a1be066d0bb030c86ffdf5511ae4b29fb91547eee1fd30445ee5",
+   "text_sha256": "7e7a8659e055175bbb09c84afeb1c5f3adf352b3eeb130bca6f6b7d95fb3db1b",
    "font": "Caladea",
    "kind": "table"
   },
@@ -32,7 +35,8 @@
    "id": "p004",
    "words": 103,
    "image_sha256": "4c3334eca1a9fba871be3e4ad678d1818616c271c885b9763b3d2ab058d850b4",
-   "truth_sha256": "5353c33e0a7f0cc7bc7df7fa47610ea6ba38e806a036d591615dd8d84a270fa4",
+   "truth_sha256": "ac04eaaf1678877619684f12fddd500d0b3a0ca284175f85c317fae96865dc86",
+   "text_sha256": "2b3282387842c7b3fb7a1f87b27aa2b0d1523c6e8a3686dc922afaaf2683037b",
    "font": "Source Serif 4",
    "kind": "form"
   },
@@ -40,23 +44,26 @@
    "id": "p005",
    "words": 638,
    "image_sha256": "ca9be52b0336ad92eb09d1ea350ba344658c09bef2e68d59af01d84b9da07d2e",
-   "truth_sha256": "36d2762c9a8cc34aa8dce1b7d9f4b0121b66ed51c278ec633cf7f2ba15efef0a",
+   "truth_sha256": "dfcdc868b5539c942689524c0fd14584a4a85f95cdf91d0ef7cbdcc5036268b3",
+   "text_sha256": "7039c0dfaa5f76ef2d7402d3d905713c09d80501bdb2674832ca2b97279271d2",
    "font": "Source Sans 3",
    "kind": "mixed"
   },
   {
    "id": "p006",
-   "words": 704,
+   "words": 707,
    "image_sha256": "de00e0122ea8f21501899f21d42b5294bf1759109975b1e53ac535d1ada36844",
-   "truth_sha256": "57dd556c0ba64d2fce5600d8b2073f4950513414a3e77129dae614d188d49f32",
+   "truth_sha256": "af7d751e4680421af58f15f525aaf54a898b05a45668d5cb8c8504dc527bc223",
+   "text_sha256": "696bed6e071d3e063d4ea78593cfffdb3f3fdea71befc7b270c6796a3ee55a4c",
    "font": "IBM Plex Serif",
    "kind": "article2"
   },
   {
    "id": "p007",
-   "words": 542,
+   "words": 546,
    "image_sha256": "6cc903f55f2c650c3ca9ccc66f441ac3fa62f89f6a952dfd04fcdd337f1dcb8e",
-   "truth_sha256": "e2e0ead6f622904a652211f400ed08448ccfc25665a625fdbba3a3e5e4e092b2",
+   "truth_sha256": "c97e4fa47583b42b4b945a0a1a4430541b3199007c4b8c8dba8453f6bd498f9f",
+   "text_sha256": "47a6f71ae822f73beeed77e6cf45a379d8b07971e90546a2e0a2a8e348922a64",
    "font": "IBM Plex Sans",
    "kind": "article3"
   },
@@ -64,7 +71,8 @@
    "id": "p008",
    "words": 197,
    "image_sha256": "b4defb7bb3e564e7cfcd3ded865965cfcda3ebf7da41d9dcdf19cfb878bab7f7",
-   "truth_sha256": "ee5f391ac1a47ff3f12eb9c348e3315ab8755bc79339f91551efeea2afbdcafb",
+   "truth_sha256": "0d6c8fad908471a8c46b3cdaea3a41c0f211d12e559036011297a45cc959b38a",
+   "text_sha256": "69e56034bfeb7dca028d5cbc2afc86f6fad623d73d900becbbd19b3c34397b53",
    "font": "Gelasio",
    "kind": "table"
   },
@@ -72,7 +80,8 @@
    "id": "p009",
    "words": 116,
    "image_sha256": "85551e9d940b39c9ea5948dac9cf0d4d592c7e72606fdae2a29f266c38a085d0",
-   "truth_sha256": "02c0976448b22d9bc3d310eea65e19a8e42f4823863b2d5a6ca393c00ae3843a",
+   "truth_sha256": "e2e5bacfb004954ee8c84c7e73593b0e45e26c5e509da53d1bb2e387a636d079",
+   "text_sha256": "cee05e4afe4f7aa38e8aa45a37019ef56d1fdb537f2850c7db15511fc18b08ca",
    "font": "Carlito",
    "kind": "form"
   },
@@ -80,7 +89,8 @@
    "id": "p010",
    "words": 504,
    "image_sha256": "3d496bf7c5f01429eaad9221541dc6af73a394d704894a074d5ca95f26b76a40",
-   "truth_sha256": "e255fc645803c303c23a25ebf4a8bb1c0682b89b37f5cd6bc682069e480027ea",
+   "truth_sha256": "b753eb43fadf14b7e19dcf63e1ca8a1ecc8454d77aa1dac91ce398a25de5e6ab",
+   "text_sha256": "3f1fe7f067a662e591361b3fdef11c8e8933cc010a4ad6a7c9c9ad4e547c4b50",
    "font": "Caladea",
    "kind": "mixed"
   },
@@ -88,15 +98,17 @@
    "id": "p011",
    "words": 669,
    "image_sha256": "5d2fbae841668c08b288d692ad53eb8d0532dff3e20bb42264b348920874552b",
-   "truth_sha256": "ed9c65b2cf5e2308f8df2462f2b4d76c6135b2832d49a215a19478ae3470f790",
+   "truth_sha256": "6886a41149f4aedc7868a45630e9331306b7d23b74873bc1c4fe60df4b2df593",
+   "text_sha256": "5636889b1d3ef20e6abdb96e39a495348904faa75c63452847839c9df538099c",
    "font": "Source Serif 4",
    "kind": "article2"
   },
   {
    "id": "p012",
-   "words": 579,
+   "words": 580,
    "image_sha256": "d516190ab4d950aee35c1c718d229142f10be839e12c10c11656697e1fbf56b9",
-   "truth_sha256": "bc2893696f696f7f0367429b199784ab88a302d767a78c065bd4fe5c7267798c",
+   "truth_sha256": "4da249947cb70621285a18e3f9f94de1c87793e31849211b0646d61b0a34d006",
+   "text_sha256": "c48d81fa2c3e238552e68c4ad4b2a84f535db2ac40d71259a6a59e5a52ad94cf",
    "font": "Source Sans 3",
    "kind": "article3"
   },
@@ -104,7 +116,8 @@
    "id": "p013",
    "words": 199,
    "image_sha256": "17a09d0b8de88079f62e566f9502662deee4a59b520ea67c2a89213ef4fdb59c",
-   "truth_sha256": "c5c469b937919049e410bdc01f59798273c4b05393b0a72650c37e4e5f066a67",
+   "truth_sha256": "0848f7f8b42c98fead66d28a2795ff3bf174e183ec4b6c192bb7eac781391ed5",
+   "text_sha256": "8a0d53fbae92fe32f554ab507fbbc105cdb1e30578667298068294a5fa88493a",
    "font": "IBM Plex Serif",
    "kind": "table"
   },
@@ -112,23 +125,26 @@
    "id": "p014",
    "words": 116,
    "image_sha256": "a35cb3ebc5108ef35b4d5f6e6e197b4750d217c3f2cfe902ddf547efd91b39d0",
-   "truth_sha256": "4ab942eae8ba26755c809732143dc36bc20e0312bb12920db94e1dfc6e598115",
+   "truth_sha256": "507fe35063d1439c09ad5e15492d985864288c3f608e37c74e7b7eee5de5d487",
+   "text_sha256": "e5e88336dd13a3b4484e9ccf1040f324c52ee7ac66d66d016b606a1ac32adf77",
    "font": "IBM Plex Sans",
    "kind": "form"
   },
   {
    "id": "p015",
-   "words": 502,
+   "words": 503,
    "image_sha256": "3e2de8b596dd1358f5af40977258450ff57133627e33b4f8a25a57773c3f5e7b",
-   "truth_sha256": "123c45aa8008d80513649dd73ea340c2b207d410f4722ca6d001b3ebef851b03",
+   "truth_sha256": "f60ab246c3f077a759cb677400d033bba0d6ee150537b4e2631d8f47abc92780",
+   "text_sha256": "2de041e21ed5096a8f03664c11b8deb878bbb02dfae9700a9e5012d03289c4ef",
    "font": "Gelasio",
    "kind": "mixed"
   },
   {
    "id": "p016",
-   "words": 687,
+   "words": 688,
    "image_sha256": "be3d10421faadfc42c5fe1984f31d345fe3344599ad3880379622fdeb2d0bb0d",
-   "truth_sha256": "cad58b93b7b16a52486eac0a4e3f172d44beea02b4b46690d14a12b8e4449d0c",
+   "truth_sha256": "48d83938eecc8168a415734cf2a76fc732a07e8b35f93b50ad1933d361cb606c",
+   "text_sha256": "77bb415bd328312410e4982e2299dd7dcb0fd84e9a956aacd705c90301b18ba8",
    "font": "Carlito",
    "kind": "article2"
   },
@@ -136,7 +152,8 @@
    "id": "p017",
    "words": 575,
    "image_sha256": "9621c266e8be8a17d013352699bfd0d72c57e1547311923d52f9e1cc681a2cad",
-   "truth_sha256": "c75b4f37a9fab09e350794f1a1ebd02fe4bc23a8164c77e0584b0dcabec70fdb",
+   "truth_sha256": "d8809d9f14f4c045f5440e0d02bc880420f6c1343d7af675359025b94e0f97e3",
+   "text_sha256": "c11e83b187905bc76d5487fbd7302b65995b4d672e5f0116bdc9b28b5b8b12ae",
    "font": "Caladea",
    "kind": "article3"
   },
@@ -144,7 +161,8 @@
    "id": "p018",
    "words": 358,
    "image_sha256": "b769c9b68d7c34b993458a24a2436f94a5050f4960f7fcf4b17007e8b077c6d7",
-   "truth_sha256": "bda5d71b82d9dfa19d5558e5457af6b55fa4097b99a259c420d962f2fba9ffd0",
+   "truth_sha256": "b059fc7903f8996d3f6df8d1c732da11d5c55c67c95a2a027ac25f1fff137df4",
+   "text_sha256": "76b9e9ea68ad82828df74ca04db7505f4c14212ce329341bd003711acc54c0f5",
    "font": "Source Serif 4",
    "kind": "table"
   },
@@ -152,7 +170,8 @@
    "id": "p019",
    "words": 94,
    "image_sha256": "1a74a05b55f3dcf86a7466ed3898de963d44fca52735ddd501c4bd39bfdae9f1",
-   "truth_sha256": "8f0ef55f9c0952202bc0fa972eb6841dddd8590c4998006305913719d3fe0579",
+   "truth_sha256": "e62f2ea6a9cd5f517c02976233da4eff8d3be84548f54af7523891939bcc183d",
+   "text_sha256": "37aac9b5edb373e9b32081963fbba6e04351211ffb8ff76145ae8284ab877ab2",
    "font": "Source Sans 3",
    "kind": "form"
   },
@@ -160,7 +179,8 @@
    "id": "p020",
    "words": 603,
    "image_sha256": "56607aeaa7340f95879d043d1cce8c7a924aa42b3859386819573952485e04a2",
-   "truth_sha256": "27092abeedb9200fe65c49f6ab5df250cda6a08b3094a963d2119d07f91ee3b3",
+   "truth_sha256": "5038529acf2ab0d65f8907e27e8e10412044220ec4aee067d4f0ad02c48929d6",
+   "text_sha256": "59dd98ecb78b000f57720ec9ff360fdd6eb75ac2121b05c83bed925148b51ec9",
    "font": "IBM Plex Serif",
    "kind": "mixed"
   },
@@ -168,7 +188,8 @@
    "id": "p021",
    "words": 642,
    "image_sha256": "22b821ae468f60fa7d9efa6bce240c0a10d6f3e3bb1c010e7d49312c59486a34",
-   "truth_sha256": "e6b007fd3f8df0974a306498a98f3953b02a51a7c10e98e7103cc7796fda920b",
+   "truth_sha256": "cfb5972d59cda4cd0ea8564d093c20cd2098c7b9e3b525cea114e632c519180b",
+   "text_sha256": "76c2823fc4866192861660143e0b6f3373e15f7fb1cfc95e6f41d951a3b648f0",
    "font": "IBM Plex Sans",
    "kind": "article2"
   },
@@ -176,7 +197,8 @@
    "id": "p022",
    "words": 623,
    "image_sha256": "a6f648497376ff47e3b2268abf7716ae7ede6f7ae494249ca7ad7655b775cd38",
-   "truth_sha256": "bcde1ae484933d2cc8c6efe6c81725b18b0fad5fc8ab752814a3eea756df5030",
+   "truth_sha256": "394bb923788b3e830d8785ab641f1dc60886f972a6d5547ceb5e06bc2378ab36",
+   "text_sha256": "6f663cfcd8435bb07f631aad774cc0b2921d6809bdf73a085bcbbafbd618d997",
    "font": "Gelasio",
    "kind": "article3"
   },
@@ -184,7 +206,8 @@
    "id": "p023",
    "words": 223,
    "image_sha256": "8b27c21d6a0414ce9a109e5c51927a2d12017abccc425740160be69d068d2ebf",
-   "truth_sha256": "7d0d9ef893934234730fae1132e077d91e944665319ca812710a8b238bd7fd80",
+   "truth_sha256": "d98ebf4cac9f5cff615ec9beb9ba2573688d70114f654253c8b9d47b8cce54f7",
+   "text_sha256": "85f52c808910d02219d869c92c3f2acd98529f813ef26018a27ccb6780e44e73",
    "font": "Carlito",
    "kind": "table"
   },
@@ -192,7 +215,8 @@
    "id": "p024",
    "words": 80,
    "image_sha256": "6168ad85182b3e91fc1b1899b65913d7de9bc21aafd4fdc78725b206e99c7225",
-   "truth_sha256": "d911f81a8e5ae501e94a01a94b26979ab45c8ad0f675b9bd48ae05cad01538a2",
+   "truth_sha256": "93b6b578c8e7a4a7ce634d515e5f19541008678e36851ed5a961436ea8168f31",
+   "text_sha256": "f7924604358370aee0001c30862404f270bb8d8aeb4251b49783928a612f6db7",
    "font": "Caladea",
    "kind": "form"
   },
@@ -200,7 +224,8 @@
    "id": "p025",
    "words": 439,
    "image_sha256": "88f73440b8bc9d5a26ae00a916eef6a8522b7c59d755187705a05ab626fc3692",
-   "truth_sha256": "f6b4ca06c26d028b5fa0348d9739695bec6c2febab7f8e6fd69971ad0799b6e4",
+   "truth_sha256": "53a2ba716922a363d6a9444778f7e2dabe97b4a47b0e53982b4e37e2021cadf8",
+   "text_sha256": "31c29806d21a1df8d324890dc4ba84d4bfade0528a6778630509d925d9555a72",
    "font": "Source Serif 4",
    "kind": "mixed"
   },
@@ -208,7 +233,8 @@
    "id": "p026",
    "words": 743,
    "image_sha256": "6a2f53a43a374ef1cdc9ea47cd311a61e4bc949a80ce0d6c853523a587bb921f",
-   "truth_sha256": "8bd61a9b7535e7c9a4abdfc225f298a5a4558177d49f792a697dfb268c78e6c2",
+   "truth_sha256": "b8e0db2e699efe6832e0221b8f550f2f0d3084aa7c8bee6976d180b48a320c23",
+   "text_sha256": "2986e7ade51afc26012163be7f94854f4c31f1d45c14ab69aafff5253aef9795",
    "font": "Source Sans 3",
    "kind": "article2"
   },
@@ -216,7 +242,8 @@
    "id": "p027",
    "words": 488,
    "image_sha256": "8cb38c038ecc00dba5238c2f4fa369648104ad0b175f761121d3469f0ccd9033",
-   "truth_sha256": "f11e562eee2d350a2bbf87bb0e40cb621c2c00de8579516a8cc5d44e320b21ed",
+   "truth_sha256": "b0f24bf0fc042e6bbd3e3980f2c9769fb73c18ca3d95bc498f6639522c16fb74",
+   "text_sha256": "282261aa2f738a41a1d7bcc57abe67b1c841f4b80892f6a45bc8323dca9b3693",
    "font": "IBM Plex Serif",
    "kind": "article3"
   },
@@ -224,7 +251,8 @@
    "id": "p028",
    "words": 301,
    "image_sha256": "2d75aaad91fe9c24fa03e70438bb58cccbdd259a94c5834e15547371a3f62936",
-   "truth_sha256": "26601dacb1d62a4ef7d94a1b2518b76fdf76cb16c4cd06447c47ef7b6df923dd",
+   "truth_sha256": "128434ddbaeb28c78235aea58ca121a3bac487007543ed0462520d52ac008ad1",
+   "text_sha256": "f61bb571ec1fbcf18e201e9b079c07f85bdbc425e6561d5e0a3ef5a3ef5d434e",
    "font": "IBM Plex Sans",
    "kind": "table"
   },
@@ -232,7 +260,8 @@
    "id": "p029",
    "words": 119,
    "image_sha256": "054d544ec0ccd478c6017327948ae50b882248a3f53390bc110eadcfe7163511",
-   "truth_sha256": "7248814808f737cf7cbc58d62a20e86a12655dc03799a15b7077655ac53146a7",
+   "truth_sha256": "b9005ebf1b3fece1011d7bc1fcb84ceb9b3918e647931c040034409c5ddf8d0c",
+   "text_sha256": "2281d14d2436ac56e490f2486cb46da2f5425b980624183b5bdcd39ed494b41b",
    "font": "Gelasio",
    "kind": "form"
   },
@@ -240,7 +269,8 @@
    "id": "p030",
    "words": 444,
    "image_sha256": "04d782e7e6cc21a252a4acadad119bc59aa15c526df5872606824daf9137b3df",
-   "truth_sha256": "f2d2637cf086c73c187e5b5123a9e8cf8e656e961df628f3b324e37d6a6bc8eb",
+   "truth_sha256": "c9be8fa4de1fd59ae87825a2831902b6f9b544607e47de0f4c9567e8f3254258",
+   "text_sha256": "1ca4d9d1ea416dd5ea752db0f09eb9336b1ae7b154d99b641c862c7a86fe2fb8",
    "font": "Carlito",
    "kind": "mixed"
   },
@@ -248,7 +278,8 @@
    "id": "p031",
    "words": 541,
    "image_sha256": "956151e6de598917f2b498defd66750ba7f732e1cd6a95b40467cd9a90d2fe78",
-   "truth_sha256": "9deb685ceb9dc5a3097d3cf5c8d98160b8400112ca8f30f60c2c2889c8527374",
+   "truth_sha256": "583cc16f55dd1962ecaa655201ce42b99b2a676b74f4a3383e07f07239609a5d",
+   "text_sha256": "344878a3eecd5256a71bbf5957e9c8741d00cdd447fc7f0539c6f04d35ec4338",
    "font": "Caladea",
    "kind": "article2"
   },
@@ -256,7 +287,8 @@
    "id": "p032",
    "words": 398,
    "image_sha256": "6025bc7a35b8972cfc2626877c2fc253d13d5c26d7ff82bd9ff2365cbcbd4409",
-   "truth_sha256": "196bcbcc8ffe4f0b228f6569f206710be4e35a57921467dc6b1eea44f474363d",
+   "truth_sha256": "a57962c93499fa1467fd88b9c6863a230d8af0956f7a5a970fb37ee760a9e2a2",
+   "text_sha256": "a16e425cb62b3323020ff832353aeb04b1e83fb175a3c89c4c75ef2f2d840ac8",
    "font": "Source Serif 4",
    "kind": "article3"
   },
@@ -264,7 +296,8 @@
    "id": "p033",
    "words": 188,
    "image_sha256": "f921dd673dd60a1a7302875973d346691752ce2db50df0b5173c62138a7f99b4",
-   "truth_sha256": "9a5636b882353931cb7b0ffb5809fe25b3a0ebacf27531e7f551f37039d37ead",
+   "truth_sha256": "ecbb2dcf92a7f4d82b3d8f18d9db1ba61de96c39ab073f82e7d88a6e43b041ce",
+   "text_sha256": "7aaef3d7716bd7d597c08acb136b35a319cca3ce85981cb1a1e6243a3030375d",
    "font": "Source Sans 3",
    "kind": "table"
   },
@@ -272,7 +305,8 @@
    "id": "p034",
    "words": 130,
    "image_sha256": "ba72893279544a5c5cddca07b10d7f1c44aa08130a7c75bce1cca2ed63fbe0de",
-   "truth_sha256": "415152ed521373f45afb688ce3f0be2e7e8c387b536ad6dd5ebac2b50b50c7cf",
+   "truth_sha256": "9dda750fbee259a9f28e75f7e6a86fefd6ebb8b60900d3f4141bd2be2fb4fc96",
+   "text_sha256": "79684683f2ee3d3393735db8e72b4fb50389602ee67493dc7fcdc286119ba4b9",
    "font": "IBM Plex Serif",
    "kind": "form"
   },
@@ -280,7 +314,8 @@
    "id": "p035",
    "words": 580,
    "image_sha256": "1e9070050fa737babfb98a0da8f823e614fa715573eb4b621de6f832cbd3684a",
-   "truth_sha256": "b863e1520207989900fd378a6d39d5eab42b3e1a1b5bc937150c205de189eab3",
+   "truth_sha256": "28981f3950d540accffaae16e4564f6e160ccc2beb184b9da7a38efbe992ee0e",
+   "text_sha256": "7d889f4cb83885e7bbee03510495de08e30b3108cd611df0811d312d48f57fe9",
    "font": "IBM Plex Sans",
    "kind": "mixed"
   },
@@ -288,15 +323,17 @@
    "id": "p036",
    "words": 687,
    "image_sha256": "580d849f6b341c3c232fd37f365a9cd9ac27fc4c72c34ae12b4ba57cbd62f8b8",
-   "truth_sha256": "f435ccb8180d8414da64c63a2b62c4ed5602e5f032e08801ac75287489a55b51",
+   "truth_sha256": "32e4ebc810cec835981aa3aa19c03f774fac3890ef3c24fb69d099013dd1adab",
+   "text_sha256": "de09051b3345c4cf7908ba8acd84cefa1dcb2a37532844b8e488d86b7d1bf802",
    "font": "Gelasio",
    "kind": "article2"
   },
   {
    "id": "p037",
-   "words": 621,
+   "words": 622,
    "image_sha256": "7c322aeb9a58bb939849e3a5b927e26d155c5db0946199fc360900e81e12977e",
-   "truth_sha256": "60017e5872bb2383948bedd9d378bbbc30146628b1d107bd024d614655ba4a02",
+   "truth_sha256": "645e867de85c4bd02bcb00d1f7f0024a01e083e6d3e5f843d1120e139f44e1c6",
+   "text_sha256": "ab42ed7a204e34c5badf34c92c8000b228c64bdd884413f0ea464d10287a8e01",
    "font": "Carlito",
    "kind": "article3"
   },
@@ -304,7 +341,8 @@
    "id": "p038",
    "words": 258,
    "image_sha256": "cf610ed5a62d517ee815f070b294ab574c4332892c115e5debbd084f0dbb8364",
-   "truth_sha256": "a86ab385b3512778b9f4e91b9b0abb58fc1b8a3d5e0e3ce0a5b578753eecd79b",
+   "truth_sha256": "674b9854e8cb263ed105d4a0834606cb45ad9b1db516ad885c2584681da85152",
+   "text_sha256": "c426e6614803ebd547d46fe508d47b98005e646f787c5ffe52ac03d6e40e5c3a",
    "font": "Caladea",
    "kind": "table"
   },
@@ -312,7 +350,8 @@
    "id": "p039",
    "words": 100,
    "image_sha256": "1d5b2f5a01c64fe7676958aa049428f67e80f0556597180b2b6cf67c968399d3",
-   "truth_sha256": "bf511e70e83b5da4bad063038b355ee9dee2bab58ec6122029d70d1de888f9ba",
+   "truth_sha256": "95f335011e3cbcf264badf13d091d03e6aae0f192a58d808cec3cf4d40a031a8",
+   "text_sha256": "8490b8c3fd0521b0075c5311a51faa6689a30cf8d6eef10328eb21aca290da54",
    "font": "Source Serif 4",
    "kind": "form"
   },
@@ -320,7 +359,8 @@
    "id": "p040",
    "words": 587,
    "image_sha256": "2360756dfd057bca01ad61c41568cf038d6602252dfab6f9f4681d058712f40a",
-   "truth_sha256": "d4c4b17494bc5e5e63b65c54933be0a326506cf8fea8c92314c0fe951ec94a0d",
+   "truth_sha256": "397c1153b6693741b17d6566a1874cbdecf6bac3c1de1b0a5d8b96148f14e410",
+   "text_sha256": "6cbefc5ce559eb234c9f09b7f2947df3978419a232d243de621b525900162b04",
    "font": "Source Sans 3",
    "kind": "mixed"
   }

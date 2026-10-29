@@ -19,6 +19,10 @@ internal sealed class ManifestDto
 
     // Read only from version 1 files; held raw so that a version 0 file never trips over it.
     public JsonElement? Calibration { get; init; }
+
+    // Optional, version 1 only: the curve for the confidence a page reports, when it differs from the one the pipeline decides with.
+    [JsonPropertyName("report_calibration")]
+    public JsonElement? ReportCalibration { get; init; }
 }
 
 // The image members are required for every architecture that reads pixels and absent for the word-based extraction model, whose
@@ -89,6 +93,16 @@ internal sealed class DbNetConfigDto
 
     public required int Classes { get; init; }
 
+    /// <summary>Blocks of the stride-16 layout context branch (<c>dbnet-lite-v1</c>); absent or 0 means none.</summary>
+    [JsonPropertyName("layout16_blocks")]
+    public int? Layout16Blocks { get; init; }
+
+    /// <summary>Width of the stride-16 branch; required when <c>layout16_blocks</c> is above 0.</summary>
+    public int? Layout16 { get; init; }
+
+    /// <summary>Whether the orientation head reads the channel means of stages 2 and 3 (<c>dbnet-lite-v1</c>); absent means false.</summary>
+    public bool? Orient16 { get; init; }
+
     [JsonPropertyName("layout_classes")]
     public required List<string> LayoutClasses { get; init; }
 
@@ -113,6 +127,38 @@ internal sealed class PostprocessDto
 
     [JsonPropertyName("layout_expand")]
     public double? LayoutExpand { get; init; }
+
+    /// <summary>Page noise above which the page-conditional text threshold may apply; the rule needs all three <c>rule_*</c> members.</summary>
+    [JsonPropertyName("rule_sigma_min")]
+    public double? RuleSigmaMin { get; init; }
+
+    /// <summary>Speck density per megapixel below which the page-conditional text threshold applies.</summary>
+    [JsonPropertyName("rule_junk_max")]
+    public double? RuleJunkMax { get; init; }
+
+    /// <summary>Text threshold used on pages the rule selects.</summary>
+    [JsonPropertyName("rule_text_threshold")]
+    public double? RuleTextThreshold { get; init; }
+
+    /// <summary>Probability above which a cell is on in the faint-text second pass; the recovery needs all five <c>faint_*</c> members.</summary>
+    [JsonPropertyName("faint_text_threshold")]
+    public double? FaintTextThreshold { get; init; }
+
+    /// <summary>Largest median gray value (0 to 255) of a candidate's box that still counts as a dark background.</summary>
+    [JsonPropertyName("faint_bg_max")]
+    public int? FaintBackgroundMax { get; init; }
+
+    /// <summary>Fewest text-map cells of a recovered line.</summary>
+    [JsonPropertyName("faint_min_cells")]
+    public int? FaintMinCells { get; init; }
+
+    /// <summary>Smallest width over height of a recovered line's cell box.</summary>
+    [JsonPropertyName("faint_min_aspect")]
+    public double? FaintMinAspect { get; init; }
+
+    /// <summary>Smallest word confidence kept from a recovered line.</summary>
+    [JsonPropertyName("faint_min_confidence")]
+    public double? FaintMinConfidence { get; init; }
 }
 
 internal sealed class DocExtractConfigDto

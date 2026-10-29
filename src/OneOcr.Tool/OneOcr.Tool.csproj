@@ -17,4 +17,7 @@
     <None Include="README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
+  <!-- In this repository the core is a project reference, so the package's NativeAOT instruction-set default is imported by hand. -->
+  <Import Project="../OneOcr/buildTransitive/OneOcr.targets" />
+
 </Project>

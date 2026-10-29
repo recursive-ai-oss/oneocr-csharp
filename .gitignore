@@ -25,3 +25,6 @@ __pycache__/
 /training/data/raw/
 /training/runs/
 /training/out/
+
+# Local held-out tuning pages (generated, never committed)
+bench/_tune/

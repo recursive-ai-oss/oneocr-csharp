@@ -15,7 +15,7 @@ namespace OneOcr.Documents;
 /// <para>A user-trained model with its own classes loads the same way; its fields appear in <see cref="DocumentExtraction.Fields"/> and
 /// <see cref="DocumentExtraction.LineItems"/> under the class names it defines.</para>
 /// </remarks>
-public sealed class DocumentExtractor
+public sealed partial class DocumentExtractor
 {
     private readonly DocExtractModel _model;
     private readonly OcrLimits _limits;
@@ -95,6 +95,10 @@ public sealed class DocumentExtractor
 
     internal DocExtractModel Model => _model;
 
+    /// <summary>An extractor over a model already in memory, for the trainer's before/after evaluation.</summary>
+    internal static DocumentExtractor FromModel(DocExtractModel model, OcrLimits limits, KernelPath path, string version, string name) =>
+        new(model, limits, path, version, name);
+
     /// <summary>Reads a page with the schema the model predicts for it.</summary>
     /// <param name="page">The page; its words, in reading order, are what the model reads.</param>
     /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
@@ -171,6 +175,14 @@ public sealed class DocumentExtractor
     public Task<Receipt> ExtractReceiptAsync(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
         Task.Run(() => ExtractReceipt(page, maxDegreeOfParallelism, cancellationToken), cancellationToken);
 
+    /// <summary>Asynchronous <see cref="Extract(OcrPage, int, CancellationToken)"/>: runs the same local work on the thread pool.</summary>
+    /// <param name="page">The page.</param>
+    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns>The extraction.</returns>
+    public Task<DocumentExtraction> ExtractAsync(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Extract(page, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+
     internal DocumentExtraction Run(OcrPage page, string? forcedType, int maxDegreeOfParallelism, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(page);
@@ -203,8 +215,16 @@ public sealed class DocumentExtractor
             return new DocumentExtraction(DocumentType.Other, 0f, [], [], [], [], ["The page has no words."]);
         }
 
+        return RunWords(texts, boxes, index, sources, page.Width, page.Height, forcedType, maxDegreeOfParallelism, cancellationToken);
+    }
+
+    /// <summary>The model and assembly on words already listed (non-empty texts, with their page indices and sources).</summary>
+    internal DocumentExtraction RunWords(
+        IReadOnlyList<string> texts, IReadOnlyList<OcrBox> boxes, IReadOnlyList<int> index, IReadOnlyList<OcrSource> sources, double width, double height,
+        string? forcedType, int maxDegreeOfParallelism, CancellationToken cancellationToken)
+    {
         int degree = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Math.Min(4, Environment.ProcessorCount);
-        DocFeatures features = DocFeatures.Build(_model, texts, boxes, page.Width, page.Height);
+        DocFeatures features = DocFeatures.Build(_model, texts, boxes, width, height);
         DocOutputs outputs = DocForward.Run(_model, features, _path, degree, cancellationToken);
         NumberStyle style = ValueNormalize.DetectStyle(texts);
         if (style == NumberStyle.Auto)

@@ -1,0 +1,47 @@
+# Web text lines (gen/web_lines.py): real public-domain web pages rendered in headless Chromium, one crop per visual line.
+charset: data/charset-v1.txt
+sources: data/web_sources.yaml
+urls: data/web_urls.txt
+seed: 95
+discover:
+  pages_per_publisher: 130        # pinned in web_urls.txt
+  fetch_limit: 36                 # pages fetched per publisher to collect links (seeds first, then a seeded sample of their links)
+render:
+  # one draw per page from (seed, url): viewport, device-pixel ratio, anti-aliasing
+  viewports: [[1280, 800], [1440, 900], [1024, 768], [1920, 1080], [390, 844], [768, 1024]]
+  viewport_weights: [4, 3, 2, 2, 1, 1]
+  dpr: [1, 1, 1, 1.25, 1.5, 2, 2]  # repeated entries weight a value; phones render at 2 (390 px wide)
+  aa: { grayscale: 0.7, subpixel: 0.3 }
+  max_page_css_px: 6000           # the viewport is stretched to the document height up to this, so every line is hit-testable
+  max_shot_px: 14000              # device pixels, a Chromium screenshot limit
+  page_timeout_ms: 45000
+windows:                          # viewport windows for detector training (--windows-dir)
+  max_per_page: 4                 # the top of the page always, the others a seeded draw
+  min_lines: 3
+lines:
+  min_chars: 2
+  max_chars: 120
+  max_width: 1600                 # px at the 32 px output height
+  min_ink_h: 6                    # device px
+  max_em_px: 110                  # device px; larger type is display lettering
+  max_height_ratio: 1.5           # words of one line differ less than this in box height (a small block beside a big label is no line)
+  split_gap_em: 2.5               # a wider gap between words ends the line (the page reader cuts wide gaps too)
+  join_gap_em: 0.08               # a gap below this between two DOM words is no space
+  space_gap_em: 0.15              # a gap above this is a space; between the two the line is dropped as ambiguous
+  max_copies_per_text: 2          # per publisher: navigation and footer lines repeat on every page
+  max_lines_per_page: 160
+  # pixel check of a line against its DOM box
+  min_contrast: 24                # 0-255 gray steps between ink and background
+  ink_threshold: 0.3              # share of the line's own contrast that counts as ink
+  vert_tol: 0.12                  # the ink search runs this far (of the box height) above and below the DOM box
+  edge_tol_em: 0.3                # ink may reach this far past the DOM box
+  end_slack_em: 0.7               # the ink must start and stop within this of the box ends
+  ink_h_range: [0.3, 1.2]        # ink height over DOM box height
+  word_cover_min: 0.3             # share of a word's columns that must hold ink
+  margin_cols_max: 1              # unlabelled ink columns tolerated in the crop's side margins (a drawn rule is not counted)
+# fonts whose pixels must not train: the synthetic evaluation fonts (see data/fonts.yaml and fonts_ui.yaml, split != train)
+# a held-out font on a page is replaced by this pinned file of the training pool (the layout is the real page's; the typeface is not)
+substitute_font: ofl/opensans/OpenSans[wdth,wght].ttf
+heldout_font_patterns: ["sourcesans", "sourceserif", "ibmplex", "plexsans", "plexserif", "plexmono", "gelasio", "carlito", "caladea"]
+# a line is kept only when every font the browser reports for its words is on this licence-checked list (data/font_allowlist.yaml)
+font_allowlist: data/font_allowlist.yaml

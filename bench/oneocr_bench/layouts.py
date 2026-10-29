@@ -23,6 +23,7 @@ from .assets import FAMILIES
 from .gen import H_CSS, H_PX, SCALE, W_CSS, W_PX, load_paragraphs, prose
 from .render import (
     WORDS_JS,
+    add_ink,
     font_css,
     png_bytes,
     text_of,
@@ -111,7 +112,7 @@ FILL = """([blocks, limit, sel]) => {
 }"""
 
 
-def render(count: int, seed: int, out, set_name: str) -> tuple[list[dict], str]:
+def render(count: int, seed: int, out, set_name: str, kinds: list[str] | None = None) -> tuple[list[dict], str]:
     from playwright.sync_api import sync_playwright
 
     paras = load_paragraphs()
@@ -124,7 +125,7 @@ def render(count: int, seed: int, out, set_name: str) -> tuple[list[dict], str]:
             pid = f"p{i + 1:03d}"
             rng = random.Random(f"{set_name}:{seed}:{i}")
             fam = fams[i % len(fams)]
-            kind = KINDS[i % len(KINDS)]
+            kind = (kinds or KINDS)[i % len(kinds or KINDS)]
             fs = rng.choice([9.5, 10, 10.5, 11]) * 96 / 72
             m = rng.choice([16, 20, 24]) * 96 / 25.4
             nc = {"article2": 2, "article3": 3, "mixed": 2}.get(kind, 1)
@@ -179,6 +180,7 @@ def render(count: int, seed: int, out, set_name: str) -> tuple[list[dict], str]:
             page.close()
             img = Image.open(io.BytesIO(png)).convert("L").crop((0, 0, W_PX, H_PX))
             tw = truth_words(words, SCALE)
+            add_ink(tw, img)
             truth = {"id": pid, "set": set_name, "seed": seed, "page_index": i, "kind": kind, "font": fam, "columns": nc,
                      "font_px": round(fs, 2), "blocks_placed": n, "image": {"width": W_PX, "height": H_PX, "dpi": 300},
                      "words": tw, "text": text_of(tw)}

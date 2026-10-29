@@ -7,7 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="RecursiveAI.OneImage" Version="1.9.0" />
+    <PackageReference Include="RecursiveAI.OneImage" Version="1.10.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Consumers get a safe NativeAOT instruction-set default; see the file. -->
+    <None Include="buildTransitive/OneOcr.targets" Pack="true" PackagePath="buildTransitive/$(PackageId).targets" />
   </ItemGroup>
 
   <ItemGroup>

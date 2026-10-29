@@ -20,6 +20,7 @@ from PIL import Image
 
 from .assets import FAMILIES, WORKS, font_path, gutenberg_body, sha256
 from .paths import data_dir
+from .render import FRAGS_JS, add_ink, text_of, truth_words
 
 SET_NAME = "clean300-v1"
 DPI = 300
@@ -42,8 +43,25 @@ ITEMS = ["packing list", "route map", "receipt book", "signed forms", "spare bat
          "tide tables", "meeting notes", "ink cartridges", "brass keys", "printed tickets", "field guides"]
 
 
+AVOID_TEXT: list[Path] = []  # truth directories whose passages a new set must not reuse (see `avoid_text`)
+
+
+def avoid_text() -> set[str]:
+    """Opening words of every sentence in the truth files under AVOID_TEXT, as a key set; empty when none are set."""
+    seen: set[str] = set()
+    for d in AVOID_TEXT:
+        for f in sorted(d.glob("*/truth/*.txt")):
+            for line in f.read_text(encoding="utf-8").splitlines():
+                words = line.split()
+                for i in range(len(words) - 7):
+                    seen.add(" ".join(words[i : i + 8]))
+    return seen
+
+
 def load_paragraphs() -> list[list[str]]:
-    """Public-domain paragraphs split into sentences; deterministic order."""
+    """Public-domain paragraphs split into sentences; deterministic order. Paragraphs that share an eight-word run
+    with a truth under AVOID_TEXT are left out, so a new set can use fresh passages."""
+    avoid = avoid_text() if AVOID_TEXT else set()
     paras: list[list[str]] = []
     for n in sorted(WORKS):
         body = gutenberg_body((data_dir() / "text" / f"pg{n}.txt").read_bytes())
@@ -54,6 +72,10 @@ def load_paragraphs() -> list[list[str]]:
             if len(t) < 160 or not ALLOWED.match(t):
                 continue
             sents = SENT_SPLIT.split(t)
+            if avoid:
+                w = t.split()
+                if any(" ".join(w[i : i + 8]) in avoid for i in range(len(w) - 7)):
+                    continue
             if len(sents) >= 2:
                 paras.append(sents)
     return paras
@@ -150,7 +172,7 @@ FILL_JS = """([blocks, limit]) => {
   return n;
 }"""
 
-WORDS_JS = """() => {
+WORDS_JS = "() => {" + FRAGS_JS + """
   const out = [];
   for (const blk of document.querySelectorAll('#c [data-b]')) {
     const b = +blk.dataset.b;
@@ -158,9 +180,7 @@ WORDS_JS = """() => {
     for (let nd = tw.nextNode(); nd; nd = tw.nextNode()) {
       const re = /\\S+/g; let m;
       while ((m = re.exec(nd.data))) {
-        const r = document.createRange(); r.setStart(nd, m.index); r.setEnd(nd, m.index + m[0].length);
-        const q = r.getBoundingClientRect();
-        out.push({t: m[0], x0: q.left, y0: q.top, x1: q.right, y1: q.bottom, b});
+        for (const f of frags(nd, m.index, m.index + m[0].length)) out.push({...f, b});
       }
     }
   }
@@ -214,16 +234,9 @@ def render_set(count: int, seed: int, out: Path, set_name: str = SET_NAME, post=
             png_bytes = buf.getvalue()
             ext, params = "png", None
 
-            lines_out: list[str] = []
-            cur = None
-            for w in words:
-                if w["b"] != cur:
-                    lines_out.append([])
-                    cur = w["b"]
-                lines_out[-1].append(w["t"])
-            text = "\n".join(" ".join(ws) for ws in lines_out) + "\n"
-            tw = [{"text": w["t"], "box": [round(w[k] * SCALE, 1) for k in ("x0", "y0", "x1", "y1")], "block": w["b"]}
-                  for w in words]
+            tw = truth_words(words, SCALE)
+            text = text_of(tw)
+            add_ink(tw, img)  # from the clean render; the degradations move it with the box
             image = {"width": W_PX, "height": H_PX, "dpi": DPI}
             if post:
                 png_bytes, tw, params = post(img, tw, i, rng)
@@ -244,7 +257,7 @@ def render_set(count: int, seed: int, out: Path, set_name: str = SET_NAME, post=
             (out / "truth" / f"{pid}.json").write_bytes(truth_bytes)
             (out / "truth" / f"{pid}.txt").write_text(text, encoding="utf-8")
             entries.append({"id": pid, "font": family, "words": len(words), "png_sha256" if ext == "png" else "image_sha256": sha256(png_bytes),
-                            "truth_sha256": sha256(truth_bytes)})
+                            "truth_sha256": sha256(truth_bytes), "text_sha256": sha256(text.encode())})
         version = browser.version
         browser.close()
     return {"set": SET_NAME, "seed": seed, "count": count, "dpi": DPI, "chromium": version, "pages": entries}

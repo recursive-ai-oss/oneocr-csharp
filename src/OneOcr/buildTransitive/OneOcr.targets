@@ -1,0 +1,11 @@
+<Project>
+
+  <!-- A NativeAOT binary is compiled for one instruction-set level. .NET's default for x64 is x86-64-v2, which has no AVX2 or FMA, so the
+       OCR kernels would fall back to their exact scalar path, about a hundred times slower (the text is the same). For an x64 publish
+       whose project did not choose a level, ask for x86-64-v3 (AVX2 + FMA, any x86-64 CPU since about 2015; an older CPU refuses to start
+       the binary). A value set in the project or on the command line always wins; x86-64-v4 selects the AVX-512 kernels. Arm needs nothing. -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true' And '$(IlcInstructionSet)' == '' And (('$(RuntimeIdentifier)' != '' And $(RuntimeIdentifier.EndsWith('-x64'))) Or ('$(RuntimeIdentifier)' == '' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'))">
+    <IlcInstructionSet>x86-64-v3</IlcInstructionSet>
+  </PropertyGroup>
+
+</Project>

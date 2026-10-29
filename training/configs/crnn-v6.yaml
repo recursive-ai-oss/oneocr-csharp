@@ -1,0 +1,34 @@
+# Second fine-tune of the production recognizer (small receipt text, interface text, wide gaps inside a line). Starts again from the best
+# checkpoint of crnn-v4. Every batch of 128 holds 72 lines of lines-v4 (the production mix, so the other categories hold), 8
+# receipt-style, 14 wide-gap and 16 interface-text lines (exact-truth synthetic, lines-v5), and 18 real word crops of the official CORD
+# train split with CORD's own labels. Selection is on five validation sets (lines-v4 val, three lines-v5 sets, CORD dev crops) with a
+# penalty when the lines-v4 validation CER gets worse; no evaluation set takes part.
+# ${ONEOCR_HOME} is the state directory of the machine running the job; ${ONEOCR_PREV} holds the earlier production run.
+name: crnn-v6
+seed: 6
+init_from: ${ONEOCR_PREV}/runs/crnn-v4/best.pt
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_PREV}/data/lines-v4
+run_dir: ${ONEOCR_HOME}/runs/crnn-v6
+sources:
+  - { name: receipt-synth, kind: pack, dir: "${ONEOCR_HOME}/data/lines-v5/clean/train", line_set: configs/lines-v5.yaml, side: receipt, per_batch: 8, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: gap-lines, kind: pack, dir: "${ONEOCR_HOME}/data/lines-v5/clean/gaps_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 14, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: ui-lines, kind: pack, dir: "${ONEOCR_HOME}/data/lines-v5/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 16, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: cord-train, kind: crops, dir: "${ONEOCR_HOME}/data/cord-lines/train/finder", per_batch: 18, provenance: "CORD v2 train annotations, CC BY 4.0" }
+extra_val:
+  receipt_synth: ${ONEOCR_HOME}/data/lines-v5/val
+  gaps: ${ONEOCR_HOME}/data/lines-v5/gaps_val
+  ui: ${ONEOCR_HOME}/data/lines-v5/ui_val
+  cord_dev: ${ONEOCR_HOME}/data/cord-lines/val/finder
+train:
+  steps: 30000
+  batch: 128
+  lr: 0.0002
+  warmup: 500
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 2000
+  ckpt_every: 2000
+  val_penalty: 3.0

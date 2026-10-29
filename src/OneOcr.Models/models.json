@@ -4,20 +4,38 @@
     {
       "name": "crnn-v0",
       "role": "recognizer",
-      "version": "0.4.0",
+      "version": "0.7.3",
       "container": 1,
-      "bytes": 5039772,
-      "sha256": "61498b53a9d4e4119740411566d41804bac6fc831f128729feecb85ad56b7021",
-      "asset": "crnn-v0-0.4.0.onm"
+      "bytes": 5051740,
+      "sha256": "5c767a5ea36771a50caca812f5bbff9c64301536079b54d0c42b2982d7958eeb",
+      "asset": "crnn-v0-0.7.3.onm"
     },
     {
-      "name": "dbnet-lite-v0",
+      "name": "dbnet-lite-v1",
       "role": "detector",
-      "version": "0.1.0",
+      "version": "0.3.2",
       "container": 1,
-      "bytes": 629896,
-      "sha256": "ac663d83a0e35c84dd38742f76b2c7cbe58eca2ac4941f27a6b489d517f1284f",
-      "asset": "dbnet-lite-v0-0.1.0.onm"
+      "bytes": 1371528,
+      "sha256": "45950e9e4c27abf6642d7e61364e92d96439534708c641dece2d35c54f696d66",
+      "asset": "dbnet-lite-v1-0.3.2.onm"
+    },
+    {
+      "name": "charlm-v1",
+      "role": "language-model",
+      "version": "1.0.0",
+      "container": 0,
+      "bytes": 1421911,
+      "sha256": "38c190e804f17f54244cfb16cc03cc7dba30d13aa4cb5b6540a71e068bdd68b5",
+      "asset": "charlm-v1.bin"
+    },
+    {
+      "name": "wordfreq-v2",
+      "role": "word-frequencies",
+      "version": "2.0.0",
+      "container": 0,
+      "bytes": 1316145,
+      "sha256": "7121a7b9dbe12d109fd6cac4b6e0196ef036afb74a0f0e5504d06dd398fdf851",
+      "asset": "wordfreq-v2.bin"
     }
   ]
 }

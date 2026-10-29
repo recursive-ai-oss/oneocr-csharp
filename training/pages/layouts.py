@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from . import corpus
 from .fontpool import Family, pick
@@ -20,6 +20,11 @@ PAGE_SIZES = [(794, 1123, 0.55), (816, 1056, 0.33), (719, 1016, 0.07), (559, 794
 PAPERS = ["#ffffff"] * 6 + ["#fdfcf7", "#f7f3e8", "#f2f2f2", "#eef3f8", "#faf6ee"]
 INKS = ["#000000"] * 4 + ["#111111", "#1c1c1c", "#222233", "#2b2b2b", "#10203a"]
 ACCENTS = ["#000000", "#1f3a68", "#7a1f1f", "#1f5a3a", "#555555", "#8a5a00"]
+# light-on-dark pages (web dark themes, terminals-in-documents, slides): paper, ink, accent
+DARK_PAPERS = ["#000000", "#0d0d0d", "#121212", "#16181d", "#1b1f27", "#1e2a38", "#0f2a43", "#222222", "#2d2d30", "#1c1c3a"]
+LIGHT_INKS = ["#ffffff", "#f2f2f2", "#e6e6e6", "#dcdcdc", "#cfd8dc", "#d8dee9", "#c9d1d9", "#b8c4d0"]
+LIGHT_ACCENTS = ["#ffffff", "#8ab4f8", "#ffb4a8", "#9ad9a8", "#d0d0d0", "#f2c46d"]
+BAND_PAPERS = ["#1f2937", "#112e51", "#0b3d2e", "#2b2b2b", "#4a1f1f", "#162447", "#000000"]
 VAL_SHARE = 8  # one template hash in 8 is reserved for the validation split
 
 
@@ -51,6 +56,7 @@ class Ctx:
     lang: str = "en"
     cps: frozenset[int] = frozenset()
     kv: int = 0
+    dark_p: float = 0.0  # share of pages drawn light-on-dark (whole page, or dark bands on a light page)
 
     def clean(self, s: str) -> str:
         return "".join(c for c in s if c.isspace() or ord(c) in self.cps) if self.cps else s
@@ -68,6 +74,24 @@ class Ctx:
 
 def script_of(lang: str) -> str:
     return "greek" if lang == "el" else "cyrillic" if lang in ("ru", "bg", "sr") else "latin"
+
+
+def _darken(ctx: Ctx, look: Look, w: int, h: int, mx: float, my: float) -> Look:
+    """With probability `ctx.dark_p` turn the page light-on-dark in small type: the whole page, or dark bands (running head and foot,
+    headings) on a light page. Drawn from a generator keyed by the page's own look, so with dark_p = 0 the page generator consumes
+    exactly the random numbers it always did."""
+    if ctx.dark_p <= 0:
+        return look
+    dr = random.Random(f"dark:{look.px:.4f}:{mx:.4f}:{my:.4f}:{w}:{h}")
+    if dr.random() >= ctx.dark_p:
+        return look
+    px = dr.uniform(9.0, 13.0)  # the small type real site chrome is set in
+    if dr.random() < 0.6:
+        return replace(look, px=px, ink=dr.choice(LIGHT_INKS), paper=dr.choice(DARK_PAPERS), accent=dr.choice(LIGHT_ACCENTS))
+    bp, bi = dr.choice(BAND_PAPERS), dr.choice(LIGHT_INKS)
+    bars = (f".hd,.ft{{background:{bp};color:{bi};border:none;padding:.5em .8em}}"
+            f"h1.h,h2.h{{background:{bp};color:{bi};padding:.3em .6em;border:none}}")
+    return replace(look, px=px, bars=bars)
 
 
 def draw_look(ctx: Ctx, tpl: dict, need_mono: bool = False) -> Look:
@@ -90,13 +114,14 @@ def draw_look(ctx: Ctx, tpl: dict, need_mono: bool = False) -> Look:
         px = min(px, 13.0)
     mx = rng.uniform(0.06, 0.13) * w
     my = rng.uniform(0.05, 0.11) * h
-    return Look(
+    look = Look(
         body=body, head=head, mono=mono, px=px, lh=rng.uniform(1.25, 1.55) if serif or rng.random() < 0.5 else rng.uniform(1.3, 1.6),
         justify=tpl["justify"], indent=tpl["indent"], ink=rng.choice(INKS), paper=rng.choice(PAPERS), accent=rng.choice(ACCENTS),
         margins=(my, mx, my, mx * rng.uniform(0.9, 1.15)), cols=tpl["cols"], gap=px * rng.uniform(1.6, 2.6), col_rule=tpl["col_rule"],
         width=w, height=h, head_scale=rng.uniform(1.15, 1.7), head_bold=rng.random() < 0.8, head_caps=tpl["head_caps"],
         head_rule=tpl["head_rule"], head_align=tpl["head_align"],
     )  # fmt: skip
+    return _darken(ctx, look, w, h, mx, my)
 
 
 def draw_template(ctx: Ctx, kind: str, **fixed) -> dict:

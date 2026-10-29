@@ -70,6 +70,28 @@ if (t1 != t4 || t1.Split('\n').Length != 3)
     return 1;
 }
 
+// The async twins run the same code: same text and page, and a cancelled token ends the task as cancelled.
+if (await page.ToTextAsync(engine) != t1 || OcrPageJson.ToJson([await engine.OcrAsync(page)]) != OcrPageJson.ToJson([engine.Ocr(page)])
+    || engine.Ocr([page, page]).Count != 2)
+{
+    Console.Error.WriteLine("async twins disagree with sync");
+    return 1;
+}
+
+using (var cancelled = new System.Threading.CancellationTokenSource())
+{
+    cancelled.Cancel();
+    try
+    {
+        await engine.OcrAsync(page, null, cancelled.Token);
+        Console.Error.WriteLine("cancelled token was ignored");
+        return 1;
+    }
+    catch (OperationCanceledException)
+    {
+    }
+}
+
 // The page detector: a random-weight one finds lines, regions and an orientation; the page is the same at every degree.
 OcrEngine withDetector = engine.WithDetector(new System.IO.MemoryStream(TestDetectorModels.Random(TestDetectorModels.Small, 4)));
 OcrPage d1 = withDetector.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 1 }), d4 = withDetector.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 4 });
@@ -93,6 +115,15 @@ string b1 = engine.ToText(page, beam, 1), b4 = engine.WithDecoding(beam).ToText(
 if (b1 != b4 || b1.Split('\n').Length != 3)
 {
     Console.Error.WriteLine("beam decoding disagrees across degrees");
+    return 1;
+}
+
+// Word breaks from pixels and a word model: the page is the same at every degree, and the switch turns the step off.
+OcrEngine spaced = engine.WithWordModel(OneOcr.Decoding.CharLanguageModel.Parse(TestLm.Build("smoke", alphabet, [string.Concat(alphabet.Take(4)), string.Concat(alphabet.Skip(2).Take(5))], 3)));
+string s1 = OcrPageJson.ToJson([spaced.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 1 })]), s4 = OcrPageJson.ToJson([spaced.Ocr(page, new OcrOptions { MaxDegreeOfParallelism = 4 })]);
+if (!spaced.HasWordModel || engine.HasWordModel || s1 != s4 || spaced.Ocr(page, new OcrOptions { FixWordSpacing = false }).Blocks.Count == 0)
+{
+    Console.Error.WriteLine("word spacing disagrees across degrees");
     return 1;
 }
 
@@ -293,12 +324,52 @@ if (Describe(invoice1) != Describe(invoice4) || extractor.WithKeyValues(docPage)
     return 1;
 }
 
+// Fine-tuning a custom document type from hand-made labels: schema from source-generated type info, a few steps, a tuned model that fills the type.
+var formSchema = OneOcr.Training.ExtractionSchema.From(SmokeContext.Default.SmokeForm);
+string extractRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "oneocr-aot-x-" + Guid.NewGuid().ToString("N"));
+System.IO.Directory.CreateDirectory(extractRoot);
+string extractModel = System.IO.Path.Combine(extractRoot, "docextract.onm");
+System.IO.File.WriteAllBytes(extractModel, TestDocModels.RandomContainer(TestDocModels.Small, 3));
+string extractWork = System.IO.Path.Combine(extractRoot, "extract-work");
+System.IO.Directory.CreateDirectory(System.IO.Path.Combine(extractWork, "extract-labels"));
+for (int d = 0; d < 6; d++)
+{
+    (string[] xt, OcrBox[] xb, double xw, double xh) = TestDocModels.Page(10, 20 + d);
+    var label = new OneOcr.Training.ExtractLabelsDto { Id = "x" + d, Document = "p", Width = xw, Height = xh, Usable = true, Words = [.. xt] };
+    foreach (OcrBox box in xb)
+    {
+        label.Boxes.AddRange([box.Left, box.Top, box.Right, box.Bottom]);
+    }
+
+    label.Fields.Add(new OneOcr.Training.ExtractLabelDto { Name = "total", Value = xt[2], Words = [2], Contiguous = true });
+    System.IO.File.WriteAllBytes(
+        System.IO.Path.Combine(extractWork, "extract-labels", "x" + d + ".json"),
+        System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(label, OneOcr.Training.ExtractJsonContext.Default.ExtractLabelsDto));
+}
+
+OneOcr.Training.ExtractionReport extractReport = new OneOcr.Training.ExtractionTrainer(new OneOcr.Training.ExtractionTrainerOptions
+{
+    ModelPath = extractModel, Schema = formSchema, WorkDirectory = extractWork, Steps = 3, BatchSize = 2, HeldOutFraction = 0.34, MaxDegreeOfParallelism = 1,
+}).Train();
+OneOcr.Documents.ExtractionResult<SmokeForm> tunedForm = OneOcr.Documents.DocumentExtractor.Load(extractReport.ModelPath).Extract(docPage, SmokeContext.Default.SmokeForm, 1);
+if (extractReport.Fields.Count != 1 || extractReport.HeldOutDocuments != 2 || tunedForm.Extraction is null
+    || !OneOcr.Training.ExtractionTrainer.ToJson(extractReport).Contains("\"accuracyAfter\"", StringComparison.Ordinal))
+{
+    Console.Error.WriteLine("custom extraction fine-tuning failed");
+    return 1;
+}
+
+System.IO.Directory.Delete(extractRoot, true);
+
 return 0;
+
+internal sealed record SmokeForm(string? Total);
 
 internal sealed record SmokeAnswer(string? Total);
 
 [System.Text.Json.Serialization.JsonSourceGenerationOptions(PropertyNamingPolicy = System.Text.Json.Serialization.JsonKnownNamingPolicy.CamelCase)]
 [System.Text.Json.Serialization.JsonSerializable(typeof(SmokeAnswer))]
+[System.Text.Json.Serialization.JsonSerializable(typeof(SmokeForm))]
 internal sealed partial class SmokeContext : System.Text.Json.Serialization.JsonSerializerContext;
 
 internal sealed class SmokeHandler : System.Net.Http.HttpMessageHandler

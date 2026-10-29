@@ -49,7 +49,7 @@ public sealed class ModelContainer
 
     private ModelContainer(
         byte[] data, long dataStart, ManifestDto manifest, List<TensorInfo> tensors, Dictionary<string, TensorInfo> byName,
-        uint formatVersion, WordCalibration? calibration)
+        uint formatVersion, WordCalibration? calibration, WordCalibration? reportCalibration)
     {
         _data = data;
         _dataStart = dataStart;
@@ -68,6 +68,7 @@ public sealed class ModelContainer
         ConfigElement = manifest.Config;
         FormatVersion = formatVersion;
         Calibration = calibration;
+        ReportCalibration = reportCalibration;
         CalibrationElement = calibration is null ? null : manifest.Calibration;
         Diagnostics = calibration is null
             ? [NoCalibrationNote]
@@ -100,6 +101,12 @@ public sealed class ModelContainer
 
     /// <summary>The word-confidence calibration; null for a version 0 file.</summary>
     public WordCalibration? Calibration { get; }
+
+    /// <summary>
+    /// The optional <c>report_calibration</c> curve (version 1 files): when present, the confidence a page reports for a word is this
+    /// curve applied to the raw confidence, while every decision inside the pipeline keeps using <see cref="Calibration"/>. Null when absent.
+    /// </summary>
+    public WordCalibration? ReportCalibration { get; }
 
     /// <summary>Notes about the file worth showing to a user, for example that a version 0 file has no calibration.</summary>
     public IReadOnlyList<string> Diagnostics { get; }
@@ -243,13 +250,15 @@ public sealed class ModelContainer
         List<TensorInfo> tensors = ValidateManifest(manifest, limits, dataLength, out Dictionary<string, TensorInfo> byName);
         CheckLayout(data, dataStart, tensors);
         WordCalibration? calibration = null;
+        WordCalibration? reportCalibration = null;
         if (version == 1)
         {
             calibration = ParseCalibration(manifest, limits);
+            reportCalibration = ParseReportCalibration(manifest, limits);
         }
 
         byte[] copy = owned ?? data.ToArray();
-        return new ModelContainer(copy, dataStart, manifest, tensors, byName, version, calibration);
+        return new ModelContainer(copy, dataStart, manifest, tensors, byName, version, calibration, reportCalibration);
     }
 
     /// <summary>Whether the container has a tensor with this name.</summary>
@@ -327,6 +336,30 @@ public sealed class ModelContainer
         }
     }
 
+    private static WordCalibration? ParseReportCalibration(ManifestDto manifest, OcrLimits limits)
+    {
+        if (manifest.ReportCalibration is not { } element || element.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            throw new OcrModelException("The 'report_calibration' member must be an object.");
+        }
+
+        try
+        {
+            CalibrationDto dto = element.Deserialize(ManifestJsonContext.Default.CalibrationDto)
+                ?? throw new OcrModelException("The report calibration is JSON null.");
+            return WordCalibration.FromDto(dto, limits);
+        }
+        catch (JsonException ex)
+        {
+            throw new OcrModelException("The report calibration is not valid: " + ex.Message, ex);
+        }
+    }
+
     private static WordCalibration ParseCalibration(ManifestDto manifest, OcrLimits limits)
     {
         if (manifest.Calibration is not { ValueKind: JsonValueKind.Object } element)
@@ -355,7 +388,7 @@ public sealed class ModelContainer
         }
 
         // Height 0 means "any multiple of 32" and is allowed only for the page detector, which has no fixed input height.
-        bool anyHeight = m.Architecture == "dbnet-lite-v0" && input.Height == 0;
+        bool anyHeight = m.Architecture is "dbnet-lite-v0" or "dbnet-lite-v1" && input.Height == 0;
         if ((input.Height < 1 && !anyHeight) || input.Channels < 1)
         {
             throw new OcrModelException("The input height and channel count must be positive.");

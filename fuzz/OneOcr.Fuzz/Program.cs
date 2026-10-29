@@ -25,6 +25,7 @@ internal static class Program
             "docextract" => DocExtractTarget.Run,
             "charlm" => CharLmTarget.Run,
             "lexicon" => LexiconTarget.Run,
+            "wordfreq" => WordFreqTarget.Run,
             "pagejson" => PageJsonTarget.Run,
             "review" => ReviewImportTarget.Run,
             "pdf" => PdfTarget.Run,
@@ -141,7 +142,7 @@ internal static class Program
             }
         }
 
-        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
+        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + WordFreqTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
         return 0;
     }
 
@@ -188,6 +189,16 @@ internal static class Program
             File.WriteAllBytes(Path.Combine(dir, "order3.seed"), TestLm.Build("latin", alphabet, ["cab", "cab", "dab", "cod", "b\u00e9"], 3));
             File.WriteAllBytes(Path.Combine(dir, "order2.seed"), TestLm.Build("latin", alphabet, ["cab", "dab", "cod"], 2));
             File.WriteAllBytes(Path.Combine(dir, "two-scripts.seed"), TestLm.Assemble([("latin", alphabet, ["cab", "dab"]), ("other", ["x", "y"], ["xy", "yx"])], 3));
+            return;
+        }
+
+        if (target == "wordfreq")
+        {
+            var small = new (string, int)[] { ("apple", 40), ("apples", 9), ("application", 300), ("apply", 120), ("banana", 12), ("band", 80), ("bandage", 5) };
+            File.WriteAllBytes(Path.Combine(dir, "small.seed"), TestWordFrequencies.Build(small));
+            var many = Enumerable.Range(0, 70).Select(i => ("w" + i.ToString("D3", System.Globalization.CultureInfo.InvariantCulture), 3 + i)).ToArray();
+            File.WriteAllBytes(Path.Combine(dir, "blocks.seed"), TestWordFrequencies.Build(many));
+            File.WriteAllBytes(Path.Combine(dir, "empty.seed"), TestWordFrequencies.Build([]));
             return;
         }
 
@@ -254,7 +265,14 @@ internal static class Program
         var oddDetector = new TestDetectorModels.Shape(16, [16, 24, 40, 56], [1, 2, 1, 1], 20, 12, 28, 2, TestDetectorModels.AllClasses);
         File.WriteAllBytes(Path.Combine(dir, "dbnet-tiny.seed"), TestDetectorModels.Random(tinyDetector, 1));
         File.WriteAllBytes(Path.Combine(dir, "dbnet-odd-widths.seed"), TestDetectorModels.Random(oddDetector, 2));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-faint-rule.seed"), TestDetectorModels.Random(oddDetector, 7, postprocessJson: TestDetectorModels.FaintRuleJson));
         File.WriteAllBytes(Path.Combine(dir, "dbnet-trained-list.seed"), TestDetectorModels.Random(oddDetector, 3, trainedJson: "[\"text\",\"table\",\"checkbox\"]"));
+
+        // dbnet-lite-v1: the stride-16 layout branch with the two-scale orientation head, the head alone, and the branch alone.
+        TestDetectorModels.Shape v1 = TestDetectorModels.V1Small;
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-v1-branch.seed"), TestDetectorModels.Random(v1, 4));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-v1-orient16.seed"), TestDetectorModels.Random(v1 with { Layout16Blocks = 0, Layout16 = 0 }, 5));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-v1-branch-only.seed"), TestDetectorModels.Random(v1 with { Orient16 = false, Layout16Blocks = 1 }, 6));
 
         // Version 1: with calibration curves, with one curve and one-knot curves, and with a charset that has space entries.
         var tinyShape = variants[0].Shape;
@@ -262,6 +280,9 @@ internal static class Program
             "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,0.5,1],\"y\":[0,0.25,1]},\"Greek\":{\"x\":[0.2,0.8],\"y\":[0.1,0.9]},\"Cyrillic\":{\"x\":[0.5],\"y\":[0.5]}}}"));
         File.WriteAllBytes(Path.Combine(dir, "v1-empty.seed"), TestModels.RandomContainerV1(variants[1].Shape, 2,
             "{\"raw\":\"word-mean-max-run\",\"scripts\":{}}"));
+        File.WriteAllBytes(Path.Combine(dir, "v1-report-calibration.seed"), TestModels.RandomContainerV1(tinyShape, 4,
+            "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,0.5,1],\"y\":[0,0.25,1]}}}",
+            "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,0.4,1],\"y\":[0.05,0.5,0.97]},\"Cyrillic\":{\"x\":[0.5],\"y\":[0.5]}}}"));
         string[] spaced = TestModels.Charset(tinyShape.Classes);
         spaced[1] = " ";
         spaced[2] = "a";

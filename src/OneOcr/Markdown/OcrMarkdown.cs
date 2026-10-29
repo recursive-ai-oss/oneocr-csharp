@@ -24,14 +24,16 @@ public static class OcrMarkdown
     /// <summary>Renders pages one after another, a thematic break (<c>---</c>) between pages that have content.</summary>
     /// <param name="pages">The pages in order.</param>
     /// <param name="options">Rendering options; null for the defaults.</param>
+    /// <param name="cancellationToken">Checked before each page.</param>
     /// <returns>The Markdown; empty when no page has anything to write.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="pages"/> or one of its pages is null.</exception>
-    public static string ToMarkdown(this IEnumerable<OcrPage> pages, MarkdownOptions? options = null)
+    public static string ToMarkdown(this IEnumerable<OcrPage> pages, MarkdownOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(pages);
         var sb = new StringBuilder();
         foreach (OcrPage page in pages)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string md = ToMarkdown(page, options);
             if (md.Length == 0)
             {

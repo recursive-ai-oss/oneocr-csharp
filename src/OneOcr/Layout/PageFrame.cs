@@ -87,9 +87,19 @@ internal sealed class PageFrame
         };
     }
 
-    private (OcrBox Box, OcrQuad Quad) Map(OcrBox b)
+    // An element that already has a quad (a line read along its own axis) maps its corners; the others map their box's corners.
+    private (OcrBox Box, OcrQuad Quad) Map(OcrBox b, OcrQuad? own = null)
     {
-        OcrPoint p0 = ToInput(b.Left, b.Top), p1 = ToInput(b.Right, b.Top), p2 = ToInput(b.Right, b.Bottom), p3 = ToInput(b.Left, b.Bottom);
+        OcrPoint p0, p1, p2, p3;
+        if (own is { } q)
+        {
+            (p0, p1, p2, p3) = (ToInput(q.P0.X, q.P0.Y), ToInput(q.P1.X, q.P1.Y), ToInput(q.P2.X, q.P2.Y), ToInput(q.P3.X, q.P3.Y));
+        }
+        else
+        {
+            (p0, p1, p2, p3) = (ToInput(b.Left, b.Top), ToInput(b.Right, b.Top), ToInput(b.Right, b.Bottom), ToInput(b.Left, b.Bottom));
+        }
+
         var box = new OcrBox(
             Math.Min(Math.Min(p0.X, p1.X), Math.Min(p2.X, p3.X)), Math.Min(Math.Min(p0.Y, p1.Y), Math.Min(p2.Y, p3.Y)),
             Math.Max(Math.Max(p0.X, p1.X), Math.Max(p2.X, p3.X)), Math.Max(Math.Max(p0.Y, p1.Y), Math.Max(p2.Y, p3.Y)));
@@ -114,15 +124,15 @@ internal sealed class PageFrame
                     var chars = new List<OcrChar>(w.Chars.Count);
                     foreach (OcrChar c in w.Chars)
                     {
-                        (OcrBox box, OcrQuad quad) = Map(c.Box);
+                        (OcrBox box, OcrQuad quad) = Map(c.Box, c.Quad);
                         chars.Add(c with { Box = box, Quad = quad });
                     }
 
-                    (OcrBox wb, OcrQuad wq) = Map(w.Box);
+                    (OcrBox wb, OcrQuad wq) = Map(w.Box, w.Quad);
                     words.Add(w with { Box = wb, Quad = wq, Chars = chars });
                 }
 
-                (OcrBox lb, OcrQuad lq) = Map(l.Box);
+                (OcrBox lb, OcrQuad lq) = Map(l.Box, l.Quad);
                 lines.Add(l with { Words = words, Box = lb, Quad = lq });
             }
 

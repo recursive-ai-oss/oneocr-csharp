@@ -1,0 +1,1446 @@
+[
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.140-3.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-5.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.197.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.199.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.200.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.201-3.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/hb/2023/NIST.HB.130-2023.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/hb/2023/NIST.HB.133-2023.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/hb/2023/NIST.HB.143-2023.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/hb/2023/NIST.HB.44-2023.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-101r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-108r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-114r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-124r2.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-126r3.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-128.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-130.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-131Ar2.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-150.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-152.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-160v1r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-161r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-162.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-163r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-167.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-171r3.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-172.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-175Br1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-176.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-177r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-178.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-179.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-181r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-185.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-190.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-203.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-204.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-207.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-209.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-210.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-213.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-215.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-218.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-221.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-40r4.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-46r2.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-47r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-52r2.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53Ar5.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53B.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-56Ar3.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-56Br2.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt1r5.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-57pt2r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63a.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63b.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63c.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-77r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-81-2.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-82r3.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-83r1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-90Ar1.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-90B.pdf",
+  "source": "NIST (nvlpubs.nist.gov)"
+ },
+ {
+  "url": "https://www.eia.gov/outlooks/aeo/pdf/AEO2022_Narrative.pdf",
+  "source": "EIA (eia.gov)"
+ },
+ {
+  "url": "https://www.eia.gov/outlooks/aeo/pdf/AEO2023_Narrative.pdf",
+  "source": "EIA (eia.gov)"
+ },
+ {
+  "url": "https://www.eia.gov/outlooks/ieo/pdf/IEO2021_Narrative.pdf",
+  "source": "EIA (eia.gov)"
+ },
+ {
+  "url": "https://www.eia.gov/outlooks/ieo/pdf/IEO2023_Narrative.pdf",
+  "source": "EIA (eia.gov)"
+ },
+ {
+  "url": "https://www.federalreserve.gov/monetarypolicy/files/20220225_mprfullreport.pdf",
+  "source": "Federal Reserve (federalreserve.gov)"
+ },
+ {
+  "url": "https://www.federalreserve.gov/monetarypolicy/files/20220617_mprfullreport.pdf",
+  "source": "Federal Reserve (federalreserve.gov)"
+ },
+ {
+  "url": "https://www.federalreserve.gov/monetarypolicy/files/20230616_mprfullreport.pdf",
+  "source": "Federal Reserve (federalreserve.gov)"
+ },
+ {
+  "url": "https://www.federalreserve.gov/publications/files/2022-report-economic-well-being-us-households-202305.pdf",
+  "source": "Federal Reserve (federalreserve.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-115hr1625enr/pdf/BILLS-115hr1625enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-115hr1892enr/pdf/BILLS-115hr1892enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-116hr133enr/pdf/BILLS-116hr133enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-116hr1865enr/pdf/BILLS-116hr1865enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-116hr748enr/pdf/BILLS-116hr748enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-117hr2471enr/pdf/BILLS-117hr2471enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-117hr4346enr/pdf/BILLS-117hr4346enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-117hr7776enr/pdf/BILLS-117hr7776enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-117s1605enr/pdf/BILLS-117s1605enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-118hr2670enr/pdf/BILLS-118hr2670enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-118hr2882enr/pdf/BILLS-118hr2882enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-118hr3935enr/pdf/BILLS-118hr3935enr.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BILLS-118s2226es/pdf/BILLS-118s2226es.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2018-APP/pdf/BUDGET-2018-APP.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2018-BUD/pdf/BUDGET-2018-BUD.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2018-PER/pdf/BUDGET-2018-PER.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2019-APP/pdf/BUDGET-2019-APP.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2019-BUD/pdf/BUDGET-2019-BUD.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2019-PER/pdf/BUDGET-2019-PER.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2020-APP/pdf/BUDGET-2020-APP.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2020-BUD/pdf/BUDGET-2020-BUD.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2020-PER/pdf/BUDGET-2020-PER.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2021-APP/pdf/BUDGET-2021-APP.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2021-BUD/pdf/BUDGET-2021-BUD.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2021-PER/pdf/BUDGET-2021-PER.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2022-APP/pdf/BUDGET-2022-APP.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2022-BUD/pdf/BUDGET-2022-BUD.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2022-PER/pdf/BUDGET-2022-PER.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2023-APP/pdf/BUDGET-2023-APP.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2023-BUD/pdf/BUDGET-2023-BUD.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/BUDGET-2023-PER/pdf/BUDGET-2023-PER.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2022-title12-vol1/pdf/CFR-2022-title12-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2022-title14-vol1/pdf/CFR-2022-title14-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2022-title17-vol1/pdf/CFR-2022-title17-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2022-title21-vol1/pdf/CFR-2022-title21-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2022-title29-vol1/pdf/CFR-2022-title29-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2022-title40-vol1/pdf/CFR-2022-title40-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2022-title42-vol1/pdf/CFR-2022-title42-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2022-title45-vol1/pdf/CFR-2022-title45-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2022-title7-vol1/pdf/CFR-2022-title7-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title12-vol1/pdf/CFR-2023-title12-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title14-vol1/pdf/CFR-2023-title14-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title17-vol1/pdf/CFR-2023-title17-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title21-vol1/pdf/CFR-2023-title21-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title26-vol1/pdf/CFR-2023-title26-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title29-vol1/pdf/CFR-2023-title29-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title40-vol1/pdf/CFR-2023-title40-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title42-vol1/pdf/CFR-2023-title42-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title45-vol1/pdf/CFR-2023-title45-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CFR-2023-title7-vol1/pdf/CFR-2023-title7-vol1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2020-05-20/pdf/CREC-2020-05-20.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2021-03-17/pdf/CREC-2021-03-17.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2022-02-16/pdf/CREC-2022-02-16.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2022-06-22/pdf/CREC-2022-06-22.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2022-09-14/pdf/CREC-2022-09-14.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2023-01-09/pdf/CREC-2023-01-09.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2023-02-15/pdf/CREC-2023-02-15.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2023-03-23/pdf/CREC-2023-03-23.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2023-05-10/pdf/CREC-2023-05-10.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2023-06-14/pdf/CREC-2023-06-14.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2023-07-12/pdf/CREC-2023-07-12.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2023-09-13/pdf/CREC-2023-09-13.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CREC-2023-10-18/pdf/CREC-2023-10-18.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CRPT-116hrpt1/pdf/CRPT-116hrpt1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CRPT-116hrpt440/pdf/CRPT-116hrpt440.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CRPT-117hrpt39/pdf/CRPT-117hrpt39.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CRPT-117hrpt70/pdf/CRPT-117hrpt70.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CRPT-117srpt1/pdf/CRPT-117srpt1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CRPT-117srpt23/pdf/CRPT-117srpt23.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/CRPT-118hrpt1/pdf/CRPT-118hrpt1.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2019-01/pdf/ECONI-2019-01.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2019-07/pdf/ECONI-2019-07.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2020-01/pdf/ECONI-2020-01.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2020-07/pdf/ECONI-2020-07.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2021-01/pdf/ECONI-2021-01.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2021-07/pdf/ECONI-2021-07.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2022-01/pdf/ECONI-2022-01.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2022-07/pdf/ECONI-2022-07.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2023-01/pdf/ECONI-2023-01.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ECONI-2023-07/pdf/ECONI-2023-07.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ERP-2018/pdf/ERP-2018.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ERP-2019/pdf/ERP-2019.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ERP-2020/pdf/ERP-2020.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ERP-2021/pdf/ERP-2021.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ERP-2022/pdf/ERP-2022.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/ERP-2023/pdf/ERP-2023.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2018-05-15/pdf/FR-2018-05-15.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2018-11-13/pdf/FR-2018-11-13.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2019-03-12/pdf/FR-2019-03-12.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2019-08-13/pdf/FR-2019-08-13.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2020-04-14/pdf/FR-2020-04-14.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2020-09-15/pdf/FR-2020-09-15.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2021-02-09/pdf/FR-2021-02-09.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2021-06-08/pdf/FR-2021-06-08.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2021-10-12/pdf/FR-2021-10-12.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2022-01-11/pdf/FR-2022-01-11.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2022-03-15/pdf/FR-2022-03-15.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2022-05-17/pdf/FR-2022-05-17.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2022-07-12/pdf/FR-2022-07-12.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2022-09-13/pdf/FR-2022-09-13.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2022-11-15/pdf/FR-2022-11-15.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-02-14/pdf/FR-2023-02-14.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-03-22/pdf/FR-2023-03-22.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-04-18/pdf/FR-2023-04-18.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-05-09/pdf/FR-2023-05-09.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-06-13/pdf/FR-2023-06-13.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-07-11/pdf/FR-2023-07-11.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-08-15/pdf/FR-2023-08-15.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-09-12/pdf/FR-2023-09-12.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-10-17/pdf/FR-2023-10-17.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-11-14/pdf/FR-2023-11-14.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/FR-2023-12-12/pdf/FR-2023-12-12.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/GPO-CONAN-2022/pdf/GPO-CONAN-2022.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/GPO-CONAN-REV-2016/pdf/GPO-CONAN-REV-2016.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-114publ113/pdf/PLAW-114publ113.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-114publ23/pdf/PLAW-114publ23.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-114publ94/pdf/PLAW-114publ94.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-115publ141/pdf/PLAW-115publ141.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-115publ232/pdf/PLAW-115publ232.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-115publ271/pdf/PLAW-115publ271.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-116publ123/pdf/PLAW-116publ123.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-116publ260/pdf/PLAW-116publ260.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-116publ94/pdf/PLAW-116publ94.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-117publ103/pdf/PLAW-117publ103.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-117publ117/pdf/PLAW-117publ117.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-117publ159/pdf/PLAW-117publ159.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-117publ167/pdf/PLAW-117publ167.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-117publ263/pdf/PLAW-117publ263.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-117publ2/pdf/PLAW-117publ2.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-117publ328/pdf/PLAW-117publ328.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-117publ58/pdf/PLAW-117publ58.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-117publ81/pdf/PLAW-117publ81.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-118publ15/pdf/PLAW-118publ15.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-118publ47/pdf/PLAW-118publ47.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/PLAW-118publ5/pdf/PLAW-118publ5.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2019-title26/pdf/USCODE-2019-title26.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2019-title42/pdf/USCODE-2019-title42.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2019-title5/pdf/USCODE-2019-title5.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2020-title26/pdf/USCODE-2020-title26.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2020-title42/pdf/USCODE-2020-title42.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2020-title5/pdf/USCODE-2020-title5.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2021-title26/pdf/USCODE-2021-title26.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2021-title42/pdf/USCODE-2021-title42.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2022-title26/pdf/USCODE-2022-title26.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2022-title42/pdf/USCODE-2022-title42.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2022-title5/pdf/USCODE-2022-title5.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2023-title26/pdf/USCODE-2023-title26.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2023-title42/pdf/USCODE-2023-title42.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.govinfo.gov/content/pkg/USCODE-2023-title5/pdf/USCODE-2023-title5.pdf",
+  "source": "GPO (govinfo.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f1040sc.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f1041.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f1065.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f1098.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f1099r.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f2848.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f4868.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f5498.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f5500.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f706.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f709.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f8821.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f8863.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f8949.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f941.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/f990.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1023.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1024.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1040nr.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1040sb.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1040sca.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1040sf.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1040sh.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1040sj.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1040sr.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1040sse.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1040x.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1041.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1099b.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1099div.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1099int.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1099k.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1099r.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1116.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1118.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1120f.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1120h.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1120pc.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1120.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1120rei.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1120sd.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i1128.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i2106.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i2210.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i2441.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i2555.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i2848.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i3115.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i3468.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i3800.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i4136.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i4562.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i4684.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i4797.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i5329.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i5405.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i5471.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i5472.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i5695.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i6251.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i706.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i709.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8283.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8300.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8582.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8821.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8858.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8863.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8865.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8881.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8938.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8962.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i8995.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i940.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i944.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i990ez.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i990.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/i990pf.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/iw7.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/iw9.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p1212.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p1544.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p1546.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p15a.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p15t.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p3.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p4012.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p4491.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p503.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p509.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p510.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p516.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p523.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p525.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p529.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p531.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p538.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p542.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p544.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p551.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p555.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p560.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p571.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p587.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p590b.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p594.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p595.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p596.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p597.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p5.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p901.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p907.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p925.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p936.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p939.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p971.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p972.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.irs.gov/pub/irs-pdf/p974.pdf",
+  "source": "IRS (irs.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR1701.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR1702.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR1703.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR1801.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR1802.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR1901.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR1902.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR1903.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR1904.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR2001.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR2002.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR2101.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR2102.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR2103.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR2104.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/AAR2105.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/HAR1901.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/HAR2002.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/RAR1901.pdf",
+  "source": "NTSB (ntsb.gov)"
+ },
+ {
+  "url": "https://www.ntsb.gov/investigations/AccidentReports/Reports/RAR2002.pdf",
+  "source": "NTSB (ntsb.gov)"
+ }
+]

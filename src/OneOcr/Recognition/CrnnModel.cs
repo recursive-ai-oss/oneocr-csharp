@@ -34,6 +34,12 @@ internal sealed class ConvBlock
     public bool RowsAreBlocks => (KernelW * In) % 16 == 0;
 
     public required float[] Bias { get; init; }
+
+    /// <summary>
+    /// Whether every weight is finite. Only then is a product with an exact zero known to add nothing, which lets the convolution
+    /// leave out the taps that fall on the zero border (a zero times an infinity or NaN would be NaN).
+    /// </summary>
+    public required bool FiniteWeights { get; init; }
 }
 
 internal sealed class LstmDirection
@@ -66,6 +72,9 @@ internal sealed class CrnnModel
 
     /// <summary>The container's word calibration; null for a version 0 file.</summary>
     public WordCalibration? Calibration { get; init; }
+
+    /// <summary>The container's reporting curve (see <see cref="ModelContainer.ReportCalibration"/>); null when the file has none.</summary>
+    public WordCalibration? ReportCalibration { get; init; }
     public required ConvBlock[] Conv { get; init; }
     public required int Hidden { get; init; }
     public required LstmLayer[] Lstm { get; init; }
@@ -202,6 +211,7 @@ internal sealed class CrnnModel
             {
                 In = channels, Out = d.Out, KernelH = kh, KernelW = kw, PadH = ph, PadW = pw, PoolH = poolH, PoolW = poolW,
                 K = k, KPadded = kPadded, Weights = padded, WeightsT = transposed, Bias = ReadChecked(container, $"conv.{i}.bias", d.Out),
+                FiniteWeights = AllFinite(padded),
             };
             channels = d.Out;
         }
@@ -230,6 +240,7 @@ internal sealed class CrnnModel
             Input = container.Input,
             Charset = container.Charset,
             Calibration = container.Calibration,
+            ReportCalibration = container.ReportCalibration,
             Conv = blocks,
             Hidden = hidden,
             Lstm = layers,
@@ -254,6 +265,19 @@ internal sealed class CrnnModel
             WeightHh = ReadChecked(c, $"lstm.weight_hh_l{layer}{suffix}", 4 * hidden, hidden),
             Bias = bias,
         };
+    }
+
+    private static bool AllFinite(float[] values)
+    {
+        foreach (float v in values)
+        {
+            if (!float.IsFinite(v))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static int CheckKernel(int value, int block, OcrLimits limits)

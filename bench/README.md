@@ -11,7 +11,8 @@ in `manifests/` (SHA-256 of every page image and truth file, and of every font a
 30 pages, 2480 x 3508 px, 8-bit grayscale PNG, one column, Latin script. HTML is rendered by headless Chromium
 (Playwright); the truth is the browser's own layout: one rectangle per word from a DOM Range, in document order,
 so no OCR is involved. Page text = blocks in reading order, words separated by spaces, blocks by newlines.
-A word that wraps at a line-end hyphen (`pre-possessed`) has one box spanning both lines.
+A word that wraps at a line-end hyphen (`pre-possessed`) has one box per printed fragment (`pre-`, `possessed`) and
+stays one word in the text file (bench-v1 gave it one box spanning both lines).
 
 Content per page: a heading or two, paragraphs of public-domain prose, a paragraph of generated numbers, dates and
 amounts, and a short numbered list. Fonts rotate over seven held-out families:
@@ -40,10 +41,18 @@ engine: it is browser layout geometry (DOM ranges), the geometry of our own tran
 annotation. Pages that are JPEG on purpose (`degraded`, `phone`) are written by Pillow at the recorded quality, so their
 hashes also depend on the pinned Pillow and NumPy versions (recorded in each manifest).
 
-Truth files per page: `truth/<id>.json` (words with `box` = [x0, y0, x1, y1] in image pixels, a `block` index, a
-`quad` where the page was transformed, the generation parameters), `truth/<id>.txt` (words in reading order, a new line
-when the block changes; this is what the scorer reads). A word that wraps at a hyphen or em dash has its box on the first
-line and `"split": true`.
+Truth files per page: `truth/<id>.json` (words with `box` = [x0, y0, x1, y1] in image pixels, the layout rectangle; `ink`, the
+box tight to the printed ink; a `block` index; `quad` and `ink_quad` where the page was transformed; the generation
+parameters), `truth/<id>.txt` (words in reading order, a new line when the block changes; this is what the scorer reads).
+A word that wraps at a hyphen or em dash is one entry per printed fragment, each with `"split": true` and `"part": 0, 1`;
+the text file joins the fragments without a space.
+
+**Ink boxes** (`ink`) are computed from the rendered pixels, never by hand: inside the word's layout box (one pixel of margin
+sideways) the background is the most common grey level; every pixel that differs from it by at least 30 % of the word's
+peak contrast is ink; `ink` is the extent of those pixels. They are computed on the clean render, before any degradation, and
+moved by the same homography as `box` (`ink_quad` is the transformed rectangle, `ink` its axis-aligned box). A word with no
+visible ink (peak contrast under 12 grey levels) keeps its layout box. CORD's word quads already enclose the printed word, so
+for `receipts-v1` `ink` equals `box`.
 
 - **degraded-v1** is rendered like `clean300-v1`, then, per page and from the page's own seed: skew up to 2 degrees,
   faint ink (ink factor 0.3 to 1), greyish paper, downsampling to 150 or 200 DPI, blur up to 0.8 px, Gaussian noise and
@@ -109,6 +118,32 @@ Text is normalised the same way on both sides: Unicode NFC, typographic quotes a
 - **Reading-order error**: word-sequence edit distance divided by truth words. It also contains recognition
   errors, so it is read together with WER: order error close to WER means the order is right.
 
+**Scorer versions** (`--scorer v2|v3|v3.1`, recorded as `scorer` in every result and report). The metrics above are the same in all of them;
+they differ only in where the truth word sequence comes from (and v3.1 in one extra normalisation).
+
+- **v2** (the default of `score`, unchanged since bench-v1): the words of the truth text `<id>.txt`. That text joins what the page
+  shows as separate ink pieces (a word wrapped at a hyphen or dash, `breakfast-room` for `breakfast-` at a line end and `room` on
+  the next) and splits what is one piece of ink (a web page's punctuation node next to the word it touches: `Intelligence` `,`).
+- **v3** (the default of `gate`): wherever the truth has word boxes (`<id>.json`), the truth word sequence is the box words, in
+  their order, joined exactly where the ink is continuous:
+  1. a box whose text is only punctuation or symbols (Unicode categories P* and S*) is joined to each list neighbour (the box before,
+     the box after) whose layout box touches it: the horizontal gap is at most 0.5 px plus 2 % of the box height and the boxes overlap
+     vertically by at least half of the shorter one. So `Intelligence` `,` is `Intelligence,`, `1` `/` `2` is `1/2`, `(` `see` `)` is `(see)`;
+  2. nothing else is joined. Two boxes with letters or digits stay two words however close they are, so each fragment of a
+     wrapped word stays a word (`breakfast-`, `room`), and a mark with a space before it stays alone;
+  3. boxes with no text left after normalisation are dropped; a truth without a sidecar, or with no words in it, uses the truth text.
+
+  Normalisation, the bag pairing, the order distance, ECE matching and the F1 boxes are exactly as in v2 (F1 compares the boxes as
+  given, not the joined ones). Every engine's output is scored against the same sequence. A set without word boxes scores the same
+  under both versions. `scripts/test_scorer_v3.py` pins the rule; `scripts/scorer_diff.py` lists every hypothesis word whose
+  outcome differs between the versions, checks that the two truth sequences differ only by cutting the same characters differently,
+  and samples the differences for a manual check. Known limit: PDF truth cut into small-caps or letter-spaced pieces stays in pieces
+  (a mark touching only one of them joins that one).
+- **v3.1** (`--scorer v3.1`): v3 plus one normalisation rule, applied to truth and hypothesis of every engine alike: two apostrophes in a row
+  (after typographic single quotes are folded to `'`) are one double quote `"`. A closing quote typeset as `''` and read as `"` (or the reverse)
+  is then no error. `scripts/quote_fold_diff.py` counts the pages and words the rule changes. `score` and `gate` accept it; the gate
+  needs competitor numbers under it (`competitors-freeze --rescore` adds them); v2 and v3 behave exactly as before.
+
 Besides CER/WER/order, `score` reports **recall-CER and recall-WER**: errors on the truth side only (a truth word that
 is missing or misread; extra hypothesis words cost nothing). They matter where truth is partial (receipts).
 
@@ -121,6 +156,27 @@ reports detection precision, recall and F1. Sidecar format, coordinates in pixel
 
 Boxes are matched one to one, highest IoU first, text not compared; truth quads count as their axis-aligned boxes.
 A missing sidecar on any page means no F1 for that run. A missing hypothesis file scores as empty output.
+
+Boxes are scored against the truth's **ink** box by default (`--boxes ink`), which is what an engine that reports tight word
+boxes produces; `--boxes layout` scores against the layout rectangle (bench-v1's convention, except that a hyphen-wrapped word
+now has one box per line). Where a truth has no `ink` member (a bench-v1 directory) the layout box is used and the output
+says `[layout boxes]`.
+
+**Expected calibration error (ECE).** If every sidecar word also has `text` and a confidence (`confidence`, or `conf` as the C#
+bench writes it), `score` adds ECE for the set:
+
+- Each hypothesis word is matched to the page's truth words the way the order-free WER pairs them: words equal after
+  normalisation cancel one for one (of equal hypothesis words the earlier ones match); the leftover truth and hypothesis words
+  are then paired closest edit distance first. A word is **correct** only if it matched exactly. A hypothesis word paired
+  with a different truth word is wrong; one left without a truth word is wrong too (`ECE`).
+- 15 equal-width bins on [0, 1]; ECE = sum over bins of (words in bin / all words) * |accuracy in bin - mean confidence in bin|,
+  micro-averaged over the pages of the set.
+- `ECE-m` (`ece_matched` in the JSON) leaves out the hypothesis words that found no truth word at all. Use it for `receipts-v1`,
+  whose truth is partial: words the engine read correctly but CORD does not annotate count as wrong in `ECE`, so `ECE` is an
+  upper bound there and `ECE-m` is the figure to quote, labelled as such.
+- This is the library's calibration metric (15 bins, word accuracy) measured per page set instead of per script on line crops;
+  matching is the page's bag of words, not an ordered line alignment. The result JSON has `ece.{words, accuracy, mean_confidence,
+  ece, matched_words, matched_accuracy, ece_matched}`.
 
 ## Running Tesseract
 
@@ -184,9 +240,10 @@ Reading the table:
 - **Receipts**: CORD's truth is partial, so CER/WER and order include every printed word that is not in the truth (header
   and payment blocks, blurred store names): use recall-CER and recall-WER there. The PSM-by-metric table for receipts is
   on plain CER and is not meaningful for the same reason.
-- **Detection F1** of Tesseract's TSV words against our truth boxes is a lower bound: truth boxes are layout boxes from
-  the browser (full line height, word advance width), Tesseract reports tight ink boxes, so short lowercase words often fall
-  below IoU 0.5 even when found (clean pages: 0.75). Compare engines against the same convention, not against 1.0.
+- **Detection F1** in the tables above is against bench-v1's layout boxes and is a lower bound: truth boxes are layout boxes
+  from the browser (full line height, word advance width), Tesseract reports tight ink boxes, so short lowercase words often
+  fall below IoU 0.5 even when found (clean pages: 0.75). Against the ink boxes of bench-v2 the same outputs score
+  0.998 / 0.983 / 0.817 / 0.942 / 0.885 / 0.231 (clean, degraded, screenshot, layout, phone, receipts); see below.
 - Page timings include process start and model load; screenshot and receipt pages are small, phone and layout pages large.
 
 ## Running the C# engine
@@ -205,6 +262,77 @@ uv run python -m oneocr_bench score --hyp OUT
 (precision and recall at IoU 0.5) and times grayscale conversion, line finding and line cropping. `OneOcr.Bench kernels --model F --width 1000 --degree 1` prints the time of each stage (convolution blocks, LSTM layers,
 classifier) for one line. `OneOcr.Bench randommodel --out F`
 writes a random-weight model for pipeline checks.
+
+## The gate table in one command
+
+```
+# quality + calibration (runs OneOcr.Bench on all six sets, scores, compares with the Tesseract results)
+uv run python -m oneocr_bench gate --model MODEL.onm --detector DETECTOR.onm \
+    --eval EVAL_DIR --tess-results RESULTS_ROOT --out OUT
+
+# speed + memory: separate mode, needs the machine lock claimed by the same job (below)
+uv run python -m oneocr_bench gate --model MODEL.onm --detector DETECTOR.onm --timing --tess-results RESULTS_ROOT --out OUT
+```
+
+`--detector` is optional (without it the classical line finder runs). `--eval` is the frozen set directory (`<set>/pages`,
+`<set>/truth`; env `ONEOCR_EVAL`). `--tess-results` is a root holding `<set>/tesseract.json` and `<set>/hyp/` from `tess`
+(default `$ONEOCR_BENCH_DIR/results`); the table reuses them and runs Tesseract again only with `--rerun-tess` (into a
+writable directory under `--work`, since the frozen sets are read-only). `--sets` restricts the run, `--reuse` re-scores engine
+outputs already under `--work/out`.
+
+Accuracy mode runs `OneOcr.Bench run --words 1 --pagejson 1`, scores with the bench scorer (ink boxes) and writes
+`OUT/accuracy.json`; `--timing` writes `OUT/timing.json`. Both then rewrite `OUT/gate.md` and `OUT/gate.json`; the speed section
+appears once a timing run exists. Accuracy is not timing-sensitive and can run under `nice` when the machine is quiet.
+
+- **Quality verdict**, per category and metric: ours against the **best value any measured engine reaches**. With
+  `--competitors DIR` (a frozen competitor-results directory, below) the candidates are Tesseract best-of (the best PSM for that metric of
+  `tessdata_best`, the second table under *Tesseract 5.3.4 baselines*) and every gated competitor configuration; the table names the
+  engine that holds the best value, keeps Tesseract best and fast in their own columns, and a second table lists every engine. Without
+  `--competitors` the baseline is Tesseract best-of alone. Win means strictly lower error; clean print (clean300-* and clean-real) may tie, an error within 0.2
+  percentage points (scorer v2) or 0.05 percentage points (scorer v3) above the baseline passes as a tie. Receipts are judged on recall-CER and recall-WER (CORD truth is partial); their
+  order is shown, not judged.
+- **Calibration verdict**: ECE (15 bins) ≤ 0.05. On receipts ECE is an upper bound; ECE-m is shown next to it.
+- **Detection**: ink-box F1@0.5 of ours, and of the selected Tesseract runs rescored with the same scorer.
+- **Speed and memory** (`--timing` only), two parts so each fits a timing window:
+  - `--timing --model M [--detector D]` times our engine per set at degree 1 and at the default degree min(4, cores): one process per run,
+    three runs, mean of the runs (whole-process ms/page with start and model load included, page-only ms as information, peak RSS).
+    Writes `timing.json`. The timed process is the shipped command line, `oneocr ocr` (src/OneOcr.Tool), published NativeAOT for the host
+    (`dotnet publish -r <rid>`, no JIT warm-up). x64 is compiled for AVX-512 (`x86-64-v4`) when the host has it, else AVX2 + FMA (`x86-64-v3`);
+    `--isa` overrides, and `timing.json` and `gate.md` record the level and the binary's hash. Accuracy mode still runs `OneOcr.Bench`, which
+    writes the word-box sidecars; its text and page JSON are byte-identical to the tool's.
+  - `--timing --tess-timing` (no model needed) times Tesseract the same way: stock `tessdata_best` and `tessdata_fast` at the PSM `tess` selected
+    for that set (read from `--tess-results`), one process per page, `OMP_THREAD_LIMIT` 1 and the default degree, three runs, mean ms/page and
+    peak RSS from `wait4`. Writes `tess-timing.json`, merged per set (`--sets` runs a few sets per window; `--pages N` takes the first N pages).
+  - The report pairs them: degree 1 against one Tesseract thread, the default degree against the same number of threads. Speed passes when
+    ours is faster than `tessdata_fast`; slower than fast but faster than best with the quality row won is an *exception*; memory passes when
+    peak RSS at the default degree is at most 300 MB (degree 1 is shown for information). Each file records CPU, cores, and load before, after every run and after.
+- **The lock**: Either `--timing` mode exits with status 75 and does nothing else unless the lock file (`~/WORKER-BENCH.lock`, env `ONEOCR_LOCK`)
+  names one of its own ancestor processes as `pid=` (the one exception: `--tess-timing --pages 2` or fewer runs as a smoke test while no lock file exists). Claim it in the job's shell, so it is released however the job ends:
+
+```
+set -o noclobber; echo "gate pid=$$ $(date -Is)" > ~/WORKER-BENCH.lock || exit 75
+trap 'rm -f ~/WORKER-BENCH.lock' EXIT
+```
+
+The gate judges on `--scorer v3` (default) and lists the other version beside it in a second table (ours, best engine and verdict
+under each); `gate.json` carries both. Tesseract's best-of values are scored again under v3 from its hypothesis directories. The
+competitor directory must hold v3 numbers: `competitors-freeze` writes both versions, and `competitors-freeze --rescore FROZEN --out
+OUT --eval EVAL` adds v3 to a directory made before, from its hypotheses alone (names and baseline flags kept; no engine runs). The
+CER/WER/order/F1/ECE numbers are those of `score` with the same `--scorer`. `scripts/full_run.sh` passes `SCORER` (default v3).
+
+## Where the page error comes from
+
+```
+bench/scripts/page_causes.sh EVAL_ROOT OUT_ROOT MODEL DETECTOR CHARLM WORDFREQ SET [SET ...]
+PAGE_CAUSES_ARGS="--aggregate --ref OTHER_OUTPUT_ROOT ..." bench/scripts/page_causes.sh ...
+```
+
+Reads the sets with the given model files and runs `training/eval/page_causes.py`, which puts every truth word in one class
+(missed, merged with a neighbour, split, misread in a correct box) and counts extra words, in truth characters and as CER/WER
+points. It also reports two truth artifacts (the same output scored against the truth boxes' words instead of the truth text,
+which isolates the cost of words the page wraps at a hyphen; truth words whose boxes touch), the visibility of missed words
+(contrast inside the ink box), and, for outputs of other engines given with `--ref`, how many of them read each missed word or
+each low-contrast word (information only). `--aggregate` prints no single word or page, for sets whose pages must stay unseen.
 
 ## Decoding evaluation
 
@@ -263,7 +391,7 @@ detection off). It writes `<id>.txt` with the lines in the order Vision returns 
 
 ```
 bash vision/run.sh PAGES OUT [cpu]     # builds the CLI with swiftc, then runs accurate/fast x language correction off/on over PAGES/<set>/
-uv run python -m oneocr_bench competitors-report OUT --eval EVAL_DIR     # where the truth directories are (the worker)
+uv run python -m oneocr_bench competitors-report OUT --eval EVAL_DIR     # where the truth directories are
 ```
 
 Mac mini (Mac14,3, Apple M2, 8 cores, 8 GB), macOS 27.0.1 (26A434), Swift 6.4. Vision gives no control over threads, so there is
@@ -301,15 +429,15 @@ recognizer, shown for completeness. Configuration names: `accurate`/`fast` is th
 
 ### PaddleOCR and docTR
 
-Installed with `competitors/setup.sh` into two virtual environments under `~/oneocr/bench/competitors/` (apart from this project's),
+Installed with `competitors/setup.sh` into two virtual environments of their own (apart from this project's),
 CPU only, stock models downloaded by the packages themselves. Versions (`versions.txt`): paddleocr 3.7.0, paddlepaddle 3.3.1,
 paddlex 3.7.2, python-doctr 1.1.0, torch 2.14.1 (CPU), CPython 3.13.
 
 ```
 bash competitors/setup.sh                          # once
-bash competitors/run_all.sh                        # accuracy rows (every page) and a first timing pass; claims the worker lock
+bash competitors/run_all.sh                        # accuracy rows (every page) and a first timing pass; claims the machine lock
 bash competitors/timing_chunks.sh                  # timing/RSS rows in short chunks that each claim and release the lock
-uv run python -m oneocr_bench competitors-report ~/oneocr/bench/competitors/out --eval ~/oneocr/eval/bench-v1 [--timing .../out-timing]
+uv run python -m oneocr_bench competitors-report COMPETITOR_OUT --eval EVAL_DIR [--timing .../out-timing]
 ```
 
 `competitors/run.py` is the runner (one process per configuration, thread setting and set; see its docstring):
@@ -317,7 +445,7 @@ uv run python -m oneocr_bench competitors-report ~/oneocr/bench/competitors/out 
 - **paddle-v5-mobile** = PP-OCRv5_mobile_det + PP-OCRv5_mobile_rec; **paddle-v5-server** = PP-OCRv5_server_det + PP-OCRv5_server_rec.
   Document orientation, unwarping and text-line orientation steps are off (the sets are upright). Detection input is capped at 1920 px
   on the longer side (`text_det_limit_type=max`): with the stock setting the server model took 21 GB and over a minute on a screenshot page.
-  `enable_mkldnn=False`, because the default oneDNN path raised an error in the pinned paddlepaddle on the worker. Paddle returns text
+  `enable_mkldnn=False`, because the default oneDNN path raised an error in the pinned paddlepaddle on the benchmark machine. Paddle returns text
   lines; its word boxes are the line boxes cut in proportion to character counts, so F1 is approximate, and low on `phone-v1`, where
   lines are rotated. The server model drops spaces on degraded and phone pages (`acceptedthechallenge`), which is most of its CER/WER there.
 - **doctr-default** = `ocr_predictor(pretrained=True)` (db_resnet50 + crnn_vgg16_bn at this version); **doctr-mobile** = db_mobilenet_v3_large +
@@ -328,10 +456,10 @@ Ryzen 9 7950X3D (16 cores, 32 threads), Linux. `s/page 1 thread` is the first n=
 `torch.set_num_threads(1)`); `s/page default` is every page with the engine's own threading (Paddle 10 threads, torch all). Times include
 reading the file and exclude model load (1 to 2 s, in each `timing.json`); peak RSS includes model load.
 
-**These timings are not publishable.** The first pass ran for 5 hours on a shared worker; the load average before and after each run is in
+**These timings are not publishable.** The first pass ran for 5 hours on a shared machine; the load average before and after each run is in
 the last column (up to 11), and other jobs on the machine overlapped part of it. The accuracy columns do not depend on load. The
 timing-only rerun in short lock-claiming chunks (`timing_chunks.sh`) did not get the lock: other long jobs kept re-claiming it.
-Rerun `bash competitors/timing_chunks.sh` on a free worker and pass `--timing` to the report.
+Rerun `bash competitors/timing_chunks.sh` on a free machine and pass `--timing` to the report.
 
 | category (set) | engine / configuration | CER % | WER % | order % | recall-CER % | recall-WER % | F1@0.5 | s/page 1 thread | s/page default | peak RSS MB (1t / default) | load1 before / after (default run) |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -366,19 +494,67 @@ PaddleOCR's word-box F1 is low partly because of the line-box splitting describe
 
 ## Using the eval sets from another project
 
-- **Tag:** git tag `bench-v1` is the scorer and the generators; the worker data `~/oneocr/eval/bench-v1/<set>/` (for example
-  `~/oneocr/eval/bench-v1/clean300-v1/`) are the sets: frozen copies of the generated sets with a `SHA256SUMS` file, chmod read-only.
+- **Tag:** git tag `bench-v1` is the scorer and the generators; the frozen eval directory `bench-v1/<set>/` (for example
+  `bench-v1/clean300-v1/`) holds the sets: frozen copies of the generated sets with a `SHA256SUMS` file, chmod read-only.
 - **Rules:** never modify either. Any change to a set or to the scorer becomes `bench-v2`.
 - **Pinning:** other projects may vendor `bench/` pinned to the tag.
+
+## bench-v2
+
+Same pages and same text truth as bench-v1 (every page image and every `<id>.txt` is byte-identical; `gen --set all --check`
+reproduces the page hashes), with three additions:
+
+1. **ECE** in `score`, defined under Scoring.
+2. **One box per printed fragment** of a hyphen- or em-dash-wrapped word (about 70 entries over 5 sets); text truth unchanged.
+3. **Ink-tight boxes** (`ink`) next to the layout boxes, and `--boxes ink|layout` (default `ink`).
+
+CER, WER, recall and reading-order numbers are identical to bench-v1's on any input: `scripts/compare_scorers.py OLD_SCORE_PY
+OLD_ROOT NEW_ROOT OUTPUT_ROOT` runs the bench-v1 scorer (saved from the tag) and this one on the same outputs and requires
+equal totals and per-page values. The frozen copy is `bench-v2/<set>/` (`pages/`, `truth/`) with
+`SHA256SUMS` at its root, made by `scripts/freeze_sets.sh`, read-only. Never modify the copy or the scorer; a change is a
+new version.
+
+Tesseract `tessdata_best` (best PSM per set, as in the baseline table), F1@0.5 on the same outputs:
+
+| set | bench-v1 boxes (one box for a wrapped word) | bench-v2 layout boxes | bench-v2 ink boxes |
+|---|---|---|---|
+| clean300-v1 | 0.7529 | 0.753 | 0.998 |
+| degraded-v1 | 0.7220 | 0.722 | 0.983 |
+| screenshot-v1 | 0.6807 | 0.681 | 0.817 |
+| layout-v1 | 0.6844 | 0.685 | 0.942 |
+| phone-v1 | 0.5289 | 0.530 | 0.885 |
+| receipts-v1 | 0.2310 | 0.231 | 0.231 |
 - **Scoring:** `score` takes a truth directory and an output directory, needs no environment variable and writes nothing to either:
 
 ```
-uv run python -m oneocr_bench score ~/oneocr/eval/bench-v1/clean300-v1 OUTPUT_DIR [--json result.json]
+uv run python -m oneocr_bench score EVAL_DIR/clean300-v1 OUTPUT_DIR [--boxes ink|layout] [--json result.json]
 ```
 
   The first argument is a set directory (its `truth/` is used) or a `truth/` directory itself; `truth/<id>.txt` is the reading-order
   truth and `truth/<id>.json` the word boxes. `OUTPUT_DIR` holds `<id>.txt` and, optionally, `<id>.json` box sidecars (format above); a
   missing `<id>.txt` scores as empty output. The `--set`/`--hyp` and `--hyp-root` forms still work and read the data under
-  `ONEOCR_BENCH_DIR`. Checked on the worker with nothing written to the published copy: the Tesseract outputs for `clean300-v1` give
+  `ONEOCR_BENCH_DIR`. Checked with nothing written to the frozen copy: the Tesseract outputs for `clean300-v1` give
   CER 0.2427 %, WER 0.7300 %, order 0.7394 % (best, PSM 11) and 0.2586 % / 0.8329 % / 0.8517 % (fast, PSM 6), the numbers in the
   baseline table above.
+
+## A sealed set
+
+The bench-v2 pages have been looked at while the engine was developed, so they are a development set. For quality claims a
+second set is cut once, with the same recipes, scorer and category sizes (30 / 40 / 40 / 40 / 40 / 100), and is not looked at,
+scored against or tuned on until a release check.
+
+- **Recipes.** Each category is rendered like its `-v1` set from a seed that is not in this repository (`gen --seed N --out DIR` is
+  the public seed override; `seal build ROOT --seeds FILE` reads six seeds from a private file and renders all categories).
+  Fonts are the same seven held-out families. `--avoid-text DIR` drops every Gutenberg passage that shares an eight-word run
+  with a truth under an earlier eval root, so the sealed prose is new text; `seal verify` reports any such run or any identical
+  page image as a failure.
+- **What is real.** Nothing in it is a photograph or a scan. Prose is public-domain text, truth is browser geometry or our own
+  transform of it, and `degraded`, `phone` and `receipts` are simulated captures. `receipts-v1` is synthetic text from
+  `receipts_synth.py` (stores, items, tax, totals, card lines; faint thermal ink; the phone simulation on a taller canvas),
+  because every CORD v2 split has been used for training or tuning, so no unseen CORD receipts exist. Synthetic receipts
+  have full truth, so recall-CER equals CER on them; they do not test the dataset's printer, paper or photo variety.
+- **Layout.** `<set>/pages`, `<set>/truth`, `<set>/MANIFEST.json`, `SEALED.json` (what each category is made of) and `SHA256SUMS`,
+  all read-only.
+- **Check and run.** `seal verify ROOT --avoid-text <earlier eval roots>` checks hashes, truth structure, image sizes, ink boxes
+  against pixels and overlap with earlier sets, printing counts only. `gate --sealed ROOT [--dry-run]` is the usual gate on that
+  root; its `gate.md` is headed as sealed. `--dry-run` lists the files and runs nothing.

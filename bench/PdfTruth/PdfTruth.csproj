@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Reads a PDF's text layer with OnePdf for the real-document evaluation sets: the words in reading order with their boxes,
+       and the page text in content-stream order. A bench tool, not part of the shipped packages. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>$(LibName).Bench.PdfTruth</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RecursiveAI.OnePdf" Version="1.10.1" />
+  </ItemGroup>
+
+</Project>

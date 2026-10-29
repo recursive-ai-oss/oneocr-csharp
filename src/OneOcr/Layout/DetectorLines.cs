@@ -106,11 +106,13 @@ internal static class DetectorLines
     /// </remarks>
     public static LocatedPage Locate(
         IPageDetector detector, Gray8[] gray, int width, int height, BufferPool<Gray8> pixels, ResizerPool resizers, int degree, CancellationToken cancellationToken,
-        PageDetection? first = null, bool turn = true)
+        PageDetection? first = null, bool turn = true, (int Level, bool InkIsBright)? known = null)
     {
         var notes = new List<string>();
         int count = checked(width * height);
+        long clock = StageClock.Start();
         PageDetection detection = first ?? detector.Detect(gray.AsSpan(0, count), width, height, pixels, resizers, degree, cancellationToken);
+        StageClock.Stop("6 detect again", clock);
         Gray8[] work = gray;
         bool owns = false;
         int turns = turn ? PageOrientation.QuarterTurnsClockwise(detection) : 0;
@@ -134,20 +136,48 @@ internal static class DetectorLines
 
         try
         {
-            (int threshold, bool inkIsBright) = LineFinder.Binarize(work, count, degree);
+            clock = StageClock.Start();
+            // The binarization is the caller's when it made it on these pixels (a page that was turned has new pixels).
+            (int threshold, bool inkIsBright) = owns ? LineFinder.Binarize(work, count, degree) : known ?? LineFinder.Binarize(work, count, degree);
             var strips = new List<StripLine>(detection.Lines.Count);
             ReadOnlySpan<byte> page = Kernels.PixelSpans.AsBytes(work.AsSpan(0, count));
+            // Only camera photos get line-by-line binarization (see LocalInk); null leaves every line to the page's.
+            bool? darkInk = null;
+            if (threshold >= 0 && detection.Sigma > LocalInk.MinPageNoise)
+            {
+                darkInk = true;
+            }
+
+            if (darkInk is true && inkIsBright)
+            {
+                var lineBoxes = new List<(int X0, int Y0, int X1, int Y1)>(detection.Lines.Count);
+                foreach (DetectedLine l in detection.Lines)
+                {
+                    lineBoxes.Add((Math.Clamp((int)Math.Floor(l.Left), 0, width), Math.Clamp((int)Math.Floor(l.Top), 0, height), Math.Clamp((int)Math.Ceiling(l.Right), 0, width), Math.Clamp((int)Math.Ceiling(l.Bottom), 0, height)));
+                }
+
+                darkInk = LocalInk.PageIsDarkInk(page, width, lineBoxes);
+            }
+
             for (int i = 0; i < detection.Lines.Count; i++)
             {
                 int leaf = LeafOf(detection, i);
+                int before = strips.Count;
+                if (TiltedLines.TryInkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, strips, leaf, darkInk))
+                {
+                    MarkRecovered(strips, before, detection.Lines[i].MinConfidence);
+                    continue;
+                }
+
                 var boxes = new List<LineBox>(1);
-                InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes);
+                LocalInk? local = InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes, darkInk);
                 foreach (LineBox b in boxes)
                 {
-                    strips.Add(new StripLine(b, leaf));
+                    strips.Add(new StripLine(b, leaf, Local: local, MinConfidence: detection.Lines[i].MinConfidence));
                 }
             }
 
+            StageClock.Stop("7 binarize+ink boxes", clock);
             return new LocatedPage
             {
                 Gray = work, OwnsGray = owns, Width = width, Height = height, Strips = strips, Regions = detection.Regions,
@@ -165,19 +195,45 @@ internal static class DetectorLines
         }
     }
 
+    // A line recovered from faint text carries the confidence its words need; its strips (a tilted line makes one) are marked here.
+    private static void MarkRecovered(List<StripLine> strips, int from, float minConfidence)
+    {
+        if (minConfidence <= 0)
+        {
+            return;
+        }
+
+        for (int s = from; s < strips.Count; s++)
+        {
+            strips[s] = strips[s] with { MinConfidence = minConfidence };
+        }
+    }
+
+    // How many line heights short of the detector's extent the ink may stop on a photo before the detector's end is used.
+    private const double EndGapHeights = 0.8;
+
     // The ink inside the detected box, as the classical finder's boxes are (the recognizer's crop rules are written for ink-tight
-    // lines); the detected box itself when the page has no contrast or no ink falls inside it.
-    private static void InkBoxes(DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<LineBox> result)
+    // lines); the detected box itself when the page has no contrast or no ink falls inside it. Returns the line's own binarization when
+    // the page-wide one does not fit the line (see LocalInk), which the line's word boxes must then use too; null otherwise.
+    internal static LocalInk? InkBoxes(DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<LineBox> result, bool? pageIsDarkInk = null)
     {
         int x0 = Math.Clamp((int)Math.Floor(line.Left), 0, width), x1 = Math.Clamp((int)Math.Ceiling(line.Right), 0, width);
         int y0 = Math.Clamp((int)Math.Floor(line.Top), 0, height), y1 = Math.Clamp((int)Math.Ceiling(line.Bottom), 0, height);
         if (x1 <= x0 || y1 <= y0)
         {
-            return;
+            return null;
         }
 
+        LocalInk? local = null;
         if (threshold >= 0)
         {
+            local = pageIsDarkInk is { } dark ? LocalInk.Choose(page, width, x0, x1, y0, y1, threshold, inkIsBright, dark) : null;
+            if (local is { } own)
+            {
+                threshold = own.Threshold;
+                inkIsBright = own.InkIsBright;
+            }
+
             // Ink per row. A detected box is a little taller than the line (the training shrink is undone generously), so it can reach
             // the descenders of the line above or the ascenders of the line below; only the band of rows that holds most of the ink
             // belongs to this line. Rows separated by a short blank gap (the dot of an i, an accent) stay one band; a gap of more than
@@ -255,12 +311,29 @@ internal static class DetectorLines
                         }
                     }
 
+                    if (pageIsDarkInk is not null)
+                    {
+                        // On a photo the ends of a line are where blur and uneven light leave the faintest print, so the ink can stop
+                        // well short of the line's end: an end that the ink leaves more than about one letter height short of the
+                        // detector's extent is taken from the detector. (A detected box reaches about half a height past the ink.)
+                        int reach = (int)(EndGapHeights * (end - start + 1));
+                        if (minX - x0 > reach)
+                        {
+                            minX = x0;
+                        }
+
+                        if (x1 - 1 - maxX > reach)
+                        {
+                            maxX = x1 - 1;
+                        }
+                    }
+
                     result.Add(new LineBox(minX, y0 + start, maxX - minX + 1, end - start + 1));
                 }
 
                 if (result.Count > 0)
                 {
-                    return;
+                    return local;
                 }
             }
             finally
@@ -270,6 +343,7 @@ internal static class DetectorLines
         }
 
         result.Add(new LineBox(x0, y0, x1 - x0, y1 - y0));
+        return null;
     }
 
     // The leaf of a line: the smallest running-text region that holds its centre (offset by one so 0 is never a region), otherwise a

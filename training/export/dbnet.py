@@ -23,10 +23,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from eval.detect import EXPAND_LAYOUT, LAYOUT_THRESHOLD, TEXT_THRESHOLD
 from export.container import ALIGN, MAGIC, _pad
-from models.dbnet import LAYOUT_CLASSES, DBNetLite, count_macs, count_params
+from models.dbnet import LAYOUT_CLASSES, DBNetLite, arch_id, count_macs, count_params
 
-ARCHITECTURE = "dbnet-lite-v0"
 INPUT = {"height": 0, "channels": 1, "mean": 0.5, "std": 0.5, "invert": False}  # height 0: any multiple of 32
 TRAIN_ONLY = ("thr4", "thr_proj", "thr2", "thr_out")
 
@@ -61,6 +61,10 @@ def fold(model: DBNetLite) -> OrderedDict[str, torch.Tensor]:
     dw("smooth4", model.smooth4)
     for j, blk in enumerate(model.layout):
         dw(f"layout.{j}", blk)
+    if model.cfg["layout16_blocks"] > 0:
+        for j, blk in enumerate(model.layout16):
+            dw(f"layout16.{j}", blk)
+        plain("layout_mix", model.layout_mix)
     plain("layout_out", model.layout_out)
     dw("text4", model.text4)
     plain("stem_proj", model.stem_proj)
@@ -101,17 +105,32 @@ class FoldedReference:
             feats.append(h)
         l4, l8, l16, l32 = (self.conv(f"lat{i}", f, relu=False) for i, f in enumerate(feats))
         p16 = l16 + up2(l32)
+        o["p16"] = p16
         o["p8"] = p8 = self.block("smooth8", l8 + up2(p16))
         o["p4"] = p4 = self.block("smooth4", l4 + up2(p8))
-        h = p8
-        for j in range(c["layout_blocks"]):
-            h = self.block(f"layout.{j}", h)
+        c = {"layout16_blocks": 0, "orient16": False, **c}
+        if c["layout16_blocks"] > 0:
+            g = p16
+            for j in range(c["layout16_blocks"]):
+                g = self.block(f"layout16.{j}", g)
+            o["layout16"] = g
+            o["layout_mix"] = mix = self.conv("layout_mix", g, relu=False)
+            h = self.block("layout.0", p8) + up2(mix)
+            for j in range(1, c["layout_blocks"]):
+                h = self.block(f"layout.{j}", h)
+        else:
+            h = p8
+            for j in range(c["layout_blocks"]):
+                h = self.block(f"layout.{j}", h)
         o["layout_feat"] = h
         o["layout"] = self.conv("layout_out", h, relu=False)
         o["text4"] = t4 = self.block("text4", p4)
         o["text2"] = t2 = self.block("text2", up2(t4) + self.conv("stem_proj", s2, relu=False))
         o["prob"] = self.conv("prob_out", t2, relu=False)
-        o["orient"] = F.linear(feats[3].mean((2, 3)), self.t["orient.weight"], self.t["orient.bias"])
+        g = feats[3].mean((2, 3))
+        if c["orient16"]:
+            g = torch.cat([feats[2].mean((2, 3)), g], 1)
+        o["orient"] = F.linear(g, self.t["orient.weight"], self.t["orient.bias"])
         return o
 
 
@@ -154,17 +173,27 @@ def read_tensors(path: Path) -> tuple[dict, dict[str, np.ndarray]]:
     return manifest, t
 
 
-def export(model: DBNetLite, path: Path, version: str, provenance: dict) -> dict:
+def export(
+    model: DBNetLite, path: Path, version: str, provenance: dict, postprocess: dict | None = None, layout_trained: list | None = None
+) -> dict:
     tensors = fold(model)
     manifest = {
-        "architecture": ARCHITECTURE,
+        "architecture": arch_id(model.cfg),
         "name": "text-detector-layout",
         "version": version,
         "license": "MIT OR Apache-2.0",
         "input": INPUT,
         # a detector has no output alphabet; the layout class names stand in so the v1 reader's charset checks pass (index i + 1 = class i)
         "charset": ["<blank>", *LAYOUT_CLASSES],
-        "config": {**model.cfg, "layout_classes": LAYOUT_CLASSES},
+        "config": {
+            **model.cfg,
+            "layout_classes": LAYOUT_CLASSES,
+            # probabilities and growth factors the post-processing uses (spec: post-processing); picked on validation pages
+            "postprocess": postprocess
+            or {"text_threshold": TEXT_THRESHOLD, "text_expand": 1.0, "layout_threshold": LAYOUT_THRESHOLD, "layout_expand": EXPAND_LAYOUT},
+            # classes the training data labelled; the other channels exist in the file but were never trained
+            "layout_trained": layout_trained or LAYOUT_CLASSES,
+        },
         "provenance": provenance,
     }
     write_container_v1(path, manifest, {k: v.numpy() for k, v in tensors.items()})
@@ -190,6 +219,11 @@ def main() -> None:
     ap.add_argument("--random-seed", type=int)
     ap.add_argument("--out", required=True)
     ap.add_argument("--version", default="0.1.0")
+    ap.add_argument("--model-config", help="JSON of model config overrides for --random-seed")
+    ap.add_argument("--postprocess", help="JSON {text_threshold,text_expand,layout_threshold,layout_expand}, default: eval.detect")
+    ap.add_argument(
+        "--exclude-classes", default="", help="comma list of layout classes left out of layout_trained (labelled but not learned)"
+    )
     ap.add_argument("--run-manifest", help="run_manifest.json of the training run, copied into provenance")
     a = ap.parse_args()
     out = Path(a.out)
@@ -203,10 +237,18 @@ def main() -> None:
         if a.run_manifest:
             prov["run"] = json.loads(Path(a.run_manifest).read_text())
     else:
-        model = random_model(a.random_seed)
+        model = random_model(a.random_seed, json.loads(a.model_config) if a.model_config else None)
         prov = {"random_init_seed": a.random_seed, "note": "untrained, for parity fixtures only"}
     model = model.eval()
-    export(model, out, a.version, prov)
+    trained = None
+    if "run" in prov:
+        from train.detect_data import CMASK
+
+        names = [src["name"] for src in prov["run"]["config"]["sources"]]
+        trained = [c for i, c in enumerate(LAYOUT_CLASSES) if any(CMASK[n][i] for n in names)]
+    if trained and a.exclude_classes:
+        trained = [c for c in trained if c not in a.exclude_classes.split(",")]
+    export(model, out, a.version, prov, json.loads(a.postprocess) if a.postprocess else None, trained)
     # fp16-rounded folded graph vs the PyTorch model in fp32
     manifest, t = read_tensors(out)
     ref = FoldedReference(manifest["config"], {k: torch.from_numpy(v) for k, v in t.items()})

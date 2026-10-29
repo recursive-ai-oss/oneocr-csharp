@@ -18,6 +18,9 @@ internal sealed class OrientationEvidence
     /// <summary>The page detector's reading of the page as given to <see cref="IOrientationDetector.Detect"/>, when that is what decided.</summary>
     public Detection.PageDetection? Detection { get; set; }
 
+    /// <summary>Whether the classical decision examined the page (which erases ruling lines from its pixels), so anything measured on the pixels before that is stale.</summary>
+    public bool PixelsMayHaveChanged { get; set; }
+
     /// <summary>The page finder's strips on the page as given, when the classical decision already found them (ruling lines are then erased from those pixels, as the reader would).</summary>
     public FoundStrips? Strips { get; set; }
 }

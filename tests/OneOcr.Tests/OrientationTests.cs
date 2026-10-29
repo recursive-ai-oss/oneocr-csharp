@@ -291,7 +291,7 @@ public class OrientationTests
         Gray8[] turned = Turn(Gray(SparseTextPage()), W, H, 1);
         Image image = Image.FromPixels<Gray8>(turned, H, W);
         var stub = new HeadStub(_ => Head(0, 0.99f));
-        OcrPage page = Engine().WithDetector(stub).Ocr(image);
+        OcrPage page = Engine().WithDetector(stub).Ocr(image, new OcrOptions { SearchAngle = false });
         Assert.Single(stub.Calls);
         Assert.Equal(0, page.Orientation);
         Assert.Equal((H, W), (page.Width, page.Height));
@@ -302,7 +302,7 @@ public class OrientationTests
 
         // Detection of orientation off: the head is not acted on either.
         var sure = new HeadStub(_ => Head(1, 0.99f));
-        OcrPage off = Engine().WithDetector(sure).Ocr(image, new OcrOptions { DetectOrientation = false });
+        OcrPage off = Engine().WithDetector(sure).Ocr(image, new OcrOptions { DetectOrientation = false, SearchAngle = false });
         Assert.Single(sure.Calls);
         Assert.DoesNotContain(off.Diagnostics, d => d.Contains("turned", StringComparison.Ordinal));
     }
@@ -315,7 +315,7 @@ public class OrientationTests
         Gray8[] sideways = Turn(Gray(sheared), W, h, 3);
         Image image = Image.FromPixels<Gray8>(sideways, h, W);
         var stub = new HeadStub(call => call == 0 ? Head(1, 0.97f) : Head(0, 0.99f));
-        OcrPage page = Engine().WithDetector(stub, confirmTurns: false).Ocr(image);
+        OcrPage page = Engine().WithDetector(stub, confirmTurns: false).Ocr(image, new OcrOptions { SearchAngle = false });
 
         // First look at the page as given, then a look at the page turned and straightened (a larger canvas).
         Assert.Equal(2, stub.Calls.Count);

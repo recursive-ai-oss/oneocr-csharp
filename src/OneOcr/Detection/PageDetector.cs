@@ -11,7 +11,27 @@ namespace OneOcr.Detection;
 /// <param name="Right">Right edge.</param>
 /// <param name="Bottom">Bottom edge.</param>
 /// <param name="Score">Mean probability over the component's cells.</param>
-internal readonly record struct DetectedLine(double Left, double Top, double Right, double Bottom, float Score);
+/// <param name="Axis">The principal axis of the line's text-map component, when it has a reliable one; null otherwise.</param>
+/// <param name="MinConfidence">0 for an ordinary line; for a line recovered from faint text, the confidence a word read from it needs to be kept.</param>
+internal readonly record struct DetectedLine(double Left, double Top, double Right, double Bottom, float Score, LineAxis? Axis = null, float MinConfidence = 0);
+
+/// <summary>
+/// The direction and extent of a detected line along its principal axis (docs/spec/detector-v1.md, "Line axis"). The line frame has its
+/// origin at the component's centroid, <c>u</c> along the text and <c>v</c> across it, pointing down: the page point of (u, v) is
+/// <c>(CenterX + u*Cos - v*Sin, CenterY + u*Sin + v*Cos)</c>.
+/// </summary>
+/// <param name="CenterX">Centroid x in page pixels.</param>
+/// <param name="CenterY">Centroid y in page pixels.</param>
+/// <param name="Cos">Cosine of the axis angle (never negative).</param>
+/// <param name="Sin">Sine of the axis angle; positive when the text descends to the right.</param>
+/// <param name="U0">Start of the line along the axis, page pixels, grown like the box.</param>
+/// <param name="U1">End of the line along the axis.</param>
+/// <param name="V0">Top of the line across the axis.</param>
+/// <param name="V1">Bottom of the line across the axis.</param>
+/// <param name="Cells">Number of text-map cells in the component.</param>
+/// <param name="Elongation">Ratio of the component's variance along the axis to the variance across it (plus one cell's own).</param>
+internal readonly record struct LineAxis(
+    double CenterX, double CenterY, double Cos, double Sin, double U0, double U1, double V0, double V1, int Cells, double Elongation);
 
 /// <summary>A layout region found by the detector, in page pixels.</summary>
 /// <param name="Class">Index of the layout class.</param>
@@ -35,6 +55,15 @@ internal sealed class PageDetection
 
     /// <summary>The softmax probability of <see cref="Quarter"/>.</summary>
     public required float OrientationConfidence { get; init; }
+
+    /// <summary>The page noise estimate, when the model carries the page-conditional threshold rule.</summary>
+    public double? Sigma { get; init; }
+
+    /// <summary>The speck density of the text map, when the model carries the rule.</summary>
+    public double? Junk { get; init; }
+
+    /// <summary>Whether the rule chose its own text threshold for this page.</summary>
+    public bool RuleApplied { get; init; }
 }
 
 /// <summary>Something that finds text lines, layout regions and the orientation of a gray page.</summary>
@@ -104,6 +133,7 @@ internal sealed class PageDetector : IPageDetector
         try
         {
             ReadOnlySpan<Gray8> source = page[..(width * height)];
+            long clock = StageClock.Start();
             if (nw != width || nh != height)
             {
                 scaled = pixels.Rent((long)nw * nh);
@@ -122,18 +152,23 @@ internal sealed class PageDetector : IPageDetector
                 source = scaled.AsSpan(0, nw * nh);
             }
 
+            StageClock.Stop("n1 detector resize", clock);
+            clock = StageClock.Start();
+            double? sigma = _model.Postprocess.HasRule ? PageNoise.Sigma(source, nw, nh) : null;
+            StageClock.Stop("n2 page noise", clock);
+            clock = StageClock.Start();
             canvas = _floats.Rent((long)paddedW * paddedH);
             Normalize(source, nw, nh, paddedW, paddedH, _model.Input, canvas);
-            if (scaled is not null)
-            {
-                pixels.Return(scaled);
-                scaled = null;
-            }
-
+            StageClock.Stop("n3 normalize", clock);
+            clock = StageClock.Start();
             DetectorMaps maps = DbNetForward.Run(_model, _path, degree, _floats, canvas, paddedH, paddedW, _limits, null, cancellationToken, pooledMaps: true);
+            StageClock.Stop("n4 network", clock);
             try
             {
-                return DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits);
+                clock = StageClock.Start();
+                PageDetection found = DetectorPostprocess.Decode(maps, _model, scale, width, height, _limits, sigma, source, nw, nh);
+                StageClock.Stop("n5 map decode", clock);
+                return found;
             }
             finally
             {

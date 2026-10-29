@@ -250,7 +250,7 @@ internal static class LineFinder
 
     // Four interleaved tables: consecutive pixels are often equal, and one table would make each increment wait for the last.
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private static void AddHistogram(ReadOnlySpan<byte> gray, long[] histogram)
+    internal static void AddHistogram(ReadOnlySpan<byte> gray, long[] histogram)
     {
         Span<int> h = stackalloc int[4 * 256];
         h.Clear();
@@ -274,7 +274,7 @@ internal static class LineFinder
         }
     }
 
-    private static (int Threshold, bool InkIsBright) Binarize(long[] histogram, long total)
+    internal static (int Threshold, bool InkIsBright) Binarize(long[] histogram, long total)
     {
         int min = 0, max = 255;
         while (min < 255 && histogram[min] == 0)

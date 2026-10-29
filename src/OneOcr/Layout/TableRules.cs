@@ -132,7 +132,31 @@ internal static class TableRules
     // Fraction of an edge a rule must cover for the edge to count as drawn.
     private const double EdgeCoverage = 0.6;
 
-    private readonly record struct Run(int Pos, int Lo, int Hi);
+    // Horizontal rules that run on beyond the outermost vertical rule by this share of the grid's width mark a fragment of a table.
+    private const double FragmentOverhang = 0.25;
+
+    internal readonly record struct Run(int Pos, int Lo, int Hi);
+
+    /// <summary>
+    /// The horizontal rules of a page, whether or not they belong to a ruled grid: the lines that separate the rows of a table whose
+    /// columns are not drawn. Nothing is changed. Empty when the page has no contrast or is noise.
+    /// </summary>
+    /// <param name="gray">The page, row-major.</param>
+    /// <param name="width">Page width.</param>
+    /// <param name="height">Page height.</param>
+    /// <param name="threshold">The page's binarization threshold; negative when the page has no contrast.</param>
+    /// <param name="inkIsBright">Whether ink is the bright side of the threshold.</param>
+    /// <returns>The rules, top to bottom.</returns>
+    public static List<RuleLine> HorizontalRules(ReadOnlySpan<byte> gray, int width, int height, int threshold, bool inkIsBright)
+    {
+        if (threshold < 0 || width < MinRun || height < MinRun || !CollectRuns(gray, width, height, threshold, inkIsBright, out List<Run> hRuns, out _))
+        {
+            return [];
+        }
+
+        List<RuleLine> h = Merge(hRuns);
+        return h.Count > MaxLines ? [] : h;
+    }
 
     /// <summary>Finds the ruled grids of a page. Nothing is changed.</summary>
     /// <param name="gray">The page, row-major.</param>
@@ -195,7 +219,7 @@ internal static class TableRules
 
         foreach ((List<RuleLine> mh, List<RuleLine> mv) in members.Values)
         {
-            if (mh.Count >= 2 && mv.Count >= 2 && Build(mh, mv) is { } grid && InkShare(gray, width, height, grid, threshold, inkIsBright) <= MaxInkShare)
+            if (mh.Count >= 2 && mv.Count >= 2 && Build(mh, mv) is { } grid && !IsFragment(grid, mh) && InkShare(gray, width, height, grid, threshold, inkIsBright) <= MaxInkShare)
             {
                 grids.Add(grid);
             }
@@ -248,6 +272,29 @@ internal static class TableRules
     }
 
     // The share of ink inside the grid's box. A table is mostly paper; a light panel on a dark page, read as ink, is not a table.
+    // A grid built from the verticals of part of a table: at least two of the horizontal rules run on well beyond the outer vertical rules
+    // on one side, so the table has columns whose rules are not drawn (or too faint to be found). Rows and cells of such a grid would leave
+    // those columns out; the table is read without a grid, row bands from the horizontal rules and columns from the gaps.
+    private static bool IsFragment(RuleGrid g, List<RuleLine> horizontal)
+    {
+        int overhang = (int)(FragmentOverhang * (g.Right - g.Left));
+        int left = 0, right = 0;
+        foreach (RuleLine h in horizontal)
+        {
+            if (g.Left - h.Lo > overhang)
+            {
+                left++;
+            }
+
+            if (h.Hi - g.Right > overhang)
+            {
+                right++;
+            }
+        }
+
+        return left >= 2 || right >= 2;
+    }
+
     private static double InkShare(ReadOnlySpan<byte> gray, int width, int height, RuleGrid g, int threshold, bool inkIsBright)
     {
         int x0 = Math.Clamp(g.Left, 0, width), x1 = Math.Clamp(g.Right, x0, width), y0 = Math.Clamp(g.Top, 0, height), y1 = Math.Clamp(g.Bottom, y0, height);
@@ -269,60 +316,81 @@ internal static class TableRules
     // Of two neighbours the one farther from ink: the paper, even when text touches the line on one side.
     private static byte Paper(byte a, byte b, bool inkIsBright) => inkIsBright ? Math.Min(a, b) : Math.Max(a, b);
 
-    private static bool CollectRuns(ReadOnlySpan<byte> gray, int width, int height, int threshold, bool inkIsBright, out List<Run> hRuns, out List<Run> vRuns)
+    // Collects the horizontal and vertical ink runs of at least MinRun pixels. Paper is skipped with the vectorized range search of the
+    // base library and only ink pixels are visited: the columns that were ink in the row above are the only ones whose vertical run can
+    // end in this row, so they are tracked in a list instead of every column being looked at in every row. The runs found are the
+    // same as a pixel-by-pixel scan finds (Merge sorts them by position, which is unique per run).
+    internal static bool CollectRuns(ReadOnlySpan<byte> gray, int width, int height, int threshold, bool inkIsBright, out List<Run> hRuns, out List<Run> vRuns)
     {
         hRuns = [];
         vRuns = [];
         var vLen = new int[width];
+        // Whether a gray value is ink, for the columns that were ink in the row above.
+        bool[] isInk = new bool[256];
+        for (int v = 0; v < 256; v++)
+        {
+            isInk[v] = inkIsBright ? v > threshold : v <= threshold;
+        }
+
+        // The ink values form one range: [0, threshold] for dark ink, [threshold + 1, 255] for bright ink.
+        byte lo = inkIsBright ? (byte)(threshold + 1) : (byte)0, hi = inkIsBright ? (byte)255 : (byte)threshold;
+        int[] active = new int[width], next = new int[width];
+        int activeCount = 0;
         for (int y = 0; y < height; y++)
         {
             ReadOnlySpan<byte> row = gray.Slice(y * width, width);
-            int start = -1;
-            for (int x = 0; x < row.Length; x++)
+            int nextCount = 0;
+            for (int x = 0; x < row.Length;)
             {
-                bool ink = inkIsBright ? row[x] > threshold : row[x] <= threshold;
-                if (ink)
+                int skip = row.Slice(x).IndexOfAnyInRange(lo, hi);
+                if (skip < 0)
                 {
-                    if (start < 0)
-                    {
-                        start = x;
-                    }
-
-                    vLen[x]++;
-                    continue;
+                    break;
                 }
 
-                if (start >= 0)
+                int start = x + skip;
+                int length = row.Slice(start).IndexOfAnyExceptInRange(lo, hi);
+                int end = length < 0 ? row.Length : start + length;
+                if (end - start >= MinRun)
                 {
-                    if (x - start >= MinRun)
-                    {
-                        hRuns.Add(new Run(y, start, x));
-                    }
-
-                    start = -1;
+                    hRuns.Add(new Run(y, start, end));
                 }
 
-                if (vLen[x] >= MinRun)
+                for (int k = start; k < end; k++)
                 {
-                    vRuns.Add(new Run(x, y - vLen[x], y));
+                    vLen[k]++;
+                    next[nextCount++] = k;
                 }
 
-                vLen[x] = 0;
+                x = end;
             }
 
-            if (start >= 0 && row.Length - start >= MinRun)
+            // A column that was ink above and is not now ends its vertical run here.
+            for (int a = 0; a < activeCount; a++)
             {
-                hRuns.Add(new Run(y, start, row.Length));
+                int x = active[a];
+                if (!isInk[row[x]])
+                {
+                    if (vLen[x] >= MinRun)
+                    {
+                        vRuns.Add(new Run(x, y - vLen[x], y));
+                    }
+
+                    vLen[x] = 0;
+                }
             }
 
+            (active, next) = (next, active);
+            activeCount = nextCount;
             if (hRuns.Count > MaxRuns || vRuns.Count > MaxRuns)
             {
                 return false;
             }
         }
 
-        for (int x = 0; x < width; x++)
+        for (int a = 0; a < activeCount; a++)
         {
+            int x = active[a];
             if (vLen[x] >= MinRun)
             {
                 vRuns.Add(new Run(x, height - vLen[x], height));
@@ -333,7 +401,7 @@ internal static class TableRules
     }
 
     // Joins runs in adjacent rows (or columns) that overlap by most of the shorter one into lines; thick ones are dropped.
-    private static List<RuleLine> Merge(List<Run> runs)
+    internal static List<RuleLine> Merge(List<Run> runs)
     {
         runs.Sort((a, b) => a.Pos != b.Pos ? a.Pos.CompareTo(b.Pos) : a.Lo.CompareTo(b.Lo));
         var done = new List<RuleLine>();

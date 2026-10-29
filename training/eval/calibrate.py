@@ -14,17 +14,31 @@ ECE: 15 equal-width bins over [0, 1], word level: sum over bins of (bin count / 
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 from pathlib import Path
 
 import numpy as np
 from rapidfuzz.distance import Levenshtein
 
-from eval.confidence import apply_map
 from eval.scoring import read_hyps
 
 SCRIPTS = {"latin": "Latin", "greek": "Greek", "cyrillic": "Cyrillic"}
 MAX_KNOTS = 64
+
+
+def apply_map(x: float, knots: dict) -> float:
+    """Monotone piecewise-linear map through (x[i], y[i]); constant beyond the first and last knot. Container rule: float64
+    `y0 + (y1 - y0) * ((r - x0) / (x1 - x0))` without FMA (Python floats), cast to float32 at the end."""
+    xs, ys = knots["x"], knots["y"]
+    if x <= xs[0]:
+        y = ys[0]
+    elif x >= xs[-1]:
+        y = ys[-1]
+    else:
+        i = bisect.bisect_right(xs, x)
+        y = ys[i - 1] + (ys[i] - ys[i - 1]) * ((x - xs[i - 1]) / (xs[i] - xs[i - 1]))
+    return float(np.float32(y))
 
 
 def word_samples(rows: list[dict]) -> list[tuple[str, float, bool]]:
@@ -33,10 +47,13 @@ def word_samples(rows: list[dict]) -> list[tuple[str, float, bool]]:
     for r in rows:
         ref, hyp = r["ref"].split(), [w["text"] for w in r["words"]]
         ok = [False] * len(hyp)
-        for op in Levenshtein.opcodes(ref, hyp):
-            if op.tag == "equal":
-                for j in range(op.dest_start, op.dest_end):
-                    ok[j] = True
+        if "correct" in r:  # page-level rows (eval/page_samples.py) carry their own verdict per word
+            ok = [bool(v) for v in r["correct"]]
+        else:
+            for op in Levenshtein.opcodes(ref, hyp):
+                if op.tag == "equal":
+                    for j in range(op.dest_start, op.dest_end):
+                        ok[j] = True
         out += [(SCRIPTS[w["script"]], w["conf"], ok[j]) for j, w in enumerate(r["words"])]
     return out
 
@@ -119,18 +136,22 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fit")
-    f.add_argument("--hyps", required=True)
+    f.add_argument("--hyps", required=True, nargs="+", help="hyps files; PATH:K counts a file K times (a small in-domain set weighs more)")
     f.add_argument("--out", required=True)
     t = sub.add_parser("table", help="markdown ECE before/after for the held-out synthetic sets and every page category")
     t.add_argument("--calibration", required=True)
     t.add_argument("--hyps-dir", required=True)
     t.add_argument("--out", required=True)
+    t.add_argument("--also", default="", help="comma-separated extra hyps sets to include (e.g. validation crops of another domain)")
     e = sub.add_parser("ece")
     e.add_argument("--calibration", required=True)
     e.add_argument("hyps", nargs="+")
     a = ap.parse_args()
     if a.cmd == "fit":
-        samples = word_samples(read_hyps(a.hyps))
+        samples = []
+        for spec in a.hyps:
+            path, _, k = spec.partition(":")
+            samples += word_samples(read_hyps(path)) * int(k or 1)
         cal = {"raw": "word-mean-max-run", "scripts": {}}
         for s in SCRIPTS.values():
             g = [x for x in samples if x[0] == s]
@@ -152,6 +173,7 @@ def main() -> None:
             "phone-v1",
             "receipts-v1",
         ]
+        names += [n for n in a.also.split(",") if n]
         lines = [
             "| set | scope | words | word accuracy % | mean raw confidence | ECE raw | ECE calibrated |",
             "|---|---|---:|---:|---:|---:|---:|",

@@ -1,4 +1,5 @@
 using System.Text;
+using OneImage;
 using OneOcr.Decoding;
 using OneOcr.Kernels;
 using OneOcr.Model;
@@ -25,9 +26,33 @@ public sealed class LineRecognizer
     private readonly OcrLimits _limits;
     private readonly BufferPool<float> _pool;
     private readonly bool[] _isSpace;
+    private WordPlausibility? _words;
+    private WordFrequencyModel? _frequencies;
 
     /// <summary>The scratch pool of this recognizer, for a page detector to share (it is thread-safe).</summary>
     internal BufferPool<float> ScratchPool => _pool;
+
+    internal KernelPath UsedPath => _path;
+
+    internal bool HasWordModel => _words is not null;
+
+    internal bool HasWordFrequencies => _frequencies is not null;
+
+    /// <summary>A recognizer that shares this one's weights and buffers and lets <paramref name="frequencies"/> take back spaces inside words (null: none).</summary>
+    internal LineRecognizer WithWordFrequencies(WordFrequencyModel? frequencies)
+    {
+        var copy = (LineRecognizer)MemberwiseClone();
+        copy._frequencies = frequencies;
+        return copy;
+    }
+
+    /// <summary>A recognizer that shares this one's weights and buffers and lets <paramref name="words"/> judge word breaks (null: pixels only).</summary>
+    internal LineRecognizer WithWordModel(WordPlausibility? words)
+    {
+        var copy = (LineRecognizer)MemberwiseClone();
+        copy._words = words;
+        return copy;
+    }
 
     internal LineRecognizer(CrnnModel model, OcrLimits limits, KernelPath path)
     {
@@ -57,6 +82,9 @@ public sealed class LineRecognizer
     }
 
     internal bool HasCalibration => _model.Calibration is not null;
+
+    /// <summary>The curve that maps raw word confidence to the confidence a page reports, or null when the model reports its decision confidence.</summary>
+    internal WordCalibration? ReportCalibration => _model.ReportCalibration;
 
     /// <summary>The height, in pixels, line images must have.</summary>
     public int InputHeight => _model.Input.Height;
@@ -220,6 +248,144 @@ public sealed class LineRecognizer
         }
     }
 
+    /// <summary>
+    /// Reads several lines together on the calling thread: the convolutions run line by line, the recurrent layers run all the lines
+    /// as one batch, so the weights are read once per step for the whole group. Each line's result is bit for bit what
+    /// <see cref="RecognizeWords"/> gives it alone, whichever lines share a group.
+    /// </summary>
+    /// <param name="lines">The line images, <see cref="InputHeight"/> rows each.</param>
+    /// <param name="cancellationToken">Cancels between layers and between chunks of steps.</param>
+    /// <param name="withChars">Whether to keep the per-character list of each word.</param>
+    /// <returns>One result per line, in order.</returns>
+    internal LineWords[] RecognizeWordsGroup(ReadOnlySpan<LineImage> lines, CancellationToken cancellationToken, bool withChars = true)
+    {
+        int n = lines.Length;
+        var results = new LineWords[n];
+        var current = new float[]?[n];
+        var steps = new int[n];
+        try
+        {
+            var live = new List<int>(n);
+            for (int i = 0; i < n; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                int width = lines[i].Width;
+                ReadOnlySpan<byte> gray = PixelSpans.AsBytes(lines[i].Pixels.AsSpan(0, checked(width * InputHeight)));
+                if (width < 1)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(lines), "The width must be positive.");
+                }
+
+                if (width > _limits.MaxLineWidth)
+                {
+                    throw new OcrLimitException(nameof(OcrLimits.MaxLineWidth), _limits.MaxLineWidth, width);
+                }
+
+                float[] input = _pool.Rent(gray.Length);
+                try
+                {
+                    long clock = StageClock.Start();
+                    CrnnForward.NormalizeInto(gray, new ModelInputView(_model.Input.Mean, _model.Input.Std, _model.Input.Invert), input);
+                    current[i] = CrnnForward.ConvStack(_model, _path, 1, _pool, input, width, _limits, null, out steps[i], cancellationToken);
+                    StageClock.Stop("r1 conv stack", clock);
+                }
+                finally
+                {
+                    _pool.Return(input);
+                }
+
+                if (current[i] is null)
+                {
+                    results[i] = SplitWords([], 0, width, withChars);
+                }
+                else
+                {
+                    live.Add(i);
+                }
+            }
+
+            if (live.Count == 0)
+            {
+                return results;
+            }
+
+            // Only the lines with a sequence go through the recurrent layers; they are packed so that the batch has no gaps.
+            int m = live.Count;
+            var x = new float[]?[m];
+            var t = new int[m];
+            for (int k = 0; k < m; k++)
+            {
+                x[k] = current[live[k]];
+                t[k] = steps[live[k]];
+                current[live[k]] = null;
+            }
+
+            var y = new float[]?[m];
+            try
+            {
+                for (int l = 0; l < _model.Lstm.Length; l++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    Array.Clear(y);
+                    long lstmClock = StageClock.Start();
+                    try
+                    {
+                        CrnnForward.BiLstmGroup(_model.Lstm[l], _path, _pool, x, t, y, _model.Hidden, cancellationToken);
+                    }
+                    catch
+                    {
+                        ReturnAll(y);
+                        throw;
+                    }
+
+                    StageClock.Stop("r2 lstm", lstmClock);
+                    ReturnAll(x);
+                    (x, y) = (y, x);
+                }
+
+                for (int k = 0; k < m; k++)
+                {
+                    long fcClock = StageClock.Start();
+                    float[] logits = CrnnForward.Classify(_model, _path, _pool, x[k]!, t[k]);
+                    StageClock.Stop("r3 classifier", fcClock);
+                    try
+                    {
+                        fcClock = StageClock.Start();
+                        results[live[k]] = SplitWords(logits, t[k], lines[live[k]].Width, withChars);
+                        StageClock.Stop("r4 softmax+words", fcClock);
+                    }
+                    finally
+                    {
+                        _pool.Return(logits);
+                    }
+                }
+            }
+            finally
+            {
+                ReturnAll(x);
+                ReturnAll(y);
+            }
+
+            return results;
+        }
+        finally
+        {
+            ReturnAll(current);
+        }
+    }
+
+    private void ReturnAll(float[]?[] arrays)
+    {
+        for (int i = 0; i < arrays.Length; i++)
+        {
+            if (arrays[i] is { } a)
+            {
+                _pool.Return(a);
+                arrays[i] = null;
+            }
+        }
+    }
+
     // The number of groups of non-space characters.
     private int CountWords(List<CharRun> runs)
     {
@@ -301,6 +467,101 @@ public sealed class LineRecognizer
         return new LineWords(line.Text, line.Confidence, words);
     }
 
+    /// <summary>
+    /// Re-decides where the spaces of a line go from its pixels (see <see cref="WordSegmenter"/>): words the network cut across
+    /// continuous ink are joined and words it fused across an empty stretch are cut. The characters are untouched. Returns
+    /// <paramref name="line"/> itself when nothing changes. The line needs its per-character lists.
+    /// </summary>
+    internal LineWords Resegment(LineWords line, ReadOnlySpan<byte> gray, int width, int height)
+    {
+        int n = 0;
+        foreach (RecognizedWord w in line.Words)
+        {
+            n += w.Chars.Count;
+            if (w.Chars.Count != w.Characters)
+            {
+                return line;
+            }
+        }
+
+        if (n < 2)
+        {
+            return line;
+        }
+
+        var chars = new List<RecognizedChar>(n);
+        var wasSpace = new bool[n - 1];
+        foreach (RecognizedWord w in line.Words)
+        {
+            if (chars.Count > 0)
+            {
+                wasSpace[chars.Count - 1] = true;
+            }
+
+            chars.AddRange(w.Chars);
+        }
+
+        bool[]? plan = WordSegmenter.Plan(chars, wasSpace, gray, width, height, _words, _frequencies);
+        if (plan is null)
+        {
+            return line;
+        }
+
+        var words = new List<RecognizedWord>(line.Words.Count + 2);
+        int original = 0, originalStart = 0;
+        int first = 0;
+        for (int i = 0; i < n; i++)
+        {
+            if (i < n - 1 && !plan[i])
+            {
+                continue;
+            }
+
+            // chars[first..i] is one word. It is kept as it was when it is exactly one of the network's words.
+            while (original < line.Words.Count && originalStart + line.Words[original].Chars.Count <= first)
+            {
+                originalStart += line.Words[original].Chars.Count;
+                original++;
+            }
+
+            if (original < line.Words.Count && originalStart == first && line.Words[original].Chars.Count == i - first + 1)
+            {
+                words.Add(line.Words[original]);
+            }
+            else
+            {
+                words.Add(BuildWord(chars, first, i));
+            }
+
+            first = i + 1;
+        }
+
+        return new LineWords(line.Text, line.RawConfidence, words);
+    }
+
+    // A word from the characters first..last of a line, with the edges of SplitWords: halfway across the gap to a neighbouring
+    // character, the line's own first and last edge at the ends.
+    private RecognizedWord BuildWord(List<RecognizedChar> chars, int first, int last)
+    {
+        var text = new StringBuilder();
+        float total = 0f;
+        var list = new List<RecognizedChar>(last - first + 1);
+        for (int k = first; k <= last; k++)
+        {
+            text.Append(chars[k].Text);
+            total += chars[k].Probability;
+            list.Add(chars[k]);
+        }
+
+        double left = first == 0 ? chars[first].X0 : (chars[first - 1].X1 + chars[first].X0) / 2.0;
+        double right = last == chars.Count - 1 ? chars[last].X1 : (chars[last].X1 + chars[last + 1].X0) / 2.0;
+        string word = text.ToString();
+        float raw = total / (last - first + 1);
+        OcrScript script = ScriptDetector.Of(word);
+        float calibrated = _model.Calibration is { } c ? c.Apply(script, raw) : raw;
+        return new RecognizedWord(word, (float)left, (float)right, calibrated, raw, script, last - first + 1, list);
+    }
+
     // Greedy CTC (Graves et al. 2006, sec. 3.1): arg-max per step (lowest index on ties), merge repeats, drop blanks. A run is
     // the steps of one emitted character; its probability is the largest softmax probability of its class over the run.
     private void CollectRuns(float[] logits, int steps, List<CharRun> runs)
@@ -365,3 +626,6 @@ internal readonly record struct RecognizedChar(string Text, double X0, double X1
 
 /// <summary>A decoded line with its words. <c>RawConfidence</c> is the whole-line rule of <see cref="RecognizedLine"/>.</summary>
 internal sealed record LineWords(string Text, float RawConfidence, IReadOnlyList<RecognizedWord> Words);
+
+/// <summary>A line image for <see cref="LineRecognizer.RecognizeWordsGroup"/>: grayscale pixels (the first <c>height * width</c> are the line) and the width.</summary>
+internal readonly record struct LineImage(Gray8[] Pixels, int Width);

@@ -37,7 +37,7 @@ internal sealed class DetectorMaps
 }
 
 /// <summary>
-/// The <c>dbnet-lite-v0</c> forward pass (docs/spec/detector-v0.md). Every output value is an independent sum in the library's
+/// The <c>dbnet-lite-v0</c> and <c>dbnet-lite-v1</c> forward pass (docs/spec/detector-v0.md, detector-v1.md). Every output value is an independent sum in the library's
 /// fixed order (<see cref="Gemm"/> for the 1x1 convolutions, <see cref="DetectKernels"/> for the rest), and parallel work is
 /// split by output rows, so the maps do not depend on the kernel path or the degree of parallelism.
 /// </summary>
@@ -66,6 +66,12 @@ internal static class DbNetForward
         CheckElements(limits, (long)(height / 4) * (width / 4) * Math.Max(fpn, DetectKernels.Padded(model.Stages[0][^1].Out)));
         CheckElements(limits, (long)(height / 8) * (width / 8) * Math.Max(DetectKernels.Padded(model.LayoutBlocks[0].Out), DetectKernels.Padded(model.Stages[1][^1].Out)));
         CheckElements(limits, (long)(height / 2) * (width / 2));
+        if (model.LayoutMix is { } mix)
+        {
+            // The stride-16 branch: its widest block output and the mixed map, both at stride 16.
+            int widest16 = Math.Max(DetectKernels.Padded(model.Layout16Blocks[0].Out), mix.OutPadded);
+            CheckElements(limits, (long)(height / 16) * (width / 16) * Math.Max(widest16, fpn));
+        }
     }
 
     /// <summary>
@@ -130,7 +136,8 @@ internal static class DbNetForward
             var lateral = new float[4][];
             float[]? current = stem;
             int h = h2, w = w2;
-            float[]? stage3 = null, stage0 = null;
+            float[]? stage3 = null, stage0 = null, means2 = null;
+            long lap = StageClock.Start();
             for (int i = 0; i < 4; i++)
             {
                 for (int j = 0; j < model.Stages[i].Length; j++)
@@ -161,14 +168,23 @@ internal static class DbNetForward
                     lateral[i] = Pointwise(model.Lateral[i], path, degree, arena, current!, h * w, relu: false, model.Lateral[i].OutPadded, cancellationToken);
                 }
 
+                if (i == 2 && model.OrientFromTwoScales)
+                {
+                    // Stage 2 is dropped after its lateral; its channel means are all the orientation head reads of it.
+                    means2 = new float[outBlock.OutPadded];
+                    DetectKernels.ChannelMeans(path, current!, h * w, outBlock.OutPadded, means2);
+                }
+
                 if (i == 3)
                 {
                     stage3 = current;
                 }
             }
 
+            StageClock.Stop("dn1 backbone+laterals", lap);
+            lap = StageClock.Start();
             int h3 = h, w3 = w;
-            float[] orientation = Orientation(model, path, stage3!, h3 * w3);
+            float[] orientation = Orientation(model, path, stage3!, h3 * w3, means2);
             trace?.Add("orient", orientation, 4);
             Give(stage3);
 
@@ -176,13 +192,21 @@ internal static class DbNetForward
             int fpnP = model.Lateral[0].OutPadded;
             AddUp(lateral[2], h3 * 2, w3 * 2, fpnP, lateral[3], path, degree, cancellationToken);
             Give(lateral[3]);
+            float[]? p16 = model.Layout16Blocks.Length > 0 ? lateral[2] : null;
+            TraceMap(trace, "p16", lateral[2], h3 * 2, w3 * 2, model.Lateral[2].Out, fpnP);
             AddUp(lateral[1], h3 * 4, w3 * 4, fpnP, lateral[2], path, degree, cancellationToken);
-            Give(lateral[2]);
+            if (p16 is null)
+            {
+                Give(lateral[2]);
+            }
+
             float[] p8 = Block(model.Smooth8, path, degree, arena, lateral[1], h3 * 4, w3 * 4, 1, limits, cancellationToken, out int h8, out int w8);
             Give(lateral[1]);
             TraceMap(trace, "p8", p8, h8, w8, model.Smooth8.Out, model.Smooth8.OutPadded);
             int h4 = h3 * 8, w4 = w3 * 8;
 
+            StageClock.Stop("dn2 orient+topdown p8", lap);
+            lap = StageClock.Start();
             // Text head, stride 4: t4 = text4(p4).
             float[] t4;
             if (lean)
@@ -202,7 +226,29 @@ internal static class DbNetForward
                 TraceMap(trace, "text4", t4, h4, w4, model.Text4.Out, model.Text4.OutPadded);
             }
 
-            // Layout head on p8.
+            StageClock.Stop("dn3 fused stride4", lap);
+            lap = StageClock.Start();
+            // Layout head on p8. With a stride-16 branch (v1) the first block's output also receives up2(layout_mix(branch(p16))).
+            float[]? mixed = null;
+            if (p16 is not null)
+            {
+                float[] g = p16;
+                int gh = h3 * 2, gw = w3 * 2;
+                foreach (DwBlock block16 in model.Layout16Blocks)
+                {
+                    float[] nextG = Block(block16, path, degree, arena, g, gh, gw, 1, limits, cancellationToken, out _, out _);
+                    Give(g);
+                    g = nextG;
+                }
+
+                DwBlock last16 = model.Layout16Blocks[^1];
+                TraceMap(trace, "layout16", g, gh, gw, last16.Out, last16.OutPadded);
+                PointwiseConv mix = model.LayoutMix!;
+                mixed = Pointwise(mix, path, degree, arena, g, gh * gw, relu: false, mix.OutPadded, cancellationToken);
+                Give(g);
+                TraceMap(trace, "layout_mix", mixed, gh, gw, mix.Out, mix.OutPadded);
+            }
+
             float[] feature = p8;
             int fh = h8, fw = w8;
             for (int j = 0; j < model.LayoutBlocks.Length; j++)
@@ -210,6 +256,11 @@ internal static class DbNetForward
                 float[] next = Block(model.LayoutBlocks[j], path, degree, arena, feature, fh, fw, 1, limits, cancellationToken, out _, out _);
                 Give(feature);
                 feature = next;
+                if (j == 0 && mixed is not null)
+                {
+                    AddUp(feature, fh, fw, model.LayoutBlocks[0].OutPadded, mixed, path, degree, cancellationToken);
+                    Give(mixed);
+                }
             }
 
             DwBlock lastLayout = model.LayoutBlocks[^1];
@@ -232,6 +283,8 @@ internal static class DbNetForward
             Give(feature);
             TraceMap(trace, "layout", layout, fh, fw, model.Classes, layoutStride);
 
+            StageClock.Stop("dn4 layout head", lap);
+            lap = StageClock.Start();
             // Text head, stride 2: prob = prob_out(text2(up2(t4) + stem_proj(stem))).
             // Every element is written by the probability convolution.
             float[] prob = pooledMaps ? probMap = pool.Rent(checked((long)h2 * w2)) : new float[checked((long)h2 * w2)];
@@ -253,6 +306,7 @@ internal static class DbNetForward
                 Give(t2);
             }
 
+            StageClock.Stop("dn5 fused stride2", lap);
             trace?.Add("prob", prob, 1, h2, w2);
 
             var maps = new DetectorMaps
@@ -290,7 +344,9 @@ internal static class DbNetForward
             float[] band = arena.Take((long)(r1 - r0) * w2 * stemP, clear: false);
             try
             {
+                long stc = StageClock.Start();
                 DetectKernels.Stem(path, input, height, width, model.StemWeights, model.StemBias, stemP, r0, r1, band);
+                StageClock.Stop("d.stem", stc);
                 BlockRows(block, path, arena, band, r0, r1 - r0, h2, w2, 2, y0, y1, destination, 0);
             }
             finally
@@ -351,7 +407,9 @@ internal static class DbNetForward
             float[] t2 = arena.Take((long)(y1 - y0) * w2 * text2.OutPadded, clear: true);
             try
             {
+                long stc = StageClock.Start();
                 DetectKernels.Stem(path, input, height, width, model.StemWeights, model.StemBias, stemP, r0, r1, stem);
+                StageClock.Stop("d.stem", stc);
                 PointwiseRows(projection, path, stem, 0, proj, 0, (r1 - r0) * w2, false, projP);
                 DetectKernels.AddUpsampled(path, proj, h2, w2, projP, t4, r0, r1, r0);
                 BlockRows(text2, path, arena, proj, r0, r1 - r0, h2, w2, 1, y0, y1, t2, y0);
@@ -366,16 +424,25 @@ internal static class DbNetForward
         }, cancellationToken);
     }
 
-    private static float[] Orientation(DbNetModel model, KernelPath path, float[] stage3, int pixels)
+    // One linear layer over the channel means of stage 3, or (v1 orient16) over those of stage 2 followed by those of stage 3.
+    private static float[] Orientation(DbNetModel model, KernelPath path, float[] stage3, int pixels, float[]? means2)
     {
-        int c = model.Stages[3][^1].Out;
-        int cp = DetectKernels.Padded(c);
-        var means = new float[cp];
-        DetectKernels.ChannelMeans(path, stage3, pixels, cp, means);
+        int c3 = model.Stages[3][^1].Out;
+        int c2 = means2 is null ? 0 : model.Stages[2][^1].Out;
+        int c = c2 + c3;
+        var means = new float[DetectKernels.Padded(c3)];
+        DetectKernels.ChannelMeans(path, stage3, pixels, DetectKernels.Padded(c3), means);
+        var joined = new float[c];
+        if (means2 is not null)
+        {
+            Array.Copy(means2, joined, c2);
+        }
+
+        Array.Copy(means, 0, joined, c2, c3);
         var logits = new float[4];
         for (int k = 0; k < 4; k++)
         {
-            logits[k] = Gemm.Dot(path, model.OrientWeights.AsSpan(k * c, c), means.AsSpan(0, c)) + model.OrientBias[k];
+            logits[k] = Gemm.Dot(path, model.OrientWeights.AsSpan(k * c, c), joined) + model.OrientBias[k];
         }
 
         return logits;
@@ -390,7 +457,7 @@ internal static class DbNetForward
         int cinP = block.InPadded, coutP = block.OutPadded;
         CheckElements(limits, (long)oh * ow * coutP);
         float[] destination = arena.Take((long)oh * ow * coutP, clear: true);
-        int rowsPerTask = Math.Max(1, PositionsPerTask / ow);
+        int rowsPerTask = Spread(oh, Math.Max(1, PositionsPerTask / ow), degree, 1);
         CheckElements(limits, (long)rowsPerTask * ow * cinP);
         Rows(oh, rowsPerTask, degree, (y0, y1) => BlockRows(block, path, arena, source, 0, h, h, w, stride, y0, y1, destination, 0), cancellationToken);
         return destination;
@@ -406,7 +473,9 @@ internal static class DbNetForward
         float[] scratch = arena.Take((long)rows * ow * block.InPadded, clear: false);
         try
         {
+            long dwc = StageClock.Start();
             DetectKernels.Depthwise(path, source, h, w, block.InPadded, stride, block.DepthwiseWeights, block.DepthwiseBias, true, y0, y1, scratch, srcRow0, srcRows);
+            StageClock.Stop("d.depthwise", dwc);
             PointwiseRows(block.Pointwise, path, scratch, 0, destination, (y0 - dstRow0) * ow, rows * ow, true, block.OutPadded);
         }
         finally
@@ -428,7 +497,7 @@ internal static class DbNetForward
         PointwiseConv conv, KernelPath path, int degree, float[] source, int pixels, bool relu, float[] destination, int outStride,
         CancellationToken cancellationToken)
     {
-        int chunk = Math.Max(1, PositionsPerTask);
+        int chunk = Spread(pixels, Math.Max(1, PositionsPerTask), degree, 12);
         Rows(pixels, chunk, degree, (p0, p1) =>
             PointwiseRows(conv, path, source, p0, destination, p0, p1 - p0, relu, outStride), cancellationToken);
     }
@@ -439,6 +508,7 @@ internal static class DbNetForward
         PointwiseConv conv, KernelPath path, float[] source, int srcStart, float[] destination, int dstStart, int count, bool relu, int outStride)
     {
         int inP = conv.InPadded;
+        long pwc = StageClock.Start();
         Gemm.NT(
             path, source.AsSpan(srcStart * inP), inP, conv.Weights, inP, count, conv.Out, inP, conv.Bias,
             destination.AsSpan(dstStart * outStride), outStride, 1);
@@ -446,12 +516,28 @@ internal static class DbNetForward
         {
             DetectKernels.Relu(path, destination.AsSpan(dstStart * outStride, count * outStride));
         }
+        StageClock.Stop("d.pointwise+relu", pwc);
     }
 
     private static void AddUp(
         float[] destination, int h, int w, int c, float[] source, KernelPath path, int degree, CancellationToken cancellationToken) =>
-        Rows(h, Math.Max(1, PositionsPerTask / w), degree, (y0, y1) =>
+        Rows(h, Spread(h, Math.Max(1, PositionsPerTask / w), degree, 1), degree, (y0, y1) =>
             DetectKernels.AddUpsampled(path, destination, h, w, c, source, y0, y1), cancellationToken);
+
+    // A smaller chunk when the layer is too small to give every thread a few tasks (the late, low-resolution layers): about three
+    // tasks per thread, in whole multiples of `multiple` (the GEMM row tile) so no tile is half empty. Chunks write disjoint
+    // outputs and every output is its own sum, so the chunk size never changes a value.
+    private static int Spread(int count, int chunk, int degree, int multiple)
+    {
+        if (degree <= 1)
+        {
+            return chunk;
+        }
+
+        int want = (count + (3 * degree) - 1) / (3 * degree);
+        want = (want + multiple - 1) / multiple * multiple;
+        return Math.Clamp(want, 1, chunk);
+    }
 
     // Splits [0, count) into chunks of `chunk` and runs them on up to `degree` threads. Chunks write disjoint outputs.
     private static void Rows(int count, int chunk, int degree, Action<int, int> body, CancellationToken cancellationToken)

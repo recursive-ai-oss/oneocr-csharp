@@ -73,6 +73,7 @@ class Look:
     head_caps: bool
     head_rule: bool
     head_align: str
+    bars: str = ""  # css for light-on-dark bands (running head, foot and headings) on an otherwise light page
 
 
 def font_faces(look: Look, root) -> str:
@@ -111,6 +112,7 @@ h3.h{{font-size:{max(1.0, look.head_scale * 0.82):.2f}em}}
 .hd,.ft{{display:flex;justify-content:space-between;gap:1em;font-size:.8em;flex:none;color:{look.ink}cc}}
 .hd{{border-bottom:1px solid {look.ink}66;padding-bottom:.35em;margin-bottom:.9em}}
 .ft{{border-top:1px solid {look.ink}66;padding-top:.35em;margin-top:.7em}}
+{look.bars}
 {extra}"""
 
 

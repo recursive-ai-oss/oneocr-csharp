@@ -1,0 +1,74 @@
+# Receipt stage, second try (R+2): the receipt stage with the web-line share restored to about 44 of 184 per batch (the share that kept real
+# screen text in the earlier web fine-tune) and a web guard in selection (a held-out web line set and the interface and screenshot-style sets
+# may not be worse than the starting model beyond 2% in CER or WER). Everything else is as the first receipt stage; chains from the main run's final checkpoint.
+# Production recognizer, receipt stage (R+): fine-tune from the stage-1 final checkpoint (the stage-2 fine-tune was within noise and is not used) with the Gemini/Sonnet-labelled engine crops of generated receipt photos and CORD v2 train crops, mask/quantity and web lines kept
+# in the mix, and a phone guard in selection (word crops rectified from held-out phone-style pages, no worse than the starting model).
+# Selection on validation only, relative to the starting model. ${ONEOCR_HOME} is the state directory, ${ONEOCR_GEN} the engine crops of the generated
+# receipt photos, ${ONEOCR_FT} the CORD crops, ${ONEOCR_V6} the targeted-error data.
+name: crnn-rplus2
+seed: 244
+init_from: ${ONEOCR_HOME}/runs/crnn-prod1/final.pt
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_PREV}/data/lines-v4
+run_dir: ${ONEOCR_HOME}/runs/crnn-rplus2
+main_override:
+  p: { resample: 0.5, resample2: 0.25 }
+  ranges: { tilt_deg: [0.0, 0.3] }
+sources:
+  - name: adaptive
+    kind: pack
+    dir: ${ONEOCR_V6}/data/lines-v6/clean/adapt_train
+    line_set: configs/lines-v6.yaml
+    side: adapt
+    per_batch: 12
+    provenance: exact-truth synthetic (configs/lines-v6.yaml)
+    adaptive:
+      stream_dir: ${ONEOCR_V6}/data/lines-v6/clean/adapt_stream
+      every: 3000
+      gamma: 0.7
+      clip: [0.4, 4.0]
+      smooth: 0.5
+      beta: 1.0
+      bins:
+        em: [6, 8, 10, 12, 14, 16, 21, 30, 60, 100]
+        blur_rel: [0.0, 0.03, 0.06, 0.09, 0.125, 0.16]
+        contrast: [45, 65, 90, 130, 180, 256]
+        noise: [0, 2, 4, 6, 8, 12]
+  - { name: receipt-synth, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/train", line_set: configs/lines-v5.yaml, side: receipt, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: gap-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/gaps_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: ui-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: tight-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/tight_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: mask-qty, kind: pack, dir: "${ONEOCR_MASKS}/clean/mq_train", line_set: configs/lines-masks.yaml, side: rcpt, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-masks.yaml)" }
+  - { name: web-lines, kind: crops, dir: "${ONEOCR_WEB}/train", per_batch: 44, provenance: "exact truth: DOM text of public-domain web pages rendered by Chromium (gen/web_lines.py, data/font_allowlist.yaml)" }
+  - { name: cord-train, kind: crops, dir: "${ONEOCR_FT}/data/cord-lines/train/finder", per_batch: 12, provenance: "CORD v2 train annotations, CC BY 4.0" }
+  - { name: gen-receipt-engine, kind: crops, dir: "${ONEOCR_GEN}/crops/train/finder", per_batch: 12, provenance: "receipt photos generated with Google Gemini 3.1 Flash Image, transcribed by Anthropic Claude Sonnet; engine line crops (gen/receipt_photos.py)" }
+extra_val:
+  receipt_synth: ${ONEOCR_FT}/data/lines-v5/val
+  gaps: ${ONEOCR_FT}/data/lines-v5/gaps_val
+  ui: ${ONEOCR_FT}/data/lines-v5/ui_val
+  tight: ${ONEOCR_FT}/data/lines-v5/tight_val
+  web: ${ONEOCR_WEB}/heldout
+  cord_dev: ${ONEOCR_FT}/data/cord-lines/val/finder
+  gen_dev: ${ONEOCR_GEN}/crops/dev/finder
+  mask: ${ONEOCR_MASKS}/mask_val
+  qty: ${ONEOCR_MASKS}/qty_val
+  phone: ${ONEOCR_PHONE}
+  figures: ${ONEOCR_V6}/data/lines-v6/figures_val
+  small: ${ONEOCR_V6}/data/lines-v6/small_val
+  reader: ${ONEOCR_V6}/data/lines-v6/reader_val
+  shot: ${ONEOCR_V6}/data/lines-v6/shot_val
+train:
+  steps: 12000
+  batch: 184
+  accum: 2
+  lr: 0.00006
+  warmup: 200
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 1000
+  ckpt_every: 1000
+  val_penalty: 3.0
+  guard: { val: 0.02, ui: 0.02, tight: 0.02, shot: 0.01, web: 0.01, phone: 0.0 }
+  guard_wer: { shot: 0.0, ui: 0.01, tight: 0.02, phone: 0.0, web: 0.0 }
