@@ -67,6 +67,69 @@ internal static partial class PageReader
         }
     }
 
+    // One piece of a line that is read as its own crop: a whole line, or the part of a line before or after its dot leader.
+    // The columns [BlankFrom, BlankTo) of the page are painted out of the crop (the leader and what lies beyond it).
+    private readonly record struct ReadItem(int Strip, LineBox Ink, LineBox Crop, int BlankFrom, int BlankTo, bool After = false);
+
+    // The dot leader of every upright line that has one (see LeaderFinder); null for the others. Lines recovered from faint text and
+    // tilted lines are left alone. A leader that ran past its strip's box (the detector had cut a long run of dots into pieces)
+    // takes the strips it covers with it: they are read as part of the line, so they are marked in `consumed` and not read again.
+    private static Leader?[] FindLeaders(Gray8[] gray, int width, int height, List<StripLine> strips, int threshold, bool inkIsBright, int typical, int degree, CancellationToken cancellationToken, out bool[] consumed)
+    {
+        var found = new Leader?[strips.Count];
+        ParallelRun.For(
+            strips.Count,
+            degree,
+            i =>
+            {
+                StripLine s = strips[i];
+                if (s.Tilt is null && s.MinConfidence <= 0)
+                {
+                    found[i] = LeaderFinder.Find(PixelSpans.AsBytes(gray.AsSpan(0, checked(width * height))), width, height, s.Box, s.Local?.Threshold ?? threshold, s.Local?.InkIsBright ?? inkIsBright, typical);
+                }
+            },
+            cancellationToken);
+        consumed = new bool[strips.Count];
+        var order = new List<int>();
+        for (int i = 0; i < strips.Count; i++)
+        {
+            if (found[i] is not null)
+            {
+                order.Add(i);
+            }
+        }
+
+        // The longest leader goes first, so a piece of a line never takes the line it belongs to.
+        order.Sort((l, r) => found[l]!.Count != found[r]!.Count ? found[r]!.Count.CompareTo(found[l]!.Count) : l.CompareTo(r));
+        foreach (int i in order)
+        {
+            Leader leader = found[i]!;
+            LineBox a = strips[i].Box;
+            int extent = Math.Max(a.Right, Math.Max(leader.To, leader.Right?.Right ?? 0));
+            if (consumed[i])
+            {
+                continue;
+            }
+
+            for (int j = 0; j < strips.Count; j++)
+            {
+                if (j != i && !consumed[j] && strips[j].Box.X >= leader.From - leader.Pitch && Overlaps(strips[j].Box, leader.From, Math.Min(a.Y, a.Bottom - typical), extent, a.Bottom))
+                {
+                    consumed[j] = true;
+                }
+            }
+        }
+
+        return found;
+    }
+
+    // Whether at least half of the strip box b lies inside the rectangle.
+    private static bool Overlaps(LineBox b, int x0, int y0, int x1, int y1)
+    {
+        long w = Math.Min(x1, b.Right) - Math.Max(x0, b.X), h = Math.Min(y1, b.Bottom) - Math.Max(y0, b.Y);
+        return w > 0 && h > 0 && 2 * w * h >= (long)b.Width * b.Height;
+    }
+
     // A line recovered from faint text is dropped when it lies over a line that was found the ordinary way: it would read the same text twice.
     private static void DropRecoveredDuplicates(OrderStrip?[] read, List<StripLine> strips)
     {
@@ -152,26 +215,72 @@ internal static partial class PageReader
         int modelHeight = recognizer.InputHeight;
         var read = new OrderStrip?[strips.Count];
         var skipped = new string?[strips.Count];
-        var crops = new LineBox[strips.Count];
+
+        // A line with a dot leader is cut at the leader and its parts are read apart (see LeaderFinder); every other line is one item.
+        Leader?[] leaders = FindLeaders(gray, width, height, strips, threshold, inkIsBright, typical, degree, cancellationToken, out bool[] consumed);
+        var items = new List<ReadItem>(strips.Count);
+        var firstItem = new int[strips.Count];
         var queue = new List<(int Index, int Width)>(strips.Count);
         for (int index = 0; index < strips.Count; index++)
         {
             LineBox ink = strips[index].Box;
-            crops[index] = strips[index].Tilt is { } tilted
-                ? LinePreprocessor.CropBoxInFrame(tilted.Ink, typical)
-                : LinePreprocessor.CropBox(ink, typical, width, height);
-            LineBox crop = crops[index];
-            // A strip far wider than tall (a rule, a photo's edge) would be wider than the model's limit once scaled to its input height;
-            // it is left out with a note instead of failing the page.
-            int scaledWidth = PixelResizer.GetSize(crop.Width, crop.Height, null, modelHeight).Width;
-            if (Math.Ceiling((double)crop.Width * modelHeight / crop.Height) > limits.MaxLineWidth || scaledWidth > limits.MaxLineWidth)
+            firstItem[index] = -1;
+            if (consumed[index])
             {
-                skipped[index] = SkipNote(ink, limits);
                 continue;
             }
 
-            queue.Add((index, scaledWidth));
+            var parts = new List<ReadItem>(2);
+            if (leaders[index] is { } leader)
+            {
+                if (leader.Left is { } leftInk)
+                {
+                    LineBox part = leftInk;
+                    parts.Add(new ReadItem(index, part, LinePreprocessor.CropBox(part, typical, width, height), leader.From, width));
+                }
+
+                if (leader.Right is { } rightInk)
+                {
+                    LineBox part = rightInk;
+                    parts.Add(new ReadItem(index, part, LinePreprocessor.CropBox(part, typical, width, height), 0, leader.To, After: true));
+                }
+            }
+            else
+            {
+                LineBox crop = strips[index].Tilt is { } tilted
+                    ? LinePreprocessor.CropBoxInFrame(tilted.Ink, typical)
+                    : LinePreprocessor.CropBox(ink, typical, width, height);
+                parts.Add(new ReadItem(index, ink, crop, int.MaxValue, int.MinValue));
+            }
+
+            // A strip far wider than tall (a rule, a photo's edge) would be wider than the model's limit once scaled to its input height;
+            // it is left out with a note instead of failing the page.
+            var widths = new int[parts.Count];
+            for (int k = 0; k < parts.Count; k++)
+            {
+                LineBox crop = parts[k].Crop;
+                widths[k] = PixelResizer.GetSize(crop.Width, crop.Height, null, modelHeight).Width;
+                if (Math.Ceiling((double)crop.Width * modelHeight / crop.Height) > limits.MaxLineWidth || widths[k] > limits.MaxLineWidth)
+                {
+                    skipped[index] = SkipNote(ink, limits);
+                    break;
+                }
+            }
+
+            if (consumed[index] || skipped[index] is not null || parts.Count == 0)
+            {
+                continue;
+            }
+
+            firstItem[index] = items.Count;
+            for (int k = 0; k < parts.Count; k++)
+            {
+                queue.Add((items.Count, widths[k]));
+                items.Add(parts[k]);
+            }
         }
+
+        var itemWords = new List<OcrWord>?[items.Count];
 
         // The recurrent layers read their weights once per step for a whole group of lines, so lines are read in groups of similar
         // width (a group runs as long as its longest line). A group is the unit of parallelism; with few lines the groups shrink so
@@ -203,11 +312,12 @@ internal static partial class PageReader
             {
                 for (int k = 0; k < lineCount; k++)
                 {
-                    int index = queue[first + k].Index;
+                    ReadItem item = items[queue[first + k].Index];
+                    int index = item.Strip;
                     long c0 = StageClock.Start();
                     pixels[k] = strips[index].Tilt is { } tilt
-                        ? TiltedLines.Prepare(page, width, height, tilt, crops[index], modelHeight, pixelPool, resizers, out int cropWidth)
-                        : LinePreprocessor.Prepare(page, width, crops[index], modelHeight, pixelPool, resizers, out cropWidth);
+                        ? TiltedLines.Prepare(page, width, height, tilt, item.Crop, modelHeight, pixelPool, resizers, out int cropWidth)
+                        : LinePreprocessor.Prepare(page, width, item.Crop, modelHeight, pixelPool, resizers, out cropWidth, item.BlankFrom, item.BlankTo);
                     images[k] = new LineImage(pixels[k], cropWidth);
                     StageClock.Stop("8c line crops", c0);
                 }
@@ -236,8 +346,10 @@ internal static partial class PageReader
                 r0 = StageClock.Start();
                 for (int k = 0; k < lineCount; k++)
                 {
-                    int index = queue[first + k].Index;
-                    LineBox ink = strips[index].Box;
+                    int itemIndex = queue[first + k].Index;
+                    ReadItem item = items[itemIndex];
+                    int index = item.Strip;
+                    LineBox ink = item.Ink;
                     var words = new List<OcrWord>(lines[k].Words.Count);
                     foreach (RecognizedWord w in lines[k].Words)
                     {
@@ -245,8 +357,8 @@ internal static partial class PageReader
                         int lineThreshold = strips[index].Local?.Threshold ?? threshold;
                         bool lineBright = strips[index].Local?.InkIsBright ?? inkIsBright;
                         words.Add(strips[index].Tilt is { } along
-                            ? MakeTiltedWord(w, page, width, height, lineThreshold, lineBright, along, crops[index], images[k].Width, includeChars)
-                            : MakeWord(w, page, width, height, lineThreshold, lineBright, ink, crops[index], images[k].Width, includeChars));
+                            ? MakeTiltedWord(w, page, width, height, lineThreshold, lineBright, along, item.Crop, images[k].Width, includeChars)
+                            : MakeWord(w, page, width, height, lineThreshold, lineBright, ink, item.Crop, images[k].Width, includeChars));
                     }
 
                     // A line recovered from faint text is kept only for the words the recognizer reads with confidence.
@@ -259,13 +371,7 @@ internal static partial class PageReader
                         }
                     }
 
-                    read[index] = new OrderStrip
-                    {
-                        Leaf = strips[index].Leaf,
-                        Box = new OcrBox(ink.X, ink.Y, ink.Right, ink.Bottom),
-                        Size = Math.Max(ink.Height, 0.85 * typical),
-                        Words = words,
-                    };
+                    itemWords[itemIndex] = words;
                 }
 
                 StageClock.Stop("8e word boxes", r0);
@@ -283,6 +389,55 @@ internal static partial class PageReader
         }
 
         ParallelRun.For(groups.Count, degree, ReadGroup, cancellationToken);
+
+        for (int index = 0; index < strips.Count; index++)
+        {
+            LineBox ink = strips[index].Box;
+            List<OcrWord>? words;
+            if (consumed[index])
+            {
+                continue;
+            }
+
+            if (leaders[index] is { } leader)
+            {
+                if (skipped[index] is not null)
+                {
+                    continue;
+                }
+
+                // The parts of the line are in the item list in reading order: the text before the leader, then the text after it.
+                List<OcrWord> before = [], after = [];
+                for (int it = firstItem[index]; it >= 0 && it < items.Count && items[it].Strip == index; it++)
+                {
+                    List<OcrWord> target = items[it].After ? after : before;
+                    target.AddRange(itemWords[it] ?? []);
+                }
+
+                words = LeaderWords.Join(before, after, leader, includeChars);
+            }
+            else if (firstItem[index] >= 0)
+            {
+                words = itemWords[firstItem[index]];
+            }
+            else
+            {
+                continue;
+            }
+
+            if (words is null)
+            {
+                continue;
+            }
+
+            read[index] = new OrderStrip
+            {
+                Leaf = strips[index].Leaf,
+                Box = new OcrBox(ink.X, ink.Y, leaders[index] is { } extended ? Math.Max(ink.Right, Math.Max(extended.To, extended.Right?.Right ?? 0)) : ink.Right, ink.Bottom),
+                Size = Math.Max(ink.Height, 0.85 * typical),
+                Words = words,
+            };
+        }
 
         DropRecoveredDuplicates(read, strips);
 
