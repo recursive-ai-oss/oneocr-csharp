@@ -61,7 +61,7 @@ LOCK = Path(os.environ.get("ONEOCR_LOCK", "~/WORKER-BENCH.lock")).expanduser()
 TIE_PP = 0.2  # clean print may tie within this many percentage points (scorer v2)
 # Scorer v3 removes tokenization artifacts, so clean-print error rates fall to a few hundredths of a percent and a 0.2-point
 # tie would hide real differences; the tie is narrowed accordingly.
-TIE_PP_BY_SCORER = {"v2": TIE_PP, "v3": 0.05}
+TIE_PP_BY_SCORER = {"v2": TIE_PP, "v3": 0.05, "v3.1": 0.05}
 ECE_GATE = 0.05
 MEM_CAP_MB = 300  # peak RSS per page at the default degree
 CLEAN = "clean300-v1"
@@ -679,7 +679,7 @@ def main(args) -> None:
         rerun_tess(args, names, work)
     tess_results = _tess_results(args, work)
     comp = load_competitors(args.competitors)
-    comp_by = {sc: competitors_for(comp, sc) for sc in SCORERS} if not tess_only else {}
+    comp_by = {sc: competitors_for(comp, sc) for sc in dict.fromkeys((*SCORERS, args.scorer))} if not tess_only else {}
     default_degree = min(4, os.cpu_count() or 1)
     if tess_only:
         time_tesseract(args, names, tess_results, default_degree, out_dir)
