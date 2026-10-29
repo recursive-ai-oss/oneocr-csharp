@@ -11,6 +11,8 @@ using SharpFuzz;
 //   OneOcr.Fuzz replay <file>...     run saved inputs once each, to reproduce a finding
 //   OneOcr.Fuzz mutate <seconds> <corpusdir> [seed]
 //                                    a plain in-process mutation loop with no coverage feedback, for a quick local run
+//   OneOcr.Fuzz sweep --degree N --timeout S [--out F] PATH...
+//                                    the no-crash/no-hang sweep with the bundled models over images, PDFs and JSON files
 //   OneOcr.Fuzz seeds <dir>          write the seed corpus (small valid containers)
 internal static class Program
 {
@@ -30,6 +32,7 @@ internal static class Program
             "review" => ReviewImportTarget.Run,
             "pdf" => PdfTarget.Run,
             "image" => ImageTarget.Run,
+            "image-real" => ImageRealTarget.Run,
             "normalization" => NormalizationTarget.Run,
             "llm-anthropic" => LlmTarget.RunAnthropic,
             "llm-openai" => LlmTarget.RunOpenAi,
@@ -62,11 +65,13 @@ internal static class Program
                 return 0;
             case "mutate" when args.Length >= 3:
                 return Mutate(double.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture), args[2], args.Length > 3 ? int.Parse(args[3], System.Globalization.CultureInfo.InvariantCulture) : 1);
+            case "sweep":
+                return Sweep.Run(args[1..]);
             case "seeds" when args.Length == 2:
                 WriteSeeds(args[1]);
                 return 0;
             default:
-                Console.Error.WriteLine("usage: OneOcr.Fuzz [replay <file>... | mutate <seconds> <corpusdir> [seed] | seeds <dir>]");
+                Console.Error.WriteLine("usage: OneOcr.Fuzz [replay <file>... | sweep ... | mutate <seconds> <corpusdir> [seed] | seeds <dir>]");
                 return 2;
         }
     }
@@ -168,6 +173,12 @@ internal static class Program
         if (target == "image")
         {
             ImageTarget.WriteSeeds(dir);
+            return;
+        }
+
+        if (target == "image-real")
+        {
+            ImageRealTarget.WriteSeeds(dir);
             return;
         }
 

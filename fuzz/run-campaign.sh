@@ -3,12 +3,15 @@
 # with SharpFuzz, and runs each target under libFuzzer through libfuzzer-dotnet for a time budget, starting from its seed corpus.
 #
 #   fuzz/run-campaign.sh run [targets...]     build, instrument and run (default: every target)
+#   fuzz/run-campaign.sh build                build and instrument only (then `FUZZ_NO_BUILD=1 ... run <target>` in parallel processes)
 #   fuzz/run-campaign.sh promote [targets...] copy the minimized corpus of the last run into fuzz/corpus/<target>
 #   fuzz/run-campaign.sh repro <target> <file> replay one saved input (crash, timeout, oom) through the instrumented build
 #
 # Environment:
 #   FUZZ_TOOLS    tool directory made by fuzz/setup-tools.sh            (default $HOME/oneocr-fuzz-tools)
 #   FUZZ_OUT      output directory: build, corpora, artifacts, logs     (default $PWD/fuzz-out; keep it outside the checkout)
+#   FUZZ_BUILD_ARGS  extra dotnet arguments for the build; image-real needs the model files:
+#                 "-p:OneOcrModelFile=F -p:OneOcrDetectorFile=F -p:OneOcrLanguageModelFile=F -p:OneOcrWordFrequencyFile=F"
 #   FUZZ_SECONDS  time budget per target                                (default 600)
 #   FUZZ_TIMEOUT  seconds one input may run before it is a timeout      (default 20)
 #   FUZZ_HEAP_MB  managed heap limit of the target process              (default 2048; exceeding it is an OutOfMemoryException finding)
@@ -24,14 +27,14 @@ FUZZ_OUT="${FUZZ_OUT:-$PWD/fuzz-out}"
 FUZZ_SECONDS="${FUZZ_SECONDS:-600}"
 FUZZ_TIMEOUT="${FUZZ_TIMEOUT:-20}"
 FUZZ_HEAP_MB="${FUZZ_HEAP_MB:-2048}"
-ALL_TARGETS="container docextract charlm lexicon wordfreq pagejson review pdf image normalization llm-anthropic llm-openai llm-gemini llm-schema llm-answer training-files"
+ALL_TARGETS="container docextract charlm lexicon wordfreq pagejson review pdf image image-real normalization llm-anthropic llm-openai llm-gemini llm-schema llm-answer training-files"
 INSTRUMENTED="OneOcr.dll OneOcr.Llm.dll OneOcr.Training.dll OneOcr.Pdf.dll OnePdf.dll OneImage.dll OneImage.Pdf.dll"
 
 maxlen() {
   case "$1" in
     container|docextract|charlm) echo 65536 ;;
     pdf) echo 262144 ;;
-    image) echo 65536 ;;
+    image|image-real) echo 65536 ;;
     *) echo 32768 ;;
   esac
 }
@@ -40,7 +43,7 @@ build() {
   local app="$FUZZ_OUT/app"
   rm -rf "$app"
   mkdir -p "$FUZZ_OUT"
-  ( cd "$ROOT" && dotnet publish fuzz/OneOcr.Fuzz -c Release -o "$app" -v quiet -clp:NoSummary )
+  ( cd "$ROOT" && dotnet publish fuzz/OneOcr.Fuzz -c Release -o "$app" -v quiet -clp:NoSummary ${FUZZ_BUILD_ARGS:-} )
   for dll in $INSTRUMENTED; do
     # sharpfuzz prints and skips an assembly it cannot instrument; one such assembly must not stop the campaign.
     DOTNET_ROLL_FORWARD=Major "$FUZZ_TOOLS/sharpfuzz/sharpfuzz" "$app/$dll" >"$FUZZ_OUT/instrument-$dll.log" 2>&1 \
@@ -96,10 +99,14 @@ cmd="${1:-run}"; shift || true
 case "$cmd" in
   run)
     targets="${*:-$ALL_TARGETS}"
-    build
-    : >"$FUZZ_OUT/report.txt"
+    # FUZZ_NO_BUILD=1 reuses the build and the report of an earlier `build`, so several targets can run side by side (one process each).
+    if [ -z "${FUZZ_NO_BUILD:-}" ]; then build; : >"$FUZZ_OUT/report.txt"; fi
     for t in $targets; do run_target "$t"; done
     echo "report: $FUZZ_OUT/report.txt"
+    ;;
+  build)
+    build
+    : >"$FUZZ_OUT/report.txt"
     ;;
   promote)
     targets="${*:-$ALL_TARGETS}"
