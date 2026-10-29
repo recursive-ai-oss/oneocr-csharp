@@ -290,6 +290,20 @@ trap 'rm -f ~/WORKER-BENCH.lock' EXIT
 
 The scorer is not touched by the gate: its CER/WER/order/F1/ECE numbers are those of `score`.
 
+## Where the page error comes from
+
+```
+bench/scripts/page_causes.sh EVAL_ROOT OUT_ROOT MODEL DETECTOR CHARLM WORDFREQ SET [SET ...]
+PAGE_CAUSES_ARGS="--aggregate --ref OTHER_OUTPUT_ROOT ..." bench/scripts/page_causes.sh ...
+```
+
+Reads the sets with the given model files and runs `training/eval/page_causes.py`, which puts every truth word in one class
+(missed, merged with a neighbour, split, misread in a correct box) and counts extra words, in truth characters and as CER/WER
+points. It also reports two truth artifacts (the same output scored against the truth boxes' words instead of the truth text,
+which isolates the cost of words the page wraps at a hyphen; truth words whose boxes touch), the visibility of missed words
+(contrast inside the ink box), and, for outputs of other engines given with `--ref`, how many of them read each missed word or
+each low-contrast word (information only). `--aggregate` prints no single word or page, for sets whose pages must stay unseen.
+
 ## Decoding evaluation
 
 `OneOcr.Bench decode --model M --lines DIR --lm charlm-v1.bin [--modes greedy,beam:8,lm:8:0.8:0] [--max N]` reads truth-line crops

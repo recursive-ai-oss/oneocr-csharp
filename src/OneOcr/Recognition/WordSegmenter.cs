@@ -76,6 +76,9 @@ internal static class WordSegmenter
     /// <summary>A capital I fused to the word after it ("Iagree") is cut off when the stretch is at least <see cref="FusedIGap"/> pixels and <see cref="FusedIExtra"/> more than the line's usual letter gap.</summary>
     internal const int FusedIGap = 4, FusedIExtra = 2;
 
+    /// <summary>The word after a fused capital I has to be in the table with at least this value; lower than <see cref="FrequencyWordQuarter"/> because "agree" and the like are common in running text but not frequent in the table's books.</summary>
+    internal const int FusedIWordQuarter = 20;
+
     /// <summary>Lines whose strongest ink is fainter than this (distance from the background, 0..255) have no usable column profile and are left as read.</summary>
     internal const int MinContrast = 64;
 
@@ -317,7 +320,7 @@ internal static class WordSegmenter
             rest.Append(t);
         }
 
-        return TryJoined(frequencies, rest.ToString(), out int qr) && qr >= FrequencyWordQuarter
+        return TryJoined(frequencies, rest.ToString(), out int qr) && qr >= FusedIWordQuarter
             && !(TryJoined(frequencies, "i" + rest, out int qw) && qw >= FrequencyMinQuarter);
     }
 
