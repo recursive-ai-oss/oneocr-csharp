@@ -1,5 +1,6 @@
 using OneImage;
 using OneOcr.Detection;
+using OneOcr.Model;
 
 namespace OneOcr.Tests;
 
@@ -124,4 +125,36 @@ public sealed class FaintTextTests
 
         Assert.Single(Decode(prob, Page(60), WithFaint).Lines);
     }
+
+    private static DbNetModel Load(string? postprocessJson) =>
+        DbNetModel.FromContainer(ModelContainer.Parse(TestDetectorModels.Random(TestDetectorModels.V1Small, 1, postprocessJson: postprocessJson)), OcrLimits.Default);
+
+    [Fact]
+    public void TheManifestMembersLoadAsTheRule()
+    {
+        Assert.Null(Load(null).Postprocess.Faint);
+        Assert.Null(Load("{\"text_threshold\":0.3}").Postprocess.Faint);
+        Assert.Equal(Rule, Load(TestDetectorModels.FaintRuleJson).Postprocess.Faint);
+    }
+
+    [Theory]
+    [InlineData("{\"faint_text_threshold\":0.02}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":110,\"faint_min_cells\":6,\"faint_min_aspect\":1.5}")]
+    [InlineData("{\"faint_bg_max\":110,\"faint_min_cells\":6,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    // Out of range.
+    [InlineData("{\"faint_text_threshold\":0,\"faint_bg_max\":110,\"faint_min_cells\":6,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":1,\"faint_bg_max\":110,\"faint_min_cells\":6,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":256,\"faint_min_cells\":6,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":-1,\"faint_min_cells\":6,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":110,\"faint_min_cells\":0,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":110,\"faint_min_cells\":5000,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":110,\"faint_min_cells\":6,\"faint_min_aspect\":-1,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":110,\"faint_min_cells\":6,\"faint_min_aspect\":1.5,\"faint_min_confidence\":1.5}")]
+    // Wrong type.
+    [InlineData("{\"faint_text_threshold\":\"0.02\",\"faint_bg_max\":110,\"faint_min_cells\":6,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":110.5,\"faint_min_cells\":6,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":110,\"faint_min_cells\":[6],\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}")]
+    [InlineData("{\"faint_text_threshold\":0.02,\"faint_bg_max\":110,\"faint_min_cells\":6,\"faint_min_aspect\":true,\"faint_min_confidence\":0.9}")]
+    public void ABadSetOfMembersIsRejected(string postprocessJson) =>
+        Assert.Throws<OcrModelException>(() => Load(postprocessJson));
 }

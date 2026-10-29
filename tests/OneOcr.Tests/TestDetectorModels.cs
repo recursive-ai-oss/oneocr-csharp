@@ -30,12 +30,20 @@ internal static class TestDetectorModels
     /// <summary>Narrow v1 sizes that are not multiples of 16, for quick tests.</summary>
     public static Shape V1Small { get; } = new(16, [16, 24, 40, 56], [1, 2, 1, 1], 20, 12, 28, 2, AllClasses, 2, 18, true);
 
-    public static string ConfigJson(Shape s, string? trainedJson = null)
+    /// <summary>The five faint-text members of <c>config.postprocess</c>, with the first model's values.</summary>
+    public const string FaintRuleJson = "{\"faint_text_threshold\":0.02,\"faint_bg_max\":110,\"faint_min_cells\":6,\"faint_min_aspect\":1.5,\"faint_min_confidence\":0.9}";
+
+    public static string ConfigJson(Shape s, string? trainedJson = null, string? postprocessJson = null)
     {
         string trained = trainedJson is null ? string.Empty : $",\"layout_trained\":{trainedJson}";
         if (s.IsV1)
         {
             trained += $",\"layout16_blocks\":{s.Layout16Blocks},\"layout16\":{s.Layout16},\"orient16\":{(s.Orient16 ? "true" : "false")}";
+        }
+
+        if (postprocessJson is not null)
+        {
+            trained += $",\"postprocess\":{postprocessJson}";
         }
 
         return $"{{\"arch\":\"dbnet-lite\",\"stem\":{s.Stem},\"widths\":[{string.Join(',', s.Widths)}],\"depths\":[{string.Join(',', s.Depths)}]," +
@@ -130,9 +138,9 @@ internal static class TestDetectorModels
 
     public static string[] Charset(Shape s) => ["<blank>", .. s.Classes];
 
-    public static byte[] Random(Shape s, int seed, string? trainedJson = null, IReadOnlyList<TestTensor>? tensors = null) =>
+    public static byte[] Random(Shape s, int seed, string? trainedJson = null, IReadOnlyList<TestTensor>? tensors = null, string? postprocessJson = null) =>
         TestContainerWriter.Write(
-            s.IsV1 ? "dbnet-lite-v1" : "dbnet-lite-v0", 0, Charset(s), ConfigJson(s, trainedJson), tensors ?? RandomTensors(s, seed),
+            s.IsV1 ? "dbnet-lite-v1" : "dbnet-lite-v0", 0, Charset(s), ConfigJson(s, trainedJson, postprocessJson), tensors ?? RandomTensors(s, seed),
             calibrationJson: "{\"raw\":\"word-mean-max-run\",\"scripts\":{}}");
 
     /// <summary>A gray image with smooth structure and noise, <c>[height][width]</c>.</summary>

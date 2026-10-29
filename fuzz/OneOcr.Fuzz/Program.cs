@@ -238,6 +238,7 @@ internal static class Program
         var oddDetector = new TestDetectorModels.Shape(16, [16, 24, 40, 56], [1, 2, 1, 1], 20, 12, 28, 2, TestDetectorModels.AllClasses);
         File.WriteAllBytes(Path.Combine(dir, "dbnet-tiny.seed"), TestDetectorModels.Random(tinyDetector, 1));
         File.WriteAllBytes(Path.Combine(dir, "dbnet-odd-widths.seed"), TestDetectorModels.Random(oddDetector, 2));
+        File.WriteAllBytes(Path.Combine(dir, "dbnet-faint-rule.seed"), TestDetectorModels.Random(oddDetector, 7, postprocessJson: TestDetectorModels.FaintRuleJson));
         File.WriteAllBytes(Path.Combine(dir, "dbnet-trained-list.seed"), TestDetectorModels.Random(oddDetector, 3, trainedJson: "[\"text\",\"table\",\"checkbox\"]"));
 
         // dbnet-lite-v1: the stride-16 layout branch with the two-scale orientation head, the head alone, and the branch alone.
