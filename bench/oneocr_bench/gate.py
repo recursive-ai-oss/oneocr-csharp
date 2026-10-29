@@ -58,7 +58,10 @@ from .score import SCORERS, score_dir
 from .sets import ORDER_INFO_ONLY, category, discover, is_clean, is_real, is_receipts
 
 LOCK = Path(os.environ.get("ONEOCR_LOCK", "~/WORKER-BENCH.lock")).expanduser()
-TIE_PP = 0.2  # clean print may tie within this many percentage points
+TIE_PP = 0.2  # clean print may tie within this many percentage points (scorer v2)
+# Scorer v3 removes tokenization artifacts, so clean-print error rates fall to a few hundredths of a percent and a 0.2-point
+# tie would hide real differences; the tie is narrowed accordingly.
+TIE_PP_BY_SCORER = {"v2": TIE_PP, "v3": 0.05}
 ECE_GATE = 0.05
 MEM_CAP_MB = 300  # peak RSS per page at the default degree
 CLEAN = "clean300-v1"
@@ -330,9 +333,9 @@ def candidates(set_name: str, key: str, tess: dict | None, comp: dict | None) ->
     return out
 
 
-def quality(set_name: str, ours: dict, tess: dict | None, comp: dict | None = None, order_info: bool = False) -> dict:
+def quality(set_name: str, ours: dict, tess: dict | None, comp: dict | None = None, order_info: bool = False, scorer: str = "v2") -> dict:
     """Win / tie / loss per metric against the best value any measured engine reaches (Tesseract best-of included). Without a
-    competitor directory the baseline is Tesseract best-of alone. Clean print may tie within TIE_PP percentage points."""
+    competitor directory the baseline is Tesseract best-of alone. Clean print may tie within TIE_PP_BY_SCORER[scorer] percentage points."""
     rows = []
     ok = True
     for label, key, judged in metric_keys(set_name, order_info):
@@ -351,7 +354,7 @@ def quality(set_name: str, ours: dict, tess: dict | None, comp: dict | None = No
                 v = "info"
             elif o < best:
                 v = "win"
-            elif is_clean(set_name) and diff_pp <= TIE_PP:
+            elif is_clean(set_name) and diff_pp <= TIE_PP_BY_SCORER.get(scorer, TIE_PP):
                 v = "tie"
             else:
                 v = "loss"
@@ -709,7 +712,7 @@ def main(args) -> None:
                 tbs = tess_baselines(n, truth, tess_results, sc)
                 if tbs is None:
                     print(f"warning: no Tesseract results for {n} under {tess_results}; run with --rerun-tess", file=sys.stderr)
-                per[sc] = (ss, tbs, quality(n, ss, tbs, comp_by[sc], order_info.get(n, n in ORDER_INFO_ONLY)))
+                per[sc] = (ss, tbs, quality(n, ss, tbs, comp_by[sc], order_info.get(n, n in ORDER_INFO_ONLY), sc))
             s, tb, qual = per[args.scorer]
             other = "v2" if args.scorer == "v3" else "v3"
             sets[n] = {"scorer": args.scorer,

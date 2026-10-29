@@ -72,7 +72,8 @@ def is_real(name: str) -> bool:
 
 
 def is_clean(name: str) -> bool:
-    return _prefix(name) == "clean"
+    """Clean print, rendered (clean300-*) or real (clean-real): the category the tie rule applies to."""
+    return _prefix(name) in ("clean", "clean300")
 
 
 def is_receipts(name: str) -> bool:

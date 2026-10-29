@@ -284,8 +284,8 @@ appears once a timing run exists. Accuracy is not timing-sensitive and can run u
   `--competitors DIR` (a frozen competitor-results directory, below) the candidates are Tesseract best-of (the best PSM for that metric of
   `tessdata_best`, the second table under *Tesseract 5.3.4 baselines*) and every gated competitor configuration; the table names the
   engine that holds the best value, keeps Tesseract best and fast in their own columns, and a second table lists every engine. Without
-  `--competitors` the baseline is Tesseract best-of alone. Win means strictly lower error; clean print may tie, an error within 0.2
-  percentage points above the baseline passes as a tie. Receipts are judged on recall-CER and recall-WER (CORD truth is partial); their
+  `--competitors` the baseline is Tesseract best-of alone. Win means strictly lower error; clean print (clean300-* and clean-real) may tie, an error within 0.2
+  percentage points (scorer v2) or 0.05 percentage points (scorer v3) above the baseline passes as a tie. Receipts are judged on recall-CER and recall-WER (CORD truth is partial); their
   order is shown, not judged.
 - **Calibration verdict**: ECE (15 bins) ≤ 0.05. On receipts ECE is an upper bound; ECE-m is shown next to it.
 - **Detection**: ink-box F1@0.5 of ours, and of the selected Tesseract runs rescored with the same scorer.
