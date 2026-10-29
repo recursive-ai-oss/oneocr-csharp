@@ -83,6 +83,9 @@ public sealed class LineRecognizer
 
     internal bool HasCalibration => _model.Calibration is not null;
 
+    /// <summary>The curve that maps raw word confidence to the confidence a page reports, or null when the model reports its decision confidence.</summary>
+    internal WordCalibration? ReportCalibration => _model.ReportCalibration;
+
     /// <summary>The height, in pixels, line images must have.</summary>
     public int InputHeight => _model.Input.Height;
 

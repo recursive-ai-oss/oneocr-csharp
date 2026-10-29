@@ -43,3 +43,12 @@ is for reporting.
 ## Output
 
 Fitted map (all three scripts) SHA-256 `1e6792e40d30094535518eada7e83d2ec98b14e67710cd15147240aee7b2840c`.
+
+## Using the map as a reporting curve
+
+The map above also ships as a `report_calibration` member next to the unchanged `calibration` of 0.7.1
+(`export/add_report_calibration.py IN.onm OUT.onm --from-container <0.7.2 file>`). The runtime then decides with `calibration`
+(filters, word joiner, angle search: the page text is byte-identical to 0.7.1) and reports the refitted confidence
+(`docs/spec/model-container-v1.md`, "Reporting curve"). Only the calibration photos and the sets listed above were used to fit it.
+Resulting file: SHA-256 `1b74db86ac047aad6307bc35a3aa16ab05b904d300de322909242bb87b3c1e55` (0.7.1 tensors, 0.7.2 reporting curve).
+Page-level ECE-m on the 150 evaluation photos 0.0362 -> 0.0235; every bench set stays at or below 0.012.

@@ -252,6 +252,9 @@ internal static class Program
             "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,0.5,1],\"y\":[0,0.25,1]},\"Greek\":{\"x\":[0.2,0.8],\"y\":[0.1,0.9]},\"Cyrillic\":{\"x\":[0.5],\"y\":[0.5]}}}"));
         File.WriteAllBytes(Path.Combine(dir, "v1-empty.seed"), TestModels.RandomContainerV1(variants[1].Shape, 2,
             "{\"raw\":\"word-mean-max-run\",\"scripts\":{}}"));
+        File.WriteAllBytes(Path.Combine(dir, "v1-report-calibration.seed"), TestModels.RandomContainerV1(tinyShape, 4,
+            "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,0.5,1],\"y\":[0,0.25,1]}}}",
+            "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,0.4,1],\"y\":[0.05,0.5,0.97]},\"Cyrillic\":{\"x\":[0.5],\"y\":[0.5]}}}"));
         string[] spaced = TestModels.Charset(tinyShape.Classes);
         spaced[1] = " ";
         spaced[2] = "a";
