@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 name=$1; until=$2
 ls ~/WORKER-BENCH.lock 2>/dev/null && { cat ~/WORKER-BENCH.lock; exit 75; }
 set -o noclobber
-echo "oneocr u85 $name until $until $(date -Is) end $(date -Is -d '+115 min')" > ~/WORKER-BENCH.lock || exit 75
+echo "oneocr $name until $until $(date -Is) end $(date -Is -d '+115 min')" > ~/WORKER-BENCH.lock || exit 75
 set +o noclobber
 trap 'rm -f ~/WORKER-BENCH.lock' EXIT
 nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader; uptime
