@@ -68,6 +68,7 @@ def main() -> None:
     gt.add_argument("--model", default=None, help="recognizer container (not needed with --tess-timing)")
     gt.add_argument("--detector", default=None, help="detector container (omit for the classical line finder)")
     gt.add_argument("--wordlm", default=None, help="word character model (charlm-v1.bin) the engine uses for word breaks; required with --model, as the shipped pipeline has it")
+    gt.add_argument("--wordfreq", default=None, help="word frequency table the engine uses to take back spaces inside words; pass the bundled one to measure the shipped pipeline")
     gt.add_argument("--no-wordlm", action="store_true", help="measure without the word character model (not the shipped pipeline)")
     gt.add_argument("--eval", default=os.environ.get("ONEOCR_EVAL", "~/oneocr/eval/bench-v2"),
                     help="frozen sets: <set>/pages and <set>/truth (env ONEOCR_EVAL)")

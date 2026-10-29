@@ -23,6 +23,7 @@
 #
 # Environment (defaults in brackets):
 #   MODEL DETECTOR WORDLM   recognizer, detector and character-model files (required; their SHA-256s are in the gate report)
+#   WORDFREQ  [none]  word frequency table (the shipped pipeline has one; pass it to measure what ships)
 #   TESS      [~/tools/tesseract/tess]               Tesseract wrapper: `tess MODEL IMAGE OUTBASE ...`, stock tessdata_best/fast
 #   COMP_ROOT [~/oneocr/bench/competitors]           PaddleOCR / docTR virtual environments and model caches (competitors/setup.sh)
 #   PSMS [3 4 6 11]  PADDLE_VARIANTS [v6-default v5-mobile-en v5-server-en v5-mobile v5-server]  DOCTR_VARIANTS [default mobile]  (set empty to skip an engine)
@@ -169,7 +170,9 @@ gate() {
   local all=1
   for s in $SETS; do [[ -e "$OUT/work/out/$s/timing.json" ]] || all=0; done
   [[ $all == 1 ]] && reuse=(--reuse)
-  "${py[@]}" gate --model "$MODEL" --detector "$DETECTOR" --wordlm "$WORDLM" --eval "$ROOT" --sets $SETS \
+  local wf=()
+  [[ -n "${WORDFREQ:-}" ]] && wf=(--wordfreq "$WORDFREQ")
+  "${py[@]}" gate --model "$MODEL" --detector "$DETECTOR" --wordlm "$WORDLM" "${wf[@]}" --eval "$ROOT" --sets $SETS \
       --competitors "$OUT/frozen" --tess-results "$OUT/tess" --work "$OUT/work" --out "$OUT/gate" "${reuse[@]}" > "$OUT/logs/gate.log" 2>&1
   local rc=$?
   tail -n 5 "$OUT/logs/gate.log"

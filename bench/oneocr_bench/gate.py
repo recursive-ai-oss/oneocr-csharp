@@ -136,6 +136,8 @@ def run_engine(dotnet: str, dll: Path, args: argparse.Namespace, set_name: str, 
         cmd += ["--detector", args.detector]
     if args.wordlm:
         cmd += ["--wordlm", args.wordlm]
+    if getattr(args, "wordfreq", None):
+        cmd += ["--wordfreq", args.wordfreq]
     if sidecars:
         cmd += ["--words", "1", "--pagejson", "1"]
     t0 = time.perf_counter()
@@ -196,14 +198,15 @@ def model_files(args: argparse.Namespace) -> dict:
     """The files that produced the rows: path, SHA-256 and whether it is the bundled pin, for recognizer, detector and word character model."""
     pins = _pins()
     out: dict = {}
-    for key, role, path in (("recognizer", "recognizer", args.model), ("detector", "detector", args.detector), ("word_model", "language-model", args.wordlm)):
+    for key, role, path in (("recognizer", "recognizer", args.model), ("detector", "detector", args.detector), ("word_model", "language-model", args.wordlm),
+                            ("word_freq", "word-frequencies", getattr(args, "wordfreq", None))):
         sha = _sha(path)
         out[key] = {"file": path, "sha256": sha, "is_bundled_pin": (sha == pins.get(role)) if sha and pins else None}
     return out
 
 
 def _models_line(mf: dict) -> str:
-    names = {"recognizer": "recognizer", "detector": "detector", "word_model": "char LM"}
+    names = {"recognizer": "recognizer", "detector": "detector", "word_model": "char LM", "word_freq": "word frequencies"}
     parts = []
     for k, label in names.items():
         e = mf[k]
@@ -223,6 +226,8 @@ def run_tool(exe: Path, args: argparse.Namespace, set_name: str, out: Path, degr
         cmd += ["--detector", args.detector]
     if args.wordlm:
         cmd += ["--wordlm", args.wordlm]
+    if getattr(args, "wordfreq", None):
+        cmd += ["--wordfreq", args.wordfreq]
     t0 = time.perf_counter()
     r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     wall = time.perf_counter() - t0
