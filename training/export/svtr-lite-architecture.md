@@ -1,6 +1,6 @@
 # Draft: `svtr-lite-v1` container architecture
 
-A proposed `architecture` section for the model container, for a runtime that reads `svtr-lite` models. The trainer, the
+A proposed `architecture` section for the model container, for a runtime that reads `svtr-lite` models. No runtime does: it was a candidate in the recognizer comparison, and the shipped recognizer is `crnn-v0`. The trainer, the
 exporter (`export.export`) and the parity fixtures (`parity.fixtures`) already produce files in this shape using the container's
 existing envelope (magic, manifest, 64-byte-aligned fp16 tensors); only the architecture id and the layer graph below are new.
 

@@ -162,7 +162,7 @@ There is never a third call.
 `UngroundedPolicy` then applies to fields still `Ungrounded` or `RoleConflict`: `Flag` keeps the value in the JSON (the field says it is
 ungrounded); `Null` writes `null`; `Throw` throws `OcrProviderException` with `LlmFailure.Ungrounded`, naming up to eight paths.
 
-## Text merge (`ExactText`)
+## Text merge (`LlmOutputs.Text`)
 
 Per page sent: the OCR words (the page's word sequence) and the model's tokens (split on whitespace) are aligned.
 

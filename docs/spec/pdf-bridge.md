@@ -5,9 +5,8 @@ this package only converts, decides what to trust, and calls the engine's page e
 
 ## Versions
 
-`RecursiveAI.OnePdf` 1.2.0 and `RecursiveAI.OneImage.Pdf` 1.8.1. OneImage.Pdf 1.6.0 to 1.8.1 all need OnePdf 1.2.0 (the first
-version of the bridge to be published) and pin the exact `RecursiveAI.OneImage` version, so 1.8.1 is the one that matches the core
-package's OneImage 1.8.1 floor. OnePdf 1.2.0 is the lowest version the bridge accepts, and it is above the 1.1 appearance-generation floor.
+`RecursiveAI.OnePdf` 1.10.1 and `RecursiveAI.OneImage.Pdf` 1.10.1 (the versions in `src/OneOcr.Pdf/OneOcr.Pdf.csproj`). OneImage.Pdf pins
+the exact `RecursiveAI.OneImage` version, so 1.10.1 is the one that matches the core package's OneImage 1.10.1 floor.
 
 ## Coordinates
 
