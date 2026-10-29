@@ -14,17 +14,31 @@ ECE: 15 equal-width bins over [0, 1], word level: sum over bins of (bin count / 
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 from pathlib import Path
 
 import numpy as np
 from rapidfuzz.distance import Levenshtein
 
-from eval.confidence import apply_map
 from eval.scoring import read_hyps
 
 SCRIPTS = {"latin": "Latin", "greek": "Greek", "cyrillic": "Cyrillic"}
 MAX_KNOTS = 64
+
+
+def apply_map(x: float, knots: dict) -> float:
+    """Monotone piecewise-linear map through (x[i], y[i]); constant beyond the first and last knot. Container rule: float64
+    `y0 + (y1 - y0) * ((r - x0) / (x1 - x0))` without FMA (Python floats), cast to float32 at the end."""
+    xs, ys = knots["x"], knots["y"]
+    if x <= xs[0]:
+        y = ys[0]
+    elif x >= xs[-1]:
+        y = ys[-1]
+    else:
+        i = bisect.bisect_right(xs, x)
+        y = ys[i - 1] + (ys[i] - ys[i - 1]) * ((x - xs[i - 1]) / (xs[i] - xs[i - 1]))
+    return float(np.float32(y))
 
 
 def word_samples(rows: list[dict]) -> list[tuple[str, float, bool]]:

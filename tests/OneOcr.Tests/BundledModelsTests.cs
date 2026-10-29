@@ -12,10 +12,10 @@ public sealed class BundledModelsTests
     {
         BundledModel pin = BundledModels.Recognizer;
         Assert.Equal("crnn-v0", pin.Name);
-        Assert.Equal("0.7.2", pin.Version);
-        Assert.Equal("a0d44fd7739389ad0e248070168772a2a15a863d9a81d879566913b19d8b3a17", pin.Sha256);
+        Assert.Equal("0.7.3", pin.Version);
+        Assert.Equal("5c767a5ea36771a50caca812f5bbff9c64301536079b54d0c42b2982d7958eeb", pin.Sha256);
         Assert.Equal(64, pin.Sha256.Length);
-        Assert.Equal("crnn-v0-0.7.2.onm", pin.Asset);
+        Assert.Equal("crnn-v0-0.7.3.onm", pin.Asset);
     }
 
     [Fact]
