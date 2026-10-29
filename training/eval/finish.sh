@@ -36,12 +36,20 @@ if [ -d "${ONEOCR_GEN:-/nonexistent}/crops/dev/finder" ]; then
   extra+=(--extra "gen_dev=$ONEOCR_GEN/crops/dev/finder" --extra "gen_calib=$ONEOCR_GEN/crops/calib/finder")
   calg=("$o/hyps/gen_calib.hyps.jsonl:${GEN_WEIGHT:-1}"); genalso=",gen_dev"
 fi
+# crops of the same photos cut by a later pipeline (ONEOCR_GEN2, same layout), and any further calibration samples (CAL_EXTRA: space-separated
+# PATH:WEIGHT hyps files, e.g. page-level words from eval/page_samples.py); both are optional
+calx=()
+if [ -d "${ONEOCR_GEN2:-/nonexistent}/crops/dev/finder" ]; then
+  extra+=(--extra "gen2_dev=$ONEOCR_GEN2/crops/dev/finder" --extra "gen2_calib=$ONEOCR_GEN2/crops/calib/finder")
+  calx+=("$o/hyps/gen2_calib.hyps.jsonl:${GEN2_WEIGHT:-1}"); genalso="$genalso,gen2_dev"
+fi
+for c in ${CAL_EXTRA:-}; do calx+=("$c"); done
 # held-out phone-style word crops (gen/make_phone_lines.sh), when PHONE_SET names them
 if [ -d "${PHONE_SET:-/nonexistent}" ]; then extra+=(--extra "phone_tune=$PHONE_SET"); genalso="$genalso,phone_tune"; fi
 # held-out web sites (gen/web_lines.py), when WEB_SET names them
 if [ -d "${WEB_SET:-/nonexistent}" ]; then extra+=(--extra "web_heldout=$WEB_SET"); genalso="$genalso,web_heldout"; fi
 uv run python -m eval.model_hyps --device cpu --checkpoint "$ck" --sets-dir "$ONEOCR_PREV/data/lines-v4" --bench-dir "$BENCH_LINES" --out "$o/hyps" "${extra[@]}" | tail -2
-uv run python -m eval.calibrate fit --hyps "$o/hyps/calib.hyps.jsonl" "$o/hyps/calib_receipt.hyps.jsonl" "$o/hyps/calib6.hyps.jsonl" "${cal7[@]}" "${calg[@]}" \
+uv run python -m eval.calibrate fit --hyps "$o/hyps/calib.hyps.jsonl" "$o/hyps/calib_receipt.hyps.jsonl" "$o/hyps/calib6.hyps.jsonl" "${cal7[@]}" "${calg[@]}" "${calx[@]}" \
   "$o/hyps/calib_cord.hyps.jsonl:${CORD_WEIGHT:-8}" --out "$o/calibration.json"
 uv run python -m eval.calibrate table --calibration "$o/calibration.json" --hyps-dir "$o/hyps" --out "$o/ece.md" \
   --also "gaps_val,cord_dev,receipt_synth_val,ui_val,tight_val,figures_val6,small_val6,reader_val6,shot_val6${also7}${r1also:-}${genalso}" > /dev/null
