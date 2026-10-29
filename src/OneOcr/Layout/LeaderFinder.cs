@@ -39,7 +39,7 @@ internal static class LeaderFinder
     internal const double MaxDotFraction = 0.3;
 
     /// <summary>The distance between the centres of neighbouring dots is at most this fraction of the line's height.</summary>
-    internal const double MaxPitchFraction = 0.6;
+    internal const double MaxPitchFraction = 2.0;
 
     /// <summary>The distance to the next dot may differ from the run's pitch by this share (jitter of the rounding to pixels).</summary>
     internal const double PitchTolerance = 0.3;
@@ -58,6 +58,27 @@ internal static class LeaderFinder
 
     /// <summary>More components than this in one line means noise or a photographed texture; the line is not searched.</summary>
     internal const int MaxComponents = 20000;
+
+    /// <summary>Lines up to this tall (a page set at about 150 to 200 dots per inch or less) get the faint search.</summary>
+    internal const int MaxFaintLineHeight = 36;
+
+    /// <summary>The faint search reaches this many line heights past the end of the box.</summary>
+    internal const double TailInHeights = 16.0;
+
+    /// <summary>A component at most this many times the dots' size (plus a pixel) and on their baseline is a stray dot or a small letter.</summary>
+    internal const double StrayScale = 1.5;
+
+    /// <summary>A leader may have this many strays, or a quarter of its dots if that is more.</summary>
+    internal const int MinStrays = 2;
+
+    /// <summary>A box shorter than this share of the line height is taken to hold the leader alone.</summary>
+    internal const double ShortBoxFraction = 0.6;
+
+    /// <summary>The most letters that a short box may hold (or a third of the dots, if more).</summary>
+    internal const int MaxLettersInShortBox = 4;
+
+    /// <summary>A component whose box covers at most this many pixels is grain, not a dot.</summary>
+    internal const int MaxSpeckArea = 3;
 
     private readonly record struct Component(int MinX, int MaxX, int MinY, int MaxY, int Area)
     {
@@ -89,23 +110,83 @@ internal static class LeaderFinder
             return null;
         }
 
-        // A leader that runs up to the box's right edge goes on beyond it (the detector may cut a long run of dots into pieces): the
-        // window grows to the right until the run ends inside it.
-        Leader? found = FindIn(page, pageWidth, x0, y0, x1 - x0, h, lineHeight, threshold, inkIsBright);
+        return Grow(page, pageWidth, x0, y0, x1, h, lineHeight, threshold, inkIsBright);
+    }
+
+    /// <summary>
+    /// Looks for a leader that the strict search does not see because it is faint: at a low resolution the dots of a leader are one or
+    /// two pixels wide and blur takes their middle below the page's threshold, and the detector, which looks at a shrunk page, often
+    /// boxes the text up to the dots and not the dots. The window is the whole box and reaches past its end, and a
+    /// dot is a pixel that is merely darker than the paper (halfway from the page's threshold to the paper).
+    /// </summary>
+    /// <param name="page">The page, row-major.</param>
+    /// <param name="pageWidth">Its width.</param>
+    /// <param name="pageHeight">Its height.</param>
+    /// <param name="box">The line's ink box.</param>
+    /// <param name="threshold">The page's binarization threshold.</param>
+    /// <param name="inkIsBright">Whether ink is the bright side of the threshold.</param>
+    /// <param name="typicalHeight">The page's typical line height; pages whose lines are taller than <see cref="MaxFaintLineHeight"/> are not searched.</param>
+    /// <param name="limitRight">The window does not reach past this column (the next line on the same row starts there and is read on its own).</param>
+    /// <returns>The leader, whose left part is the box up to the first dot, or null.</returns>
+    public static Leader? FindFaint(ReadOnlySpan<byte> page, int pageWidth, int pageHeight, LineBox box, int threshold, bool inkIsBright, int typicalHeight, int limitRight)
+    {
+        int x1 = Math.Min(pageWidth, box.Right), y0 = Math.Max(0, box.Y), y1 = Math.Min(pageHeight, box.Bottom);
+        int h = y1 - y0, lineHeight = Math.Max(h, typicalHeight);
+        if (h < 3 || lineHeight < 8 || lineHeight > MaxFaintLineHeight || box.Width < MinWidthInHeights * lineHeight || page.Length < (long)pageWidth * pageHeight)
+        {
+            return null;
+        }
+
+        int from = Math.Max(0, box.X);
+        int reach = Math.Min(Math.Min(pageWidth, limitRight), x1 + (int)(TailInHeights * lineHeight));
+        if (reach - from < MinWidthInHeights * lineHeight)
+        {
+            return null;
+        }
+
+        Leader? found = Grow(page, pageWidth, from, y0, reach, h, lineHeight, FaintThreshold(threshold, inkIsBright), inkIsBright, faint: true);
+        if (found is null)
+        {
+            return null;
+        }
+
+        // The ink in front of the run is the line's own box (found at the page's threshold), not what the lighter threshold makes of it.
+        int leftEnd = Math.Min(x1, found.From);
+        int x0 = Math.Max(0, box.X);
+        return found with { Left = leftEnd - x0 >= 1 ? new LineBox(x0, y0, leftEnd - x0, h) : null };
+    }
+
+    // The threshold of the faint search: halfway from the page's threshold to the paper.
+    internal static int FaintThreshold(int threshold, bool inkIsBright) =>
+        inkIsBright ? threshold / 2 : threshold + ((255 - threshold) / 2);
+
+    // A leader that runs up to the window's right edge goes on beyond it (the detector may cut a long run of dots into pieces): the
+    // window grows to the right until the run ends inside it.
+    private static Leader? Grow(ReadOnlySpan<byte> page, int pageWidth, int x0, int y0, int x1, int h, int lineHeight, int threshold, bool inkIsBright, bool faint = false)
+    {
+        Leader? found = FindIn(page, pageWidth, x0, y0, x1 - x0, h, lineHeight, threshold, inkIsBright, faint);
         while (found is not null && found.To >= x1 - (2 * found.Pitch) && x1 < pageWidth)
         {
             x1 = Math.Min(pageWidth, x1 + (int)(WindowGrowthInHeights * lineHeight));
-            found = FindIn(page, pageWidth, x0, y0, x1 - x0, h, lineHeight, threshold, inkIsBright);
+            found = FindIn(page, pageWidth, x0, y0, x1 - x0, h, lineHeight, threshold, inkIsBright, faint);
         }
 
         return found;
     }
 
     // Searches the window of the page at (x0, y0), w by h pixels.
-    private static Leader? FindIn(ReadOnlySpan<byte> page, int pageWidth, int x0, int y0, int w, int h, int lineHeight, int threshold, bool inkIsBright)
+    private static Leader? FindIn(ReadOnlySpan<byte> page, int pageWidth, int x0, int y0, int w, int h, int lineHeight, int threshold, bool inkIsBright, bool faint)
     {
         List<Component>? comps = Label(page, pageWidth, x0, y0, w, h, threshold, inkIsBright);
         if (comps is null || comps.Count < MinDots)
+        {
+            return null;
+        }
+
+        // Grain and JPEG noise leave one- and two-pixel specks between the dots of a scan; a speck is neither a dot nor a letter, and
+        // must not end a run.
+        comps.RemoveAll(c => c.Width * c.Height <= MaxSpeckArea);
+        if (comps.Count < MinDots)
         {
             return null;
         }
@@ -119,7 +200,7 @@ internal static class LeaderFinder
             double maxSize = MaxDotFraction * lineHeight;
             double aspect = (double)c.Width / c.Height;
             isDot[i] = c.Width >= 2 && c.Height >= 2 && c.Width <= maxSize && c.Height <= maxSize && aspect >= 0.5 && aspect <= 2.0
-                && (h < 0.6 * lineHeight || (c.MinY + c.MaxY) / 2.0 >= h / 2.0);
+                && (h < ShortBoxFraction * lineHeight || (c.MinY + c.MaxY) / 2.0 >= h / 2.0);
         }
 
         // Runs of neighbouring dots (neighbours in left-to-right order, so a letter between two dots ends a run) with the same size and
@@ -198,6 +279,24 @@ internal static class LeaderFinder
             bestCount--;
         }
 
+        // The other ink in the box. A stray is a component as small as the leader's dots and on their baseline: a dot of the leader that
+        // did not fit its pitch, or, in small text, a letter. (Other runs of dots are not counted: a leader may be in pieces.) The rest
+        // is letters.
+        (int strays, int letters) = OtherInk(comps, merged, bestFirst, bestLast);
+
+        // Small text has letters as small as dots, and they are the strays of a "leader" that is only some of them: a real leader
+        // holds nearly all the dot-sized ink on its baseline.
+        if (strays > Math.Max(MinStrays, bestCount / (faint ? 2 : 4)))
+        {
+            return null;
+        }
+
+        // A box much shorter than the page's lines holds the dots and little else (the detector cut the leader into a strip of its own).
+        if (h < ShortBoxFraction * lineHeight && letters > Math.Max(MaxLettersInShortBox, bestCount / 3))
+        {
+            return null;
+        }
+
         double p = Pitch(comps, bestFirst, bestLast, bestSteps);
         double meanWidth = 0;
         for (int i = bestFirst; i <= bestLast; i++)
@@ -259,12 +358,65 @@ internal static class LeaderFinder
             p >= SpacedPitchFraction * lineHeight);
     }
 
+    // Counts the components that are neither in the chosen run nor in another run of dots: those as small as the run's dots and on
+    // their baseline (strays), and the rest (letters).
+    private static (int Strays, int Letters) OtherInk(List<Component> comps, List<(int First, int Last, int Steps)> runs, int first, int last)
+    {
+        var inRun = new bool[comps.Count];
+        foreach ((int f, int l, _) in runs)
+        {
+            for (int i = f; i <= l; i++)
+            {
+                inRun[i] = true;
+            }
+        }
+
+        double width = 0, height = 0;
+        var bottoms = new List<int>(last - first + 1);
+        for (int i = first; i <= last; i++)
+        {
+            width += comps[i].Width;
+            height += comps[i].Height;
+            bottoms.Add(comps[i].MaxY);
+        }
+
+        int n = last - first + 1;
+        width /= n;
+        height /= n;
+        bottoms.Sort();
+        int baseline = bottoms[n / 2];
+        int strays = 0, letters = 0;
+        for (int i = 0; i < comps.Count; i++)
+        {
+            if (inRun[i] || (i >= first && i <= last))
+            {
+                continue;
+            }
+
+            Component c = comps[i];
+            if (c.Width <= (StrayScale * width) + 1 && c.Height <= (StrayScale * height) + 1 && Math.Abs(c.MaxY - baseline) <= Math.Max(2, 0.3 * Math.Max(width, height)))
+            {
+                strays++;
+            }
+            else
+            {
+                letters++;
+            }
+        }
+
+        return (strays, letters);
+    }
+
     // Whether component next continues the run that starts at first and ends at last: same baseline and size as its first dot, and a
     // distance from the last dot that is the run's pitch (or any distance in the dot's own size range, for the second dot).
     private static bool Continues(List<Component> comps, int first, int last, int next, int lineHeight)
     {
         Component a = comps[first], b = comps[next];
-        if (!SameBaseline(comps, first, next))
+
+        // The size is the first dot's. The baseline is the last dot's, so a scan that is a little tilted (the baseline climbs a pixel or
+        // two over several dots) still holds a run together.
+        double size = Math.Max(a.Width, a.Height), ratio = Math.Max(b.Width, b.Height) / size;
+        if (Math.Abs(b.MaxY - comps[last].MaxY) > Math.Max(2, 0.3 * size) || ratio < 0.6 || ratio > 1.7)
         {
             return false;
         }

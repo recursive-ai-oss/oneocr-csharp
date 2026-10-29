@@ -89,6 +89,27 @@ internal static partial class PageReader
                 }
             },
             cancellationToken);
+
+        // On a page of small text the dots of a leader may be too faint for the page's threshold, and outside every strip. The search
+        // reaches no further than the next strip on the same row, which is read on its own.
+        if (typical <= LeaderFinder.MaxFaintLineHeight)
+        {
+            ParallelRun.For(
+                strips.Count,
+                degree,
+                i =>
+                {
+                    StripLine s = strips[i];
+                    if (found[i] is null && s.Tilt is null && s.MinConfidence <= 0)
+                    {
+                        found[i] = LeaderFinder.FindFaint(
+                            PixelSpans.AsBytes(gray.AsSpan(0, checked(width * height))), width, height, s.Box, s.Local?.Threshold ?? threshold, s.Local?.InkIsBright ?? inkIsBright, typical,
+                            NextStripOnRow(strips, i, width));
+                    }
+                },
+                cancellationToken);
+        }
+
         consumed = new bool[strips.Count];
         var order = new List<int>();
         for (int i = 0; i < strips.Count; i++)
@@ -121,6 +142,24 @@ internal static partial class PageReader
         }
 
         return found;
+    }
+
+    // The left edge of the nearest strip to the right of strip `index` on its row (a strip that lies mostly right of its middle and shares
+    // more than half of the smaller height with it), or `limit` when there is none.
+    private static int NextStripOnRow(List<StripLine> strips, int index, int limit)
+    {
+        LineBox a = strips[index].Box;
+        int next = limit;
+        for (int j = 0; j < strips.Count; j++)
+        {
+            LineBox b = strips[j].Box;
+            if (j != index && b.X >= a.X + (a.Width / 2) && b.X < next && 2 * (Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Y, b.Y)) > Math.Min(a.Height, b.Height))
+            {
+                next = b.X;
+            }
+        }
+
+        return next;
     }
 
     // Whether at least half of the strip box b lies inside the rectangle.
