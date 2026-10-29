@@ -72,6 +72,9 @@ internal sealed class CrnnModel
 
     /// <summary>The container's word calibration; null for a version 0 file.</summary>
     public WordCalibration? Calibration { get; init; }
+
+    /// <summary>The container's reporting curve (see <see cref="ModelContainer.ReportCalibration"/>); null when the file has none.</summary>
+    public WordCalibration? ReportCalibration { get; init; }
     public required ConvBlock[] Conv { get; init; }
     public required int Hidden { get; init; }
     public required LstmLayer[] Lstm { get; init; }
@@ -237,6 +240,7 @@ internal sealed class CrnnModel
             Input = container.Input,
             Charset = container.Charset,
             Calibration = container.Calibration,
+            ReportCalibration = container.ReportCalibration,
             Conv = blocks,
             Hidden = hidden,
             Lstm = layers,
