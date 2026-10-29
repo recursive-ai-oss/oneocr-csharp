@@ -1,0 +1,31 @@
+# Interface and running-text lines in tiny type (gen/ui_lines.py), for the word-space fine-tune.
+# Real screens set 9-13 px text with word gaps of only 2-4 device pixels; the recognizer must emit a space there and must not invent
+# one inside a long word. This is configs/ui-lines-v1.yaml with the font size cut down to what is hard (device size = css x dpr, so
+# dpr 1 dominates), the mix tilted to running text, narrow-gap rows and interface words, and low-contrast themes allowed.
+charset: data/charset-v1.txt
+rows_per_page: 40
+expected_keep: 0.9
+page_width: 1800
+max_chars: 120
+max_width: 1600
+min_ink_h: 5
+dpr: [1, 1, 1, 1, 1, 1.25, 1.5]
+aa: { grayscale: 0.6, subpixel: 0.4 }
+css_px: [9, 10, 10, 11, 11, 11, 12, 12, 12, 13, 13, 14]
+mix: { tight: 0.30, book: 0.25, ui: 0.15, uiword: 0.10, numtext: 0.06, figures: 0.04, sep: 0.04, numbers: 0.03, codes: 0.03 }
+themes: { light: 0.45, dark: 0.35, mid: 0.12, brand: 0.08 }
+contrast: [1.5, 14.0]
+tint_ink: 0.25
+p_upper: 0.04
+p_italic: 0.05
+p_weight_variety: 0.45
+p_letter_spacing: 0.25
+letter_spacing: [-0.03, 0.12]
+p_underline: 0.06
+p_ligatures: 0.25
+pad_y: [2, 10]
+pad_x: [4, 24]
+gap_y: [0, 6]
+p_rule: 0.2
+p_broad: 0.15
+p_tight_ends: 0.10
