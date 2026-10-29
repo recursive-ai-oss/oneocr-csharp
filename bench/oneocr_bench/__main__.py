@@ -47,7 +47,7 @@ def main() -> None:
     s.add_argument("--hyp-root", help="directory with one hypothesis subdirectory per set name; scores every set found")
     s.add_argument("--json")
     s.add_argument("--boxes", choices=["ink", "layout"], default="ink", help="truth boxes for F1: tight to the ink (default; falls back to layout where a truth has no ink box) or the layout rectangles")
-    s.add_argument("--scorer", choices=list(score.SCORERS), default=score.DEFAULT_SCORER,
+    s.add_argument("--scorer", choices=list(score.SELECTABLE), default=score.DEFAULT_SCORER,
                    help="v2 (default): the truth word sequence is the truth text; v3: it is the truth's word boxes where it has them, with touching punctuation joined")
 
     t = sub.add_parser("tess", help="Tesseract baselines for one set")
@@ -83,7 +83,7 @@ def main() -> None:
     gt.add_argument("--rerun-tess", action="store_true", help="run Tesseract again first (slow; hold the lock if its timing matters)")
     gt.add_argument("--tess", default=os.path.expanduser("~/tools/tesseract/tess"))
     gt.add_argument("--psms", nargs="+", type=int, default=[3, 4, 6, 11])
-    gt.add_argument("--scorer", choices=list(score.SCORERS), default="v3",
+    gt.add_argument("--scorer", choices=list(score.SELECTABLE), default="v3",
                     help="scorer version the verdicts are judged on (default v3: truth words from the truth boxes); the other version is reported beside it. "
                          "A frozen competitor directory made before v3 must be rescored: competitors-freeze --rescore")
     gt.add_argument("--timing", action="store_true", help="speed and memory mode; refuses unless this job holds the machine lock")

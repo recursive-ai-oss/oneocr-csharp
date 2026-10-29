@@ -124,6 +124,10 @@ they differ only in where the truth word sequence comes from.
 - **v2** (the default of `score`, unchanged since bench-v1): the words of the truth text `<id>.txt`. That text joins what the page
   shows as separate ink pieces (a word wrapped at a hyphen or dash, `breakfast-room` for `breakfast-` at a line end and `room` on
   the next) and splits what is one piece of ink (a web page's punctuation node next to the word it touches: `Intelligence` `,`).
+- **v3.1** (`--scorer v3.1`): v3 plus one normalisation rule, applied to truth and hypothesis of every engine alike: two apostrophes in a row
+  (after typographic single quotes are folded to `'`) are one double quote `"`. A closing quote typeset as `''` and read as `"` (or the reverse)
+  is then no error. `scripts/quote_fold_diff.py` counts the pages and words the rule changes. `score` and `gate` accept it; the gate
+  needs competitor numbers under it (`competitors-freeze --rescore` adds them); v2 and v3 behave exactly as before.
 - **v3** (the default of `gate`): wherever the truth has word boxes (`<id>.json`), the truth word sequence is the box words, in
   their order, joined exactly where the ink is continuous:
   1. a box whose text is only punctuation or symbols (Unicode categories P* and S*) is joined to each list neighbour (the box before,

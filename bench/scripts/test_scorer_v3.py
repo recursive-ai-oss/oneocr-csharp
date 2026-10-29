@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from oneocr_bench.score import score_dir, v3_truth_words
+from oneocr_bench.score import SCORERS, normalize, score_dir, v3_truth_words
 
 
 def w(text: str, x0: float, x1: float, y0: float = 0, y1: float = 20) -> dict:
@@ -85,6 +85,23 @@ def test_no_boxes_same_under_both() -> None:
         assert {k: v for k, v in a.items() if k != "scorer"} == {k: v for k, v in b.items() if k != "scorer"}
         _page(root, "p2", "x y", [], "x y")  # a sidecar without words falls back to the text
         assert score_dir(root / "truth", root / "hyp", "ink", "v3")["pages"] == 2
+
+
+def test_v31_folds_two_apostrophes() -> None:
+    # v3.1 only: two apostrophes (typographic ones included) read as one double quote, in truth and hypothesis alike.
+    assert normalize("''a''") == ["''a''"]
+    assert normalize("''a''", True) == ['"a"']
+    assert normalize("\u2019\u2019a\u2019\u2019 it's", True) == ['"a"', "it's"]
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        _page(root, "p1", 'say "hi" now', None, "say ''hi'' now")
+        v3 = score_dir(root / "truth", root / "hyp", "ink", "v3")
+        v31 = score_dir(root / "truth", root / "hyp", "ink", "v3.1")
+        assert v3["totals"]["word_errors"] == 1 and v31["totals"]["word_errors"] == 0, (v3["totals"], v31["totals"])
+        assert v31["scorer"] == "v3.1"
+        # a lone apostrophe is untouched, so v3.1 equals v3 on text without a pair
+        _page(root, "p2", "it's mine", None, "it's mine")
+    assert SCORERS == ("v2", "v3")  # gate and competitors-freeze keep computing exactly these side by side
 
 
 def test_unknown_scorer() -> None:

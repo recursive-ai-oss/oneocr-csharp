@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 
 from .paths import data_dir
-from .score import SCORERS, score_dir
+from .score import SCORERS, SELECTABLE, score_dir
 from .sets import category, discover
 
 
@@ -53,7 +53,7 @@ def _set_scores(truth: Path, hyp: Path) -> dict:
     """The metrics `gate` reads for one configuration and set: scorer v2 at the top level (the layout older directories have), scorer v3 under "v3"."""
     keys = ("cer", "wer", "order_err", "cer_recall", "wer_recall", "pages", "missing")
     out: dict = {}
-    for scorer in SCORERS:
+    for scorer in SELECTABLE:
         s = score_dir(truth, hyp, "ink", scorer)
         row = {k: s[k] for k in keys} | {"f1": s["det"]["f1"] if s["det"] else None}
         if scorer == "v2":
@@ -114,7 +114,7 @@ def freeze(srcs: list[str], eval_dir: str, out: str, info_only: list[str], resco
             print(f"{name}: {len(entry['sets'])} sets", flush=True)
     scorer = Path(__file__).with_name("score.py")
     (outp / "scores.json").write_text(json.dumps({
-        "eval": str(base), "scorer_sha256": hashlib.sha256(scorer.read_bytes()).hexdigest(), "scorers": list(SCORERS), "boxes": "ink", "configs": configs}, indent=1) + "\n")
+        "eval": str(base), "scorer_sha256": hashlib.sha256(scorer.read_bytes()).hexdigest(), "scorers": list(SELECTABLE), "boxes": "ink", "configs": configs}, indent=1) + "\n")
     lines = []
     for f in sorted(p for p in outp.rglob("*") if p.is_file() and p.name != "SHA256SUMS"):
         lines.append(f"{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.relative_to(outp)}")

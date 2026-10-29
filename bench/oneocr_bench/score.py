@@ -24,12 +24,13 @@ by the C# bench), the scorer adds expected calibration error; see `word_outcomes
 
 Scorer versions (`--scorer`): v2 builds the truth word sequence from the truth text `<id>.txt`. v3 builds it from the truth's own word
 boxes (`<id>.json`) wherever they exist, see `v3_truth_words`; a truth directory without word boxes scores identically under both.
-Normalisation, the bag pairing and the order distance are the same in both.
+Normalisation, the bag pairing and the order distance are the same in both. v3.1 is v3 plus one normalisation rule, applied to truth
+and hypothesis alike: two apostrophes in a row (after the typographic quotes are folded) become one double quote.
 
 Word boxes: truth `words` carry `box` (the browser's layout rectangle) and, in bench-v2 sets, `ink` (tight to the printed ink).
 `--boxes ink` (default) scores F1 against `ink` where the truth has it, `--boxes layout` against `box`.
 
-    python -m oneocr_bench score --truth DIR --hyp DIR [--boxes ink|layout] [--scorer v2|v3] [--json OUT]
+    python -m oneocr_bench score --truth DIR --hyp DIR [--boxes ink|layout] [--scorer v2|v3|v3.1] [--json OUT]
 """
 
 from __future__ import annotations
@@ -50,12 +51,17 @@ FOLD = str.maketrans({
 })
 
 
-def normalize(text: str) -> list[str]:
+def normalize(text: str, fold_quotes: bool = False) -> list[str]:
     t = unicodedata.normalize("NFC", text).translate(FOLD).replace("\ufb01", "fi").replace("\ufb02", "fl")
+    if fold_quotes:
+        # Scorer v3.1: two apostrophes in a row are one double quote (typeset ``like this'' and the OCR reading of a closing quote).
+        t = t.replace("''", '"')
     return t.split()
 
 
+# SCORERS are the versions `gate` and `competitors-freeze` always compute side by side; SELECTABLE adds the versions a run may choose.
 SCORERS = ("v2", "v3")
+SELECTABLE = SCORERS + ("v3.1",)
 DEFAULT_SCORER = "v2"
 
 # v3 joins a word box to its list neighbour when their layout boxes are at most this far apart horizontally (pixels plus a share of the
@@ -104,8 +110,8 @@ def truth_text(truth_dir: Path, stem: str, scorer: str = DEFAULT_SCORER) -> str:
     txt = (truth_dir / f"{stem}.txt").read_text(encoding="utf-8")
     if scorer == "v2":
         return txt
-    if scorer != "v3":
-        raise ValueError(f"unknown scorer {scorer!r}: expected one of {SCORERS}")
+    if scorer not in ("v3", "v3.1"):
+        raise ValueError(f"unknown scorer {scorer!r}: expected one of {SELECTABLE}")
     side = truth_dir / f"{stem}.json"
     if side.exists():
         words = v3_truth_words(json.loads(side.read_text()).get("words") or [])
@@ -218,8 +224,8 @@ def ece_summary(conf: list[float], status: list[str]) -> dict:
     }
 
 
-def score_page(truth: str, hyp: str) -> dict:
-    ref, hy = normalize(truth), normalize(hyp)
+def score_page(truth: str, hyp: str, fold_quotes: bool = False) -> dict:
+    ref, hy = normalize(truth, fold_quotes), normalize(hyp, fold_quotes)
     ce, we, cm, wm = content_errors(ref, hy)
     return {
         "ref_words": len(ref), "ref_chars": sum(map(len, ref)),
@@ -277,8 +283,9 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
 
     `scorer` picks the truth word sequence (module docstring); detection F1 always uses the truth boxes as given.
     """
-    if scorer not in SCORERS:
-        raise ValueError(f"unknown scorer {scorer!r}: expected one of {SCORERS}")
+    if scorer not in SELECTABLE:
+        raise ValueError(f"unknown scorer {scorer!r}: expected one of {SELECTABLE}")
+    fold = scorer == "v3.1"
     key = "ink" if boxes == "ink" else "box"
     pages = {}
     det = {"tp": 0, "truth": 0, "hyp": 0}
@@ -290,7 +297,7 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
         h = hyp_dir / t.name
         text = h.read_text(encoding="utf-8", errors="replace") if h.exists() else ""
         truth = truth_text(truth_dir, t.stem, scorer)
-        pages[t.stem] = score_page(truth, text)
+        pages[t.stem] = score_page(truth, text, fold)
         side = hyp_dir / f"{t.stem}.json"
         if not side.exists():
             have_boxes = have_conf = False
@@ -308,9 +315,9 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
                 if any("text" not in w or _confidence(w) is None for w in hw):
                     have_conf = False
                 else:
-                    rows = [(" ".join(normalize(w["text"])), _confidence(w)) for w in hw]
+                    rows = [(" ".join(normalize(w["text"], fold)), _confidence(w)) for w in hw]
                     rows = [(k, c) for k, c in rows if k]
-                    status += word_outcomes(normalize(truth), [k for k, _ in rows])
+                    status += word_outcomes(normalize(truth, fold), [k for k, _ in rows])
                     conf += [c for _, c in rows]
     if not pages:
         raise SystemExit(f"no truth pages (<id>.txt) in {truth_dir}")
@@ -338,7 +345,7 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
 
 
 def summary_line(r: dict) -> str:
-    tag = "  [scorer v3]" if r.get("scorer") == "v3" else ""
+    tag = f"  [scorer {r['scorer']}]" if r.get("scorer") in ("v3", "v3.1") else ""
     f1 = f"  F1@0.5 {r['det']['f1']:.4f} [{r['boxes']} boxes] (P {r['det']['precision']:.3f} R {r['det']['recall']:.3f})" if r["det"] else ""
     e = r.get("ece")
     ece_s = f"  ECE {e['ece']:.4f} (matched words only {e['ece_matched']:.4f}; {e['words']} words)" if e else ""
