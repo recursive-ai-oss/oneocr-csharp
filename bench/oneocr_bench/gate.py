@@ -17,6 +17,11 @@ Tesseract numbers come from the existing `tess` results (`results/<set>/tesserac
 directories); `--rerun-tess` runs them again first. The baseline for each metric is the best page-segmentation mode
 for that metric of the `best` model (the hardest baseline), as in the Tesseract tables of bench/README.md.
 
+Scorer versions: `--scorer v3` (default) judges on truth words taken from the truth boxes, `--scorer v2` on the truth text; the table is
+computed for both and the other version's verdicts are listed beside the judged ones (see bench/README.md, Scoring). Tesseract's
+best-of values are rescored from its hypothesis directories under v3, the competitors from a frozen directory made by
+`competitors-freeze` (`--rescore` adds v3 to an older one).
+
 Verdicts
   quality      beat the best engine measured, per metric, on CER, WER and reading order (recall-CER / recall-WER on
                receipts, whose order is shown but not judged). The candidates are Tesseract best-of and, with
@@ -49,7 +54,7 @@ from pathlib import Path
 
 from . import tess as tess_mod
 from .paths import BENCH, data_dir
-from .score import score_dir
+from .score import SCORERS, score_dir
 from .sets import ORDER_INFO_ONLY, category, discover, is_clean, is_real, is_receipts
 
 LOCK = Path(os.environ.get("ONEOCR_LOCK", "~/WORKER-BENCH.lock")).expanduser()
@@ -238,11 +243,22 @@ def run_tool(exe: Path, args: argparse.Namespace, set_name: str, out: Path, degr
 
 # --------------------------------------------------------------------------- Tesseract baselines
 
-def tess_baselines(set_name: str, truth: Path, tess_results: Path) -> dict | None:
+def tess_baselines(set_name: str, truth: Path, tess_results: Path, scorer: str = "v2") -> dict | None:
     p = tess_results / set_name / "tesseract.json"
     if not p.exists():
         return None
     d = json.loads(p.read_text())
+    if scorer != "v2":
+        # tesseract.json holds the numbers of the scorer it ran with (v2); every (model, PSM) run is scored again from its own output.
+        rows = []
+        for r in d["rows"]:
+            hyp = tess_results / set_name / "hyp" / f"{r['model']}-psm{r['psm']}-1thread"
+            if not hyp.is_dir():
+                print(f"warning: {hyp} not found: no Tesseract baseline under scorer {scorer} for {set_name}", file=sys.stderr)
+                return None
+            s = score_dir(truth, hyp, "ink", scorer)
+            rows.append(r | {"1thread": r["1thread"] | {k: s[k] for k in ("cer", "wer", "order_err", "cer_recall", "wer_recall")}})
+        d = d | {"rows": rows}
     out: dict = {"source": str(p), "env": d["env"], "pages": d["pages"], "models": {}}
     for model in ("best", "fast"):
         rows = [r for r in d["rows"] if r["model"] == model]
@@ -258,7 +274,7 @@ def tess_baselines(set_name: str, truth: Path, tess_results: Path) -> dict | Non
         hyp = tess_results / set_name / "hyp" / f"{model}-psm{sel}-1thread"
         f1 = None
         if hyp.is_dir():
-            s = score_dir(truth, hyp, "ink")
+            s = score_dir(truth, hyp, "ink", scorer)
             f1 = s["det"]["f1"] if s["det"] else None
         out["models"][model] = {"best_per_metric": per, "selected_psm": sel, "selected_by": d["selected_by"], "f1_ink": f1,
                                 "s_per_page_1thread": row["1thread"]["s_per_page"], "s_per_page_default": row.get("default", {}).get("s_per_page"),
@@ -284,6 +300,21 @@ def load_competitors(path: str | None) -> dict | None:
     if not p.exists():
         raise SystemExit(f"{p} not found: build the directory with `competitors-freeze`")
     return json.loads(p.read_text())
+
+
+def competitors_for(comp: dict | None, scorer: str) -> dict | None:
+    """The frozen competitor scores as one scorer version sees them: {configs: {name: {gate, sets: {set: {metric: value}}}}}."""
+    if comp is None or scorer == "v2":
+        return comp
+    configs = {}
+    for cfg, c in comp["configs"].items():
+        sets = {}
+        for n, row in c["sets"].items():
+            if scorer not in row:
+                raise SystemExit(f"the competitor directory has no scorer {scorer} scores ({cfg}, {n}): run `competitors-freeze --rescore DIR --out DIR --eval EVAL`")
+            sets[n] = row[scorer]
+        configs[cfg] = c | {"sets": sets}
+    return comp | {"configs": configs}
 
 
 def candidates(set_name: str, key: str, tess: dict | None, comp: dict | None) -> list[tuple[str, float]]:
@@ -466,7 +497,7 @@ def render(out_dir: Path) -> None:
     if acc:
         md += [f"Accuracy: model `{acc['model_sha256'][:12]}…`" + (f", detector `{acc['detector_sha256'][:12]}…`" if acc["detector_sha256"] else ", no detector (classical finder)"),
                _models_line(acc["models"]) if acc.get("models") else "",
-               f"engine {acc['runtime']}; eval sets `{acc['eval']}` (SHA256SUMS `{(acc['eval_sums_sha256'] or 'n/a')[:12]}…`); scorer boxes: ink.",
+               f"engine {acc['runtime']}; eval sets `{acc['eval']}` (SHA256SUMS `{(acc['eval_sums_sha256'] or 'n/a')[:12]}…`); scorer {acc.get('scorer', 'v2')} (verdicts below; the other version is listed after the tables), boxes: ink.",
                f"{acc['env']['cpu']}, {acc['env']['cores']} threads; load before {acc['load_before']}, after {acc['load_after']}; started {acc['started']}.", "",
                "Quality: error rates in %. Baseline per metric: " + ("the best value any measured engine reaches (Tesseract best-of with its best PSM per metric, and the competitor configurations of the frozen results directory)" if acc.get("competitors") else "Tesseract best-of (best PSM per metric)") +
                ". Receipts: recall-CER / recall-WER (order is shown, not judged; so is the order of screenshot-real).", "",
@@ -500,6 +531,18 @@ def render(out_dir: Path) -> None:
                             cells.append("-" if v is None else (f"**{v * 100:.2f}**" if v == best else f"{v * 100:.2f}"))
                         md.append(f"| {r['metric']} | {_pct(r['ours'])} | " + " | ".join(cells) + " |")
                     md.append("")
+            if any("other_scorer" in acc["sets"][n] for n in gnames):
+                oth = acc["sets"][gnames[0]].get("other_scorer", {}).get("scorer", "v2")
+                md += ["", f"Scorer {acc.get('scorer', 'v2')} against scorer {oth} (error rate %, best any engine, verdict):", "",
+                       f"| category (set) | metric | ours {acc.get('scorer', 'v2')} | best {acc.get('scorer', 'v2')} | best engine {acc.get('scorer', 'v2')} | verdict {acc.get('scorer', 'v2')} | ours {oth} | best {oth} | best engine {oth} | verdict {oth} |", "|---|---|---|---|---|---|---|---|---|---|"]
+                for name in gnames:
+                    d = acc["sets"][name]
+                    if "other_scorer" not in d:
+                        continue
+                    for r, o in zip(d["quality"]["rows"], d["other_scorer"]["quality"]["rows"]):
+                        md.append(f"| {category(name)} ({name}) | {r['metric']} | {_pct(r['ours'])} | {_pct(r.get('best'))} | {r.get('best_engine', '-')} | {r['verdict']} | "
+                                  f"{_pct(o['ours'])} | {_pct(o.get('best'))} | {o.get('best_engine', '-')} | {o['verdict']} |")
+                    report["accuracy"][name]["other_scorer"] = d["other_scorer"]
             md += ["", "| category (set) | quality | pages | ECE | ECE-m | calibration (≤ 0.05) | F1@0.5 ink: ours | Tess best | Tess fast |", "|---|---|---|---|---|---|---|---|---|"]
             for name in gnames:
                 d = acc["sets"][name]
@@ -633,6 +676,7 @@ def main(args) -> None:
         rerun_tess(args, names, work)
     tess_results = _tess_results(args, work)
     comp = load_competitors(args.competitors)
+    comp_by = {sc: competitors_for(comp, sc) for sc in SCORERS} if not tess_only else {}
     default_degree = min(4, os.cpu_count() or 1)
     if tess_only:
         time_tesseract(args, names, tess_results, default_degree, out_dir)
@@ -659,12 +703,19 @@ def main(args) -> None:
                 _, t = run_engine(args.dotnet, dll, args, n, hyp, 0, True)
             t = json.loads((hyp / "timing.json").read_text())
             runtime = t["runtime"]
-            s = score_dir(truth, hyp, "ink")
-            tb = tess_baselines(n, truth, tess_results)
-            if tb is None:
-                print(f"warning: no Tesseract results for {n} under {tess_results}; run with --rerun-tess", file=sys.stderr)
-            sets[n] = {"pages": s["pages"], "missing": s["missing"], "scores": {k: s[k] for k in ("cer", "wer", "order_err", "cer_recall", "wer_recall")},
-                       "quality": quality(n, s, tb, comp, order_info.get(n, n in ORDER_INFO_ONLY)), "calibration": calibration(n, s),
+            per = {}
+            for sc in (args.scorer, "v2" if args.scorer == "v3" else "v3"):
+                ss = score_dir(truth, hyp, "ink", sc)
+                tbs = tess_baselines(n, truth, tess_results, sc)
+                if tbs is None:
+                    print(f"warning: no Tesseract results for {n} under {tess_results}; run with --rerun-tess", file=sys.stderr)
+                per[sc] = (ss, tbs, quality(n, ss, tbs, comp_by[sc], order_info.get(n, n in ORDER_INFO_ONLY)))
+            s, tb, qual = per[args.scorer]
+            other = "v2" if args.scorer == "v3" else "v3"
+            sets[n] = {"scorer": args.scorer,
+                       "other_scorer": {"scorer": other, "scores": {k: per[other][0][k] for k in ("cer", "wer", "order_err", "cer_recall", "wer_recall")}, "quality": per[other][2]},
+                       "pages": s["pages"], "missing": s["missing"], "scores": {k: s[k] for k in ("cer", "wer", "order_err", "cer_recall", "wer_recall")},
+                       "quality": qual, "calibration": calibration(n, s),
                        "f1": {"ours": s["det"]["f1"] if s["det"] else None,
                               "tess_best": tb["models"]["best"]["f1_ink"] if tb and "best" in tb["models"] else None,
                               "tess_fast": tb["models"]["fast"]["f1_ink"] if tb and "fast" in tb["models"] else None},
@@ -676,7 +727,7 @@ def main(args) -> None:
             "model": args.model, "model_sha256": _sha(args.model), "detector": args.detector, "detector_sha256": _sha(args.detector),
             "models": model_files(args),
             "competitors": args.competitors, "competitors_sha256": _sha(str(Path(args.competitors).expanduser() / "scores.json")) if args.competitors else None,
-            "eval": args.eval, "sealed": bool(args.sealed), "eval_sums_sha256": _sha(str(sums)) if sums.exists() else None, "scorer_sha256": _sha(str(Path(__file__).with_name("score.py"))),
+            "eval": args.eval, "sealed": bool(args.sealed), "eval_sums_sha256": _sha(str(sums)) if sums.exists() else None, "scorer": args.scorer, "scorer_sha256": _sha(str(Path(__file__).with_name("score.py"))),
             "sets": sets}, indent=1) + "\n")
         render(out_dir)
         return

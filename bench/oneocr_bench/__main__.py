@@ -47,6 +47,8 @@ def main() -> None:
     s.add_argument("--hyp-root", help="directory with one hypothesis subdirectory per set name; scores every set found")
     s.add_argument("--json")
     s.add_argument("--boxes", choices=["ink", "layout"], default="ink", help="truth boxes for F1: tight to the ink (default; falls back to layout where a truth has no ink box) or the layout rectangles")
+    s.add_argument("--scorer", choices=list(score.SCORERS), default=score.DEFAULT_SCORER,
+                   help="v2 (default): the truth word sequence is the truth text; v3: it is the truth's word boxes where it has them, with touching punctuation joined")
 
     t = sub.add_parser("tess", help="Tesseract baselines for one set")
     t.add_argument("--set", default="clean300-v1")
@@ -81,6 +83,9 @@ def main() -> None:
     gt.add_argument("--rerun-tess", action="store_true", help="run Tesseract again first (slow; hold the lock if its timing matters)")
     gt.add_argument("--tess", default=os.path.expanduser("~/tools/tesseract/tess"))
     gt.add_argument("--psms", nargs="+", type=int, default=[3, 4, 6, 11])
+    gt.add_argument("--scorer", choices=list(score.SCORERS), default="v3",
+                    help="scorer version the verdicts are judged on (default v3: truth words from the truth boxes); the other version is reported beside it. "
+                         "A frozen competitor directory made before v3 must be rescored: competitors-freeze --rescore")
     gt.add_argument("--timing", action="store_true", help="speed and memory mode; refuses unless this job holds the machine lock")
     gt.add_argument("--competitors", default=None,
                     help="frozen competitor-results directory (scores.json from competitors-freeze): the baseline per metric becomes the best engine measured")
@@ -95,7 +100,9 @@ def main() -> None:
     gt.add_argument("--bench-dll", default=None, help="use this OneOcr.Bench.dll instead of building")
 
     cf = sub.add_parser("competitors-freeze", help="copy competitor hypotheses into a frozen directory and score them (input of gate --competitors)")
-    cf.add_argument("--src", action="append", required=True, metavar="[PREFIX=]ROOT", help="directory with one subdirectory per configuration; repeatable")
+    cf.add_argument("--src", action="append", default=[], metavar="[PREFIX=]ROOT", help="directory with one subdirectory per configuration; repeatable")
+    cf.add_argument("--rescore", default=None, metavar="FROZEN", help="an existing frozen directory: score its hyp/ again under every scorer version without running any engine "
+                    "(configuration names and their baseline flags are kept; OUT may be FROZEN itself)")
     cf.add_argument("--eval", default=os.environ.get("ONEOCR_EVAL", "~/oneocr/eval/bench-v2"))
     cf.add_argument("--out", required=True)
     cf.add_argument("--info-only", nargs="*", default=["fast"], metavar="WORD", help="configurations whose name contains one of these words do not set the baseline (default: fast)")
@@ -145,20 +152,22 @@ def main() -> None:
             if len(a.dirs) != 2 or a.hyp or a.hyp_root or a.truth or a.set:
                 ap.error("score takes either TRUTH_DIR OUTPUT_DIR or --hyp/--hyp-root options")
             t = Path(a.dirs[0])
-            score.main(str(t / "truth" if (t / "truth").is_dir() else t), a.dirs[1], a.json, a.boxes)
+            score.main(str(t / "truth" if (t / "truth").is_dir() else t), a.dirs[1], a.json, a.boxes, a.scorer)
         elif a.hyp_root:
-            score.main_root(a.hyp_root, a.json, a.boxes)
+            score.main_root(a.hyp_root, a.json, a.boxes, a.scorer)
         else:
             if not a.hyp:
                 ap.error("--hyp or --hyp-root is required")
             truth = a.truth or str(sets.set_dir(a.set or "clean300-v1") / "truth")
-            score.main(truth, a.hyp, a.json, a.boxes)
+            score.main(truth, a.hyp, a.json, a.boxes, a.scorer)
     elif a.cmd == "tess":
         tess.main(a.set, a.models, a.psms, a.tess, a.results, a.root, a.jobs, not a.no_timing_runs)
     elif a.cmd == "competitors-report":
         print(competitors.report(a.root, a.eval, a.timing))
     elif a.cmd == "competitors-freeze":
-        competitors.freeze(a.src, a.eval, a.out, a.info_only)
+        if bool(a.src) == bool(a.rescore):
+            ap.error("competitors-freeze takes --src (repeatable) or --rescore FROZEN")
+        competitors.freeze(a.src, a.eval, a.out, a.info_only, a.rescore)
     elif a.cmd == "gate":
         gate.main(a)
     elif a.cmd == "tess-report":

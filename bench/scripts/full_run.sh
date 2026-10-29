@@ -31,6 +31,7 @@
 #   COMP_PAR [1]  competitor variants run at the same time, each with JOBS threads
 #   SETS      [every set found under ROOT]
 #   TIMEOUT   [14400] overall seconds        LOCK [~/WORKER-BENCH.lock]
+#   SCORER    [v3]  scorer version the gate judges on; the table lists v2 beside it. `competitors-freeze` always scores both
 #   DOTNET_DIR [~/dotnet10, when it exists]
 #
 # Estimated worker time: the table printed by --plan (about 12.5 h for ~520 pages with COMP_PAR=1, 4-5 h with COMP_PAR=5).
@@ -172,7 +173,7 @@ gate() {
   [[ $all == 1 ]] && reuse=(--reuse)
   local wf=()
   [[ -n "${WORDFREQ:-}" ]] && wf=(--wordfreq "$WORDFREQ")
-  "${py[@]}" gate --model "$MODEL" --detector "$DETECTOR" --wordlm "$WORDLM" "${wf[@]}" --eval "$ROOT" --sets $SETS \
+  "${py[@]}" gate --model "$MODEL" --detector "$DETECTOR" --wordlm "$WORDLM" "${wf[@]}" --scorer "${SCORER:-v3}" --eval "$ROOT" --sets $SETS \
       --competitors "$OUT/frozen" --tess-results "$OUT/tess" --work "$OUT/work" --out "$OUT/gate" "${reuse[@]}" > "$OUT/logs/gate.log" 2>&1
   local rc=$?
   tail -n 5 "$OUT/logs/gate.log"
@@ -198,7 +199,7 @@ for v in $DOCTR_VARIANTS; do
 done
 wait
 for n in "${names[@]}"; do [[ -e "$OUT/steps/$n.done" ]] || { echo "FAILED $n"; exit 1; }; done
-fsig=$(echo "$(ls "$OUT/competitors" 2>/dev/null) $(ls "$OUT/vision" 2>/dev/null)" | md5sum | cut -c1-8)
+fsig=$(echo "$(ls "$OUT/competitors" 2>/dev/null) $(ls "$OUT/vision" 2>/dev/null) scorers-v2-v3 ${SCORER:-v3}" | md5sum | cut -c1-8)
 rm -f $(ls "$OUT"/steps/freeze-*.done "$OUT"/steps/gate-*.done 2>/dev/null | grep -v -e "freeze-$fsig" -e "gate-$fsig")
 step "freeze-$fsig" freeze
 step "gate-$fsig" gate

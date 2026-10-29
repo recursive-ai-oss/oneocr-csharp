@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 
 from .paths import data_dir
-from .score import score_dir
+from .score import SCORERS, score_dir
 from .sets import category, discover
 
 
@@ -49,13 +49,32 @@ def report(root: str, eval_dir: str | None, timing: str | None = None) -> str:
     return "\n".join(lines) + "\n"
 
 
-def freeze(srcs: list[str], eval_dir: str, out: str, info_only: list[str]) -> None:
+def _set_scores(truth: Path, hyp: Path) -> dict:
+    """The metrics `gate` reads for one configuration and set: scorer v2 at the top level (the layout older directories have), scorer v3 under "v3"."""
+    keys = ("cer", "wer", "order_err", "cer_recall", "wer_recall", "pages", "missing")
+    out: dict = {}
+    for scorer in SCORERS:
+        s = score_dir(truth, hyp, "ink", scorer)
+        row = {k: s[k] for k in keys} | {"f1": s["det"]["f1"] if s["det"] else None}
+        if scorer == "v2":
+            out.update(row)
+        else:
+            out[scorer] = row
+    return out
+
+
+def freeze(srcs: list[str], eval_dir: str, out: str, info_only: list[str], rescore: str | None = None) -> None:
     """Copy competitor hypotheses into a self-contained directory and score them with the current scorer on the frozen sets.
 
     Each source is ROOT or PREFIX=ROOT; ROOT holds one directory per configuration (NAME, NAME-default or NAME-1t; the 1t ones
     are timing subsets and are skipped) with <set>/<id>.txt, <id>.json and timing.json. The result is OUT/hyp/<PREFIX+NAME>/<set>/...,
     OUT/scores.json (what `gate --competitors` reads) and OUT/SHA256SUMS. A configuration whose name contains a word of
-    `info_only` stays in the table but does not set the baseline.
+    `info_only` stays in the table but does not set the baseline. Every set is scored under every scorer version: version 2 at the top
+    level of the set's entry, the others under their own name.
+
+    `rescore` is an existing frozen directory instead of sources: its hyp/ is scored again (configuration names and baseline flags
+    kept), which adds scorer versions to a directory made before them without running any engine. OUT may be that directory itself;
+    its hypothesis files are then left where they are.
     """
     import hashlib
     import shutil
@@ -64,30 +83,38 @@ def freeze(srcs: list[str], eval_dir: str, out: str, info_only: list[str]) -> No
     base = Path(eval_dir).expanduser()
     outp.mkdir(parents=True, exist_ok=True)
     configs: dict = {}
-    for src in srcs:
-        prefix, _, root = src.rpartition("=")
-        rootp = Path(root).expanduser()
-        for d in sorted(p for p in rootp.iterdir() if p.is_dir() and not p.name.endswith("-1t")):
-            name = prefix + d.name.removesuffix("-default")
-            entry = {"gate": not any(w in name for w in info_only), "sets": {}}
-            for set_name in discover(base):
-                hyp = d / set_name
-                if not hyp.is_dir():
-                    continue
-                s = score_dir(base / set_name / "truth", hyp, "ink")
-                entry["sets"][set_name] = {k: s[k] for k in ("cer", "wer", "order_err", "cer_recall", "wer_recall", "pages", "missing")} | {
-                    "f1": s["det"]["f1"] if s["det"] else None}
+    if rescore:
+        old = Path(rescore).expanduser()
+        flags = json.loads((old / "scores.json").read_text())["configs"]
+        jobs = [(d.name, d, flags.get(d.name, {}).get("gate", True)) for d in sorted(p for p in (old / "hyp").iterdir() if p.is_dir())]
+    else:
+        jobs = []
+        for src in srcs:
+            prefix, _, root = src.rpartition("=")
+            rootp = Path(root).expanduser()
+            for d in sorted(p for p in rootp.iterdir() if p.is_dir() and not p.name.endswith("-1t")):
+                name = prefix + d.name.removesuffix("-default")
+                jobs.append((name, d, not any(w in name for w in info_only)))
+    in_place = bool(rescore) and (Path(rescore).expanduser().resolve() == outp.resolve())
+    for name, d, gated in jobs:
+        entry = {"gate": gated, "sets": {}}
+        for set_name in discover(base):
+            hyp = d / set_name
+            if not hyp.is_dir():
+                continue
+            entry["sets"][set_name] = _set_scores(base / set_name / "truth", hyp)
+            if not in_place:
                 dst = outp / "hyp" / name / set_name
                 dst.mkdir(parents=True, exist_ok=True)
                 for f in hyp.iterdir():
                     if f.suffix in (".txt", ".json"):
                         shutil.copyfile(f, dst / f.name)
-            if entry["sets"]:
-                configs[name] = entry
-                print(f"{name}: {len(entry['sets'])} sets", flush=True)
+        if entry["sets"]:
+            configs[name] = entry
+            print(f"{name}: {len(entry['sets'])} sets", flush=True)
     scorer = Path(__file__).with_name("score.py")
     (outp / "scores.json").write_text(json.dumps({
-        "eval": str(base), "scorer_sha256": hashlib.sha256(scorer.read_bytes()).hexdigest(), "boxes": "ink", "configs": configs}, indent=1) + "\n")
+        "eval": str(base), "scorer_sha256": hashlib.sha256(scorer.read_bytes()).hexdigest(), "scorers": list(SCORERS), "boxes": "ink", "configs": configs}, indent=1) + "\n")
     lines = []
     for f in sorted(p for p in outp.rglob("*") if p.is_file() and p.name != "SHA256SUMS"):
         lines.append(f"{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.relative_to(outp)}")
