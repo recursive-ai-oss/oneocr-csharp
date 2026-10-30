@@ -5,14 +5,15 @@ namespace OneOcr.Tests;
 /// <summary>The noise filter: unsure words of small lines go, confident small print and small pages stay.</summary>
 public class JunkFilterTests
 {
-    private static OcrWord Word(string text, float confidence) => new(text, new OcrBox(0, 0, 10, 5), confidence, confidence, OcrSource.Ocr, []);
+    private static OcrWord Word(string text, float confidence, OcrBox? box = null) => new(text, box ?? new OcrBox(0, 0, 10, 5), confidence, confidence, OcrSource.Ocr, []);
 
     private static OrderStrip Strip(double top, double height, params (string Text, float Confidence)[] words) => new()
     {
         Leaf = 0,
         Box = new OcrBox(0, top, 200, top + height),
         Size = height,
-        Words = [.. words.Select(w => Word(w.Text, w.Confidence))],
+        // Words stand side by side, as printed words do; boxes that coincide would read as one word drawn twice.
+        Words = [.. words.Select((w, k) => Word(w.Text, w.Confidence, new OcrBox(20 * k, top, (20 * k) + 16, top + height)))],
     };
 
     // Four body lines of 20 pixels read with confidence, so the reference height is 20.
@@ -142,13 +143,13 @@ public class JunkFilterTests
     [Fact]
     public void AControlApartFromItsLabelIsDroppedButALetterInTextStays()
     {
-        static OcrWord At(string text, double left, double right, float confidence) =>
-            new(text, new OcrBox(left, 0, right, 20), confidence, confidence, OcrSource.Ocr, []);
+        static OcrWord At(string text, double left, double right, float confidence, double top = 0) =>
+            new(text, new OcrBox(left, top, right, top + 20), confidence, confidence, OcrSource.Ocr, []);
 
-        OrderStrip Line(params OcrWord[] words) => new() { Leaf = 0, Box = new OcrBox(0, 0, 400, 20), Size = 20, Words = words };
+        OrderStrip Line(params OcrWord[] words) => new() { Leaf = 0, Box = new OcrBox(0, words[0].Box.Top, 400, words[0].Box.Bottom), Size = 20, Words = words };
 
         // A radio button (height 20) and its label 14 px to the right; "O" then a word one space (4 px) away is running text.
-        OrderStrip?[] strips = [Line(At("O", 0, 12, 0.4f), At("Remember", 26, 120, 0.99f)), Line(At("Hail", 0, 40, 0.99f), At("O", 44, 56, 0.4f), At("Captain", 60, 130, 0.99f))];
+        OrderStrip?[] strips = [Line(At("O", 0, 12, 0.4f), At("Remember", 26, 120, 0.99f)), Line(At("Hail", 0, 40, 0.99f, 50), At("O", 44, 56, 0.4f, 50), At("Captain", 60, 130, 0.99f, 50))];
 
         Assert.Equal(1, JunkFilter.Apply(strips, new JunkParameters()));
         Assert.Equal(["Remember"], strips[0]!.Words.Select(w => w.Text));
@@ -169,5 +170,86 @@ public class JunkFilterTests
 
         Assert.Equal(0, JunkFilter.Apply(strips, new JunkParameters()));
         Assert.Equal(0, JunkFilter.Apply([Strip(0, 30, ("O", 0.3f))], new JunkParameters(ControlConfidence: 0)));
+    }
+
+    private static OrderStrip Placed(params (string Text, float Confidence, OcrBox Box)[] words) => new()
+    {
+        Leaf = 0,
+        Box = new OcrBox(words.Min(w => w.Box.Left), words.Min(w => w.Box.Top), words.Max(w => w.Box.Right), words.Max(w => w.Box.Bottom)),
+        Size = 30,
+        Words = [.. words.Select(w => Word(w.Text, w.Confidence, w.Box))],
+    };
+
+    [Fact]
+    public void ACheckboxReadWithItsBracketIsDroppedBesideALabelThatStartsCloseToIt()
+    {
+        // The box is 38 wide and 43 high; its label starts 20 pixels away, under half a height: a lone letter would stay.
+        OrderStrip?[] strips =
+        [
+            Placed(("Dl]", 0.4f, new OcrBox(288, 807, 325, 850)), ("Send", 0.99f, new OcrBox(345, 810, 400, 845)), ("a", 0.99f, new OcrBox(410, 810, 425, 845))),
+            Placed(("E", 0.4f, new OcrBox(288, 907, 325, 950)), ("Send", 0.99f, new OcrBox(345, 910, 400, 945))),
+        ];
+
+        Assert.Equal(1, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Equal(["Send", "a"], strips[0]!.Words.Select(w => w.Text));
+        Assert.Equal(["E", "Send"], strips[1]!.Words.Select(w => w.Text));
+    }
+
+    // A page of confident text: the stroke and contained-fragment rules only apply where most of the page was read with confidence.
+    private static OrderStrip Confident() =>
+        Placed((new string('a', 200), 0.99f, new OcrBox(500, 500, 1500, 530)));
+
+    [Fact]
+    public void ANarrowUnsureCharacterIsAStrokeButAConfidentOneOrAWideOneIsNot()
+    {
+        OrderStrip?[] strips =
+        [
+            Placed(("1", 0.03f, new OcrBox(0, 0, 6, 23))), // a table rule's edge
+            Placed(("1", 0.9f, new OcrBox(0, 40, 6, 63))), // a real digit
+            Placed(("o", 0.1f, new OcrBox(0, 80, 17, 103))), // wide: a letter o
+            Placed(("-", 0.1f, new OcrBox(0, 120, 6, 123))), // not a letter or digit
+            Placed(("1", 0.3f, new OcrBox(0, 160, 6, 183))), // unsure, but not as unsure as a stroke
+            Confident(),
+        ];
+
+        Assert.Equal(1, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Null(strips[0]);
+        Assert.All(strips.Skip(1), s => Assert.NotNull(s));
+        Assert.Equal(0, JunkFilter.Apply([Placed(("1", 0.03f, new OcrBox(0, 0, 6, 23))), Confident()], new JunkParameters(StrokeConfidence: 0)));
+    }
+
+    [Fact]
+    public void StrokesAndFragmentsStayOnPagesThatAreNotMostlyConfident()
+    {
+        // A photo of a receipt: thin real characters are read with little confidence, so nothing is judged a stroke.
+        OrderStrip?[] strips =
+        [
+            Placed(("1", 0.03f, new OcrBox(0, 0, 6, 23))),
+            Placed(("perfectly", 0.5f, new OcrBox(100, 100, 300, 130)), ("p", 0.5f, new OcrBox(102, 102, 112, 130))),
+        ];
+
+        Assert.Equal(0, JunkFilter.Apply(strips, new JunkParameters()));
+    }
+
+    [Fact]
+    public void AShortWordInsideALongerWordsBoxIsAFragmentOfIt()
+    {
+        OrderStrip?[] strips =
+        [
+            Placed(("perfectly", 0.99f, new OcrBox(100, 100, 300, 130)), ("p", 0.95f, new OcrBox(102, 102, 112, 130))),
+            // Side by side words, and a short word that overlaps a neighbour only a little, stay.
+            Placed(("a", 0.99f, new OcrBox(100, 200, 112, 230)), ("road", 0.99f, new OcrBox(110, 200, 180, 230))),
+            Placed(("in", 0.99f, new OcrBox(500, 100, 520, 130)), ("it", 0.99f, new OcrBox(500, 100, 520, 130))), // equal length: neither is the longer
+            // Two characters are a real word more often than a fragment ("If" beside a larger word); only single characters are judged.
+            Placed(("offset", 0.99f, new OcrBox(700, 100, 900, 130)), ("of", 0.99f, new OcrBox(702, 102, 740, 130))),
+            Confident(),
+        ];
+
+        Assert.Equal(1, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Equal(["perfectly"], strips[0]!.Words.Select(w => w.Text));
+        Assert.Equal(2, strips[1]!.Words.Count);
+        Assert.Equal(2, strips[2]!.Words.Count);
+        Assert.Equal(2, strips[3]!.Words.Count);
+        Assert.Equal(0, JunkFilter.Apply([Placed(("perfectly", 0.99f, new OcrBox(100, 100, 300, 130)), ("p", 0.95f, new OcrBox(102, 102, 112, 130)))], new JunkParameters(ContainedFraction: 0)));
     }
 }

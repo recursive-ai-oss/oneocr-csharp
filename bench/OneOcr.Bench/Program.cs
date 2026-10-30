@@ -19,6 +19,8 @@ using OneOcr.Layout;
 //       --meta 1 also writes <page-id>.meta.json {"orientation":..,"skew":..} as the engine reports them.
 //       --trace 1 prints resident and heap size after every page, the engine pools, the largest mappings and the live heap at the end;
 //       --alloc 1 totals allocations by type and size class (ALLOC_SIZES=1 splits large ones by size); --gc N collects generation N-1 after every page.
+//   OneOcr.Bench truthcrop --model FILE --pages DIR --truth DIR --out DIR
+//       reads the network on crops cut from truth word boxes (crop geometry vs recognition); see TruthCrop.cs.
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
 //       compares found text lines with lines derived from the truth word boxes (precision and recall at IoU >= 0.5) and times
 //       grayscale conversion, line finding and line preprocessing per page.
@@ -73,6 +75,7 @@ internal static class Program
             "grids" => Grids(options),
             "skew" => Skew(options),
             "reach" => WordReach.Run(options),
+            "truthcrop" => TruthCrop.Run(options),
             "profile" => Profile(options),
             _ => 2,
         };

@@ -142,6 +142,25 @@ public class WordSegmenterTests
         Assert.Equal(cut, plan is not null);
     }
 
+    [Theory]
+    [InlineData("abc\u00B7", 5, true)] // a middle dot glued to the word before it, with room for a space
+    [InlineData("abc\u00B7", 4, false)]
+    [InlineData("abc\u2022", 5, true)]
+    public void AMiddleDotOrBulletIsCutFromTheWordBeforeItLikeABar(string text, int stretch, bool cut) =>
+        Assert.Equal(cut, FourthAfter(text, stretch) is not null);
+
+    [Theory]
+    [InlineData("brother", "'s", true)]
+    [InlineData("mother", "\u2019s", true)]
+    [InlineData("don", "'t", true)]
+    [InlineData("they", "'ll,", true)]
+    [InlineData("brother", "'sabc", false)]
+    [InlineData("3", "'s", false)]
+    [InlineData("said", "'hello", false)]
+    [InlineData("brother", "s", false)]
+    public void AContractionCutOffItsWordIsJoined(string left, string right, bool joined) =>
+        Assert.Equal(joined, WordSegmenter.JoinsContraction(left, right));
+
     private static WordFrequencyModel Frequencies(params (string, int)[] words) =>
         WordFrequencyModel.Parse(TestWordFrequencies.Build(words));
 
