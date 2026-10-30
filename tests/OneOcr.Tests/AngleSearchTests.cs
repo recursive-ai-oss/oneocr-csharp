@@ -52,6 +52,36 @@ public class AngleSearchTests
     }
 
     [Fact]
+    public void ADoubtfulReadingGetsTheLightSearchAndAWeakOneTheFullSearch()
+    {
+        // 8 of 10 characters are confident: searched, but only lightly. 5 of 10: the full search. 19 of 20: not searched.
+        OcrPage doubtful = PageOf(("aaaaaaaa", 0.95f), ("bb", 0.3f));
+        Assert.True(PageAngleSearch.IsWeak(doubtful, out double share));
+        Assert.True(PageAngleSearch.IsLight(share));
+        Assert.True(PageAngleSearch.IsWeak(PageOf(("aaaaa", 0.95f), ("bbbbb", 0.3f)), out share));
+        Assert.False(PageAngleSearch.IsLight(share));
+        Assert.False(PageAngleSearch.IsWeak(PageOf((new string('a', 19), 0.95f), ("b", 0.3f)), out _));
+
+        var tried = new List<int>();
+        OcrPage? Read(int slope)
+        {
+            tried.Add(slope);
+            return Scored(slope == 181 ? 60 : 5);
+        }
+
+        (OcrPage page, int? angle) = PageAngleSearch.Search(Scored(10), Read, default, light: true);
+        Assert.Equal(10, angle);
+        // 10 and -10 degrees only, then 15 and 5 degrees around the winner (no 20 or 30 degrees).
+        Assert.Equal([181, -181, 274, 90], tried);
+        Assert.Equal(60, PageAngleSearch.Score(page), 6);
+
+        tried.Clear();
+        (_, angle) = PageAngleSearch.Search(Scored(100), s => { tried.Add(s); return Scored(105); }, default, light: true);
+        Assert.Null(angle);
+        Assert.Equal([181, -181], tried);
+    }
+
+    [Fact]
     public void ASearchRefinesAroundTheBestCoarseAngle()
     {
         OcrPage first = Scored(10);

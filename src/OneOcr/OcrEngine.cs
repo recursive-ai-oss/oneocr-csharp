@@ -422,10 +422,10 @@ public sealed class OcrEngine
             long t = StageClock.Start();
             OcrPage finished = prepared.Finish(page);
             StageClock.Stop("9 frame map", t);
-            if (searchAngle && prepared.Source is { } source && PageAngleSearch.IsWeak(finished, out _) && (finished.Words.Count > 0 || PageAngleSearch.HasInk(source)))
+            if (searchAngle && prepared.Source is { } source && PageAngleSearch.IsWeak(finished, out double share) && (finished.Words.Count > 0 || PageAngleSearch.HasInk(source)))
             {
                 long searchClock = StageClock.Start();
-                finished = SearchAngles(finished, source, pageIndex, dpi, degree, includeChars, junk, respace, digits, separators, cancellationToken);
+                finished = SearchAngles(finished, source, pageIndex, dpi, degree, includeChars, junk, respace, digits, separators, PageAngleSearch.IsLight(share), cancellationToken);
                 StageClock.Stop("a angle search", searchClock);
             }
 
@@ -440,7 +440,7 @@ public sealed class OcrEngine
 
     // The angle search (see PageAngleSearch): the page is read again turned by other whole-page angles and the best reading is kept.
     private OcrPage SearchAngles(
-        OcrPage first, SearchSource source, int pageIndex, double? dpi, int degree, bool includeChars, JunkParameters? junk, bool respace, bool digits, bool separators,
+        OcrPage first, SearchSource source, int pageIndex, double? dpi, int degree, bool includeChars, JunkParameters? junk, bool respace, bool digits, bool separators, bool light,
         CancellationToken cancellationToken)
     {
         // The page's background value is the same for every angle tried.
@@ -472,7 +472,7 @@ public sealed class OcrEngine
             }
         }
 
-        (OcrPage page, int? angle) = PageAngleSearch.Search(first, ReadAt, cancellationToken);
+        (OcrPage page, int? angle) = PageAngleSearch.Search(first, ReadAt, cancellationToken, light);
         if (angle is int a)
         {
             var diagnostics = new List<string>(page.Diagnostics) { PageAngleSearch.Note(a) };
