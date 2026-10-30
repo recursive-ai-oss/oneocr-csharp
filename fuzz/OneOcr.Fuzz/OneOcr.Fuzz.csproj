@@ -17,7 +17,7 @@
   <ItemGroup>
     <PackageReference Include="SharpFuzz" Version="2.2.0" />
     <!-- Draws the text of the image-real seed pages. -->
-    <PackageReference Include="RecursiveAI.OneImage.Text" Version="1.10.3" />
+    <PackageReference Include="RecursiveAI.OneImage.Text" Version="1.10.4" />
   </ItemGroup>
 
   <ItemGroup>

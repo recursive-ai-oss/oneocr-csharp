@@ -20,7 +20,7 @@
   <ItemGroup>
     <PackageReference Include="xunit.v3" Version="4.0.2" />
     <!-- Renders the page for the live test against a local server. -->
-    <PackageReference Include="RecursiveAI.OneImage.Text" Version="1.10.3" />
+    <PackageReference Include="RecursiveAI.OneImage.Text" Version="1.10.4" />
   </ItemGroup>
 
   <ItemGroup>
