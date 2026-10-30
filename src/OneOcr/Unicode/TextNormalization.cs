@@ -173,6 +173,38 @@ internal static class TextNormalization
         return 0;
     }
 
+    /// <summary>
+    /// The plain ASCII letter under a precomposed Latin letter with marks (<c>é</c> gives <c>e</c>, <c>ị</c> gives <c>i</c>): the first
+    /// character of its canonical decomposition when that is an ASCII letter and everything after it is a combining mark. Returns
+    /// false for every other character, including ASCII letters, which have no mark to take off.
+    /// </summary>
+    internal static bool TryStripMarks(char c, out char plain)
+    {
+        plain = c;
+        if (c < 0xC0)
+        {
+            return false;
+        }
+
+        var parts = new List<int>(3);
+        Decompose(c, compat: false, parts);
+        if (parts.Count < 2 || !char.IsAsciiLetter((char)parts[0]) || parts[0] > 0x7F)
+        {
+            return false;
+        }
+
+        for (int i = 1; i < parts.Count; i++)
+        {
+            if (CombiningClass(parts[i]) == 0)
+            {
+                return false;
+            }
+        }
+
+        plain = (char)parts[0];
+        return true;
+    }
+
     private static void Decompose(int cp, bool compat, List<int> output)
     {
         if (cp < 0xC0 && !(compat && cp >= 0xA0))

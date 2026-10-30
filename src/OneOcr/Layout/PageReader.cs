@@ -481,7 +481,17 @@ internal static partial class PageReader
         DropRecoveredDuplicates(read, strips);
 
         // Noise is removed before ordering, so lines, blocks, tables and text are built from what is left.
-        int junkWords = junk is null ? 0 : JunkFilter.Apply(read, junk);
+        int junkWords = 0, accentWords = 0;
+        if (junk is not null)
+        {
+            junkWords = JunkFilter.Apply(read, junk, recognizer.WordFrequencies, out accentWords);
+        }
+
+        if (accentWords > 0)
+        {
+            diagnostics.Add($"{accentWords} word(s) had accents or dots taken off letters that were read from grain; pass OcrOptions.FixStrayAccents = false to keep what the network read.");
+        }
+
         if (junkWords > 0)
         {
             diagnostics.Add($"{junkWords} word(s) read from specks, grain or stray marks were dropped as noise; pass OcrOptions.DropNoise = false to keep them.");

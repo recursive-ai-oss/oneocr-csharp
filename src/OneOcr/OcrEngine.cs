@@ -325,7 +325,7 @@ public sealed class OcrEngine
         ArgumentNullException.ThrowIfNull(image);
         options ??= new OcrOptions();
         options.Validate();
-        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken);
+        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, JunkFor(options), options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken);
     }
 
     /// <summary>Like <see cref="Ocr(Image, OcrOptions?, CancellationToken)"/>, on a thread-pool thread: the same code runs, so the page is identical.</summary>
@@ -362,7 +362,7 @@ public sealed class OcrEngine
             }
 
             ArgumentNullException.ThrowIfNull(image);
-            pages.Add(BuildPage(image, checked(options.PageIndex + pages.Count), options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, options.DropNoise ? options.JunkTuning ?? new JunkParameters() : null, options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken));
+            pages.Add(BuildPage(image, checked(options.PageIndex + pages.Count), options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, JunkFor(options), options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken));
         }
 
         return pages;
@@ -375,6 +375,18 @@ public sealed class OcrEngine
     /// <returns>The pages in order.</returns>
     public Task<IReadOnlyList<OcrPage>> OcrAsync(IEnumerable<Image> images, OcrOptions? options = null, CancellationToken cancellationToken = default) =>
         Task.Run(() => Ocr(images, options, cancellationToken), cancellationToken);
+
+    // The noise cleanup of one call: off with DropNoise = false, and without the accent rule when FixStrayAccents is false.
+    private static JunkParameters? JunkFor(OcrOptions options)
+    {
+        if (!options.DropNoise)
+        {
+            return null;
+        }
+
+        JunkParameters tuning = options.JunkTuning ?? new JunkParameters();
+        return options.FixStrayAccents ? tuning : tuning with { AccentConfidence = 0 };
+    }
 
     private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
     {
