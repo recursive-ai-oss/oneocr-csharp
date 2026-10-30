@@ -25,14 +25,14 @@ sources:
      label_source: "DOM line boxes of public-domain US federal web pages rendered in Chromium (train sites only); unverified DOM lines ignored"}
 loss: {prob: 1.0, binary: 1.0, thresh: 10.0, layout_bce: 1.0, layout_dice: 2.0, orient: 0.3}
 train:
-  steps: 9000
+  steps: 24000
   batch: 12
   lr: 0.0001
   warmup: 200
   weight_decay: 0.0001
-  workers: 10
+  workers: 8
   log_every: 200
-  eval_every: 3000
+  eval_every: 4000
   ckpt_every: 500
   val_pages: 150
-  max_minutes: 105
+  max_minutes: 100
