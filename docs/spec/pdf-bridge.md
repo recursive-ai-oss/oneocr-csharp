@@ -5,8 +5,8 @@ this package only converts, decides what to trust, and calls the engine's page e
 
 ## Versions
 
-`RecursiveAI.OnePdf` 1.10.1 and `RecursiveAI.OneImage.Pdf` 1.10.3 (the versions in `src/OneOcr.Pdf/OneOcr.Pdf.csproj`). OneImage.Pdf pins
-the exact `RecursiveAI.OneImage` version, so 1.10.3 is the one that matches the core package's OneImage 1.10.3 floor.
+`RecursiveAI.OnePdf` 1.10.1 and `RecursiveAI.OneImage.Pdf` 1.10.4 (the versions in `src/OneOcr.Pdf/OneOcr.Pdf.csproj`). OneImage.Pdf pins
+the exact `RecursiveAI.OneImage` version, so 1.10.4 is the one that matches the core package's OneImage 1.10.4 floor.
 
 ## Coordinates
 
