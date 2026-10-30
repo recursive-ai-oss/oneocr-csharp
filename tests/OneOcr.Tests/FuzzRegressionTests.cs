@@ -1,4 +1,5 @@
 using System.Text;
+using OneOcr.Documents;
 using OneOcr.Training;
 
 namespace OneOcr.Tests;
@@ -40,5 +41,20 @@ public class FuzzRegressionTests
         {
             Assert.Throws<OcrFormatException>(() => JsonEscapes.RejectLoneSurrogates(json, "t"));
         }
+    }
+
+    // DateTime.DaysInMonth throws for year 0, so a date written with the year 0000 escaped the parser as ArgumentOutOfRangeException.
+    [Fact]
+    public void A_date_with_year_zero_is_not_a_date_and_does_not_throw()
+    {
+        string text = Encoding.Unicode.GetString(Repro("normalization-year-zero.utf16"));
+        foreach (DateOrder order in new[] { DateOrder.Auto, DateOrder.DayFirst, DateOrder.MonthFirst })
+        {
+            Assert.Empty(ValueNormalize.ParseDate(text, order));
+            Assert.Empty(ValueNormalize.ParseDate("00000101", order));
+            Assert.Empty(ValueNormalize.ParseDate("1 Jan 0000", order));
+        }
+
+        Assert.Single(ValueNormalize.ParseDate("2024-02-29", DateOrder.Auto));
     }
 }
