@@ -159,6 +159,8 @@ internal static class DetectorLines
                 darkInk = LocalInk.PageIsDarkInk(page, width, lineBoxes);
             }
 
+            // Page lines the ink of a line may not be followed into (see ExtendEnds); photos keep their own end handling.
+            (int[]? Left, int[]? Right) limits = EndGap > 0 && darkInk is null ? NeighbourLimits(detection.Lines, width) : (null, null);
             for (int i = 0; i < detection.Lines.Count; i++)
             {
                 int leaf = LeafOf(detection, i);
@@ -170,7 +172,7 @@ internal static class DetectorLines
                 }
 
                 var boxes = new List<LineBox>(1);
-                LocalInk? local = InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes, darkInk);
+                LocalInk? local = InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes, darkInk, limits.Left?[i] ?? 0, limits.Right?[i] ?? width);
                 foreach (LineBox b in boxes)
                 {
                     strips.Add(new StripLine(b, leaf, Local: local, MinConfidence: detection.Lines[i].MinConfidence));
@@ -209,13 +211,156 @@ internal static class DetectorLines
         }
     }
 
+    /// <summary>
+    /// How far a blank stretch may be, in band heights, for ink beyond a detected box's end to still belong to the line (0 turns the
+    /// extension off). A letter gap is well under this; a word gap is not.
+    /// </summary>
+    internal static double EndGap = 0.25;
+
+    /// <summary>The most ink, as a share of the area it was followed over, that still reads as letters.</summary>
+    internal static double EndFill = 0.65;
+
+    /// <summary>The least an end must move, in band heights, for the extension to be used.</summary>
+    internal static double EndMin = 0.25;
+
+    /// <summary>The most the ink may be followed past the detected box's end, in band heights.</summary>
+    internal static double EndReach = 1.0;
+
+    // The detector's box can end inside the last letter or just before it (its edge is a few pixels uncertain), so the line's ink band
+    // is followed outwards from each end through ink that continues with only letter-sized gaps, never into the box of a neighbouring
+    // line (the limits) and never farther than EndReach.
+    private static void ExtendEnds(ReadOnlySpan<byte> page, int width, int rowFrom, int rowTo, int threshold, bool inkIsBright, int leftLimit, int rightLimit, ref int minX, ref int maxX)
+    {
+        int bandHeight = rowTo - rowFrom + 1;
+        int gap = Math.Max(1, (int)Math.Round(EndGap * bandHeight));
+        int reach = (int)(EndReach * bandHeight);
+        int least = (int)Math.Ceiling(EndMin * bandHeight);
+
+        // Ink to the right: columns up to the last one with ink, so long as the blank stretches stay within a letter gap.
+        int last = maxX;
+        long ink = 0, inkAtLast = 0;
+        for (int x = maxX + 1; x < rightLimit && x - last <= gap && x - maxX <= reach; x++)
+        {
+            int n = ColumnInk(page, width, x, rowFrom, rowTo, threshold, inkIsBright);
+            ink += n;
+            if (n > 0)
+            {
+                last = x;
+                inkAtLast = ink;
+            }
+        }
+
+        // Small differences are the edge of the letters' anti-aliasing, not a cut letter: moving the crop for them only shifts what the
+        // recognizer sees by a pixel, so only a real cut (the ink goes on for a good part of a letter) moves the end. A stretch that is
+        // mostly ink is a button, a rule or a border, not letters.
+        if (last - maxX >= least && IsLetterLike(inkAtLast, last - maxX, bandHeight))
+        {
+            maxX = last;
+        }
+
+        int first = minX;
+        ink = 0;
+        long inkAtFirst = 0;
+        for (int x = minX - 1; x >= leftLimit && first - x <= gap && minX - x <= reach; x--)
+        {
+            int n = ColumnInk(page, width, x, rowFrom, rowTo, threshold, inkIsBright);
+            ink += n;
+            if (n > 0)
+            {
+                first = x;
+                inkAtFirst = ink;
+            }
+        }
+
+        if (minX - first >= least && IsLetterLike(inkAtFirst, minX - first, bandHeight))
+        {
+            minX = first;
+        }
+    }
+
+    private static bool IsLetterLike(long inkPixels, int columns, int bandHeight) => inkPixels <= EndFill * columns * bandHeight;
+
+    private static int ColumnInk(ReadOnlySpan<byte> page, int width, int x, int rowFrom, int rowTo, int threshold, bool inkIsBright)
+    {
+        int n = 0;
+        for (int y = rowFrom; y <= rowTo; y++)
+        {
+            byte v = page[(y * width) + x];
+            if (inkIsBright ? v > threshold : v <= threshold)
+            {
+                n++;
+            }
+        }
+
+        return n;
+    }
+
+    // For every detected line, the nearest neighbouring detected line on each side on the same text row (the page edge when there is
+    // none): the ink of a line is never followed into it. Lines are visited in order of their vertical centre and only those whose
+    // centre is close enough to share a row are compared.
+    private static (int[] Left, int[] Right) NeighbourLimits(List<DetectedLine> lines, int width)
+    {
+        int n = lines.Count;
+        var left = new int[n];
+        var right = new int[n];
+        var order = new int[n];
+        var centre = new double[n];
+        double tallest = 0;
+        for (int i = 0; i < n; i++)
+        {
+            order[i] = i;
+            right[i] = width;
+            centre[i] = (lines[i].Top + lines[i].Bottom) / 2;
+            tallest = Math.Max(tallest, lines[i].Bottom - lines[i].Top);
+        }
+
+        Array.Sort(order, (a, b) => centre[a] != centre[b] ? centre[a].CompareTo(centre[b]) : a.CompareTo(b));
+        for (int p = 0; p < n; p++)
+        {
+            int i = order[p];
+            DetectedLine a = lines[i];
+            double middle = (a.Left + a.Right) / 2, ah = a.Bottom - a.Top;
+            for (int dir = -1; dir <= 1; dir += 2)
+            {
+                for (int q = p + dir; q >= 0 && q < n; q += dir)
+                {
+                    int j = order[q];
+                    if (Math.Abs(centre[j] - centre[i]) > ((ah + tallest) / 2))
+                    {
+                        break;
+                    }
+
+                    DetectedLine b = lines[j];
+                    double overlap = Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Top, b.Top);
+                    if (overlap < 0.5 * Math.Min(ah, b.Bottom - b.Top))
+                    {
+                        continue;
+                    }
+
+                    if (b.Left >= middle)
+                    {
+                        right[i] = Math.Min(right[i], (int)Math.Floor(b.Left));
+                    }
+                    else if (b.Right <= middle)
+                    {
+                        left[i] = Math.Max(left[i], (int)Math.Ceiling(b.Right));
+                    }
+                }
+            }
+        }
+
+        return (left, right);
+    }
+
     // How many line heights short of the detector's extent the ink may stop on a photo before the detector's end is used.
     private const double EndGapHeights = 0.8;
 
     // The ink inside the detected box, as the classical finder's boxes are (the recognizer's crop rules are written for ink-tight
     // lines); the detected box itself when the page has no contrast or no ink falls inside it. Returns the line's own binarization when
     // the page-wide one does not fit the line (see LocalInk), which the line's word boxes must then use too; null otherwise.
-    internal static LocalInk? InkBoxes(DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<LineBox> result, bool? pageIsDarkInk = null)
+    internal static LocalInk? InkBoxes(
+        DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<LineBox> result, bool? pageIsDarkInk = null,
+        int leftLimit = 0, int rightLimit = int.MaxValue)
     {
         int x0 = Math.Clamp((int)Math.Floor(line.Left), 0, width), x1 = Math.Clamp((int)Math.Ceiling(line.Right), 0, width);
         int y0 = Math.Clamp((int)Math.Floor(line.Top), 0, height), y1 = Math.Clamp((int)Math.Ceiling(line.Bottom), 0, height);
@@ -326,6 +471,11 @@ internal static class DetectorLines
                         {
                             maxX = x1 - 1;
                         }
+                    }
+
+                    if (EndGap > 0 && pageIsDarkInk is null)
+                    {
+                        ExtendEnds(page, width, y0 + start, y0 + end, threshold, inkIsBright, Math.Max(0, leftLimit), Math.Min(width, rightLimit), ref minX, ref maxX);
                     }
 
                     result.Add(new LineBox(minX, y0 + start, maxX - minX + 1, end - start + 1));

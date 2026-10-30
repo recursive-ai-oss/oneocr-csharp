@@ -21,6 +21,9 @@ using OneOcr.Layout;
 //       --alloc 1 totals allocations by type and size class (ALLOC_SIZES=1 splits large ones by size); --gc N collects generation N-1 after every page.
 //   OneOcr.Bench truthcrop --model FILE --pages DIR --truth DIR --out DIR
 //       reads the network on crops cut from truth word boxes (crop geometry vs recognition); see TruthCrop.cs.
+//   OneOcr.Bench cropgeom --pages DIR --detector FILE --out DIR [--endext GAP[:REACH[:MIN[:FILL]]]]
+//       writes <page-id>.json with the strips the page reader reads, the crop of each and the detector's boxes; bench/scripts/crop_geometry.py
+//       compares them with truth line boxes. --endext (also on run) sets how a line's ink is followed past the detected box (0 turns it off).
 //   OneOcr.Bench lines --pages DIR --truth DIR [--repeat K]
 //       compares found text lines with lines derived from the truth word boxes (precision and recall at IoU >= 0.5) and times
 //       grayscale conversion, line finding and line preprocessing per page.
@@ -72,6 +75,7 @@ internal static class Program
             "docextract-eval" => DocExtractEval.Run(options),
             "strips" => Strips(options),
             "detlines" => DetLines(options),
+            "cropgeom" => CropGeom(options),
             "noise" => Noise(options),
             "grids" => Grids(options),
             "skew" => Skew(options),
@@ -178,6 +182,94 @@ internal static class Program
         foreach (StripLine s in located.Strips)
         {
             Console.WriteLine($"strip leaf {s.Leaf,7}  x {s.Box.X,5} y {s.Box.Y,5} w {s.Box.Width,5} h {s.Box.Height,3}");
+        }
+
+        return 0;
+    }
+
+    // --endext GAP[:REACH[:MIN[:FILL]]]: follow a line's ink past the detected box's ends (see DetectorLines.EndGap); 0 is off.
+    private static void ApplyEndExt(Dictionary<string, string> o)
+    {
+        if (o.TryGetValue("endext", out string? endExt))
+        {
+            string[] f = endExt.Split(':');
+            DetectorLines.EndGap = double.Parse(f[0], CultureInfo.InvariantCulture);
+            if (f.Length > 1)
+            {
+                DetectorLines.EndReach = double.Parse(f[1], CultureInfo.InvariantCulture);
+            }
+
+            if (f.Length > 2)
+            {
+                DetectorLines.EndMin = double.Parse(f[2], CultureInfo.InvariantCulture);
+            }
+
+            if (f.Length > 3)
+            {
+                DetectorLines.EndFill = double.Parse(f[3], CultureInfo.InvariantCulture);
+            }
+        }
+    }
+
+    // Per page of a folder, the strips the page reader would read and the crop rectangle each gets, as JSON (the crop geometry that
+    // bench/scripts/crop_geometry.py compares with truth line boxes): OneOcr.Bench cropgeom --pages DIR --detector FILE --out DIR
+    private static int CropGeom(Dictionary<string, string> o)
+    {
+        ApplyEndExt(o);
+        var detector = new OneOcr.Detection.PageDetector(
+            OneOcr.Detection.DbNetModel.FromContainer(OneOcr.Model.ModelContainer.Load(Need(o, "detector"), null), OneOcr.OcrLimits.Default),
+            OneOcr.OcrLimits.Default, OneOcr.Kernels.Dispatch.Best);
+        var pixels = new OneOcr.BufferPool<Gray8>(1L << 28, 1);
+        var resizers = new ResizerPool();
+        string outDir = Need(o, "out");
+        Directory.CreateDirectory(outDir);
+        foreach (string file in Directory.GetFiles(Need(o, "pages")).Order(StringComparer.Ordinal))
+        {
+            if (!(file.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || file.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            Image image = Image.Load(file);
+            var gray = new Gray8[image.Width * image.Height];
+            image.CopyPixelsTo<Gray8>(gray, new ImageRect(0, 0, image.Width, image.Height), 1);
+            OneOcr.Detection.PageDetection d = detector.Detect(gray, image.Width, image.Height, pixels, resizers, 1, System.Threading.CancellationToken.None);
+            LocatedPage located = DetectorLines.Locate(detector, gray, image.Width, image.Height, pixels, resizers, 1, System.Threading.CancellationToken.None, d, false);
+            var boxes = located.Strips.Where(s => s.MinConfidence <= 0).Select(s => s.Box).ToList();
+            int typical = LinePreprocessor.TypicalHeight(boxes.Count > 0 ? boxes : located.Strips.Select(s => s.Box).ToList());
+            using var stream = File.Create(Path.Combine(outDir, Path.GetFileNameWithoutExtension(file) + ".json"));
+            using var w = new Utf8JsonWriter(stream);
+            w.WriteStartObject();
+            w.WriteNumber("typical", typical);
+            w.WriteNumber("width", located.Width);
+            w.WriteNumber("height", located.Height);
+            w.WriteStartArray("strips");
+            foreach (StripLine s in located.Strips)
+            {
+                LineBox c = s.Tilt is { } t ? LinePreprocessor.CropBoxInFrame(t.Ink, typical) : LinePreprocessor.CropBox(s.Box, typical, located.Width, located.Height);
+                w.WriteStartObject();
+                w.WriteBoolean("tilted", s.Tilt is not null);
+                w.WriteStartArray("ink");
+                w.WriteNumberValue(s.Box.X); w.WriteNumberValue(s.Box.Y); w.WriteNumberValue(s.Box.Width); w.WriteNumberValue(s.Box.Height);
+                w.WriteEndArray();
+                w.WriteStartArray("crop");
+                w.WriteNumberValue(c.X); w.WriteNumberValue(c.Y); w.WriteNumberValue(c.Width); w.WriteNumberValue(c.Height);
+                w.WriteEndArray();
+                w.WriteEndObject();
+            }
+
+            w.WriteEndArray();
+            w.WriteStartArray("detected");
+            foreach (var l in d.Lines)
+            {
+                w.WriteStartArray();
+                w.WriteNumberValue(Math.Round(l.Left, 2)); w.WriteNumberValue(Math.Round(l.Top, 2)); w.WriteNumberValue(Math.Round(l.Right, 2)); w.WriteNumberValue(Math.Round(l.Bottom, 2));
+                w.WriteEndArray();
+            }
+
+            w.WriteEndArray();
+            w.WriteEndObject();
+            located.Release(pixels);
         }
 
         return 0;
@@ -395,6 +487,8 @@ internal static class Program
                 TiltedLines.NoiseFactor = f.Length > 4 ? double.Parse(f[4], CultureInfo.InvariantCulture) : 0;
             }
         }
+
+        ApplyEndExt(o);
 
         bool angleOff = false;
         if (Int(o, "angletrace", 0) != 0)
