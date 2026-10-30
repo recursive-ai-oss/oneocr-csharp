@@ -95,6 +95,27 @@ On a photo, for each detected line (axis-aligned rectangle, or the straightened 
    at least half the line's height), the word's rectangle is the aligned extent over the line's rows, as when no ink is found. A rectangle of a pixel or
    two otherwise tears the word out of its line in reading order.
 
+## Line ends on flat pages (page reader, any detector version)
+
+The detector's box is a few pixels uncertain at the ends of a line, and a box that stops inside the last letter (or just before it) leaves
+the ink band, and with it the crop the recognizer reads, a letter short: `Nairobi` read as `Nairob`. Measured on exact-truth pages, the box
+ends about 1 px inside the ink on typical lines and a letter or more inside on a few percent of them. After the ink band of a line is
+found, each end is therefore followed outwards on **pages that are not camera photos** (photos keep the rule above). Let `B` be the band's height in pixels.
+
+1. **Follow.** From the band's last ink column, scan columns outwards over the band's rows. A column has ink when any of its pixels is on the
+   ink side of the threshold the band was found with. Scanning stops at the first run of more than `max(1, round(0.25 * B))` columns without
+   ink (a letter gap is below this, a word gap above it), at `1.0 * B` columns from the old end, at the page edge, or at the box of the
+   nearest other detected line on the same row (two lines overlapping vertically by at least half the smaller height; the line on the side of
+   this one's centre that the end is on). The candidate end is the last column with ink.
+2. **Letters only.** The candidate is taken only when the stretch gained is at least `ceil(0.25 * B)` columns and its ink pixels are at most 0.65
+   of its area (stretch columns times `B`). A shorter stretch is the letters' anti-aliased edge, and moving the crop for it only shifts what the
+   recognizer sees by a pixel. A stretch that is mostly ink is a button, a rule or a border, not letters. Otherwise the end stays.
+3. The two ends are decided independently. Nothing else about the strip changes; the crop rule (margins of half and a quarter of the line's
+   height, scale) applies to the new extent.
+
+Without step 2, about one strip in ten on screenshot pages grew by a whole line height onto the fill of buttons and bars. The constants
+(0.25 gap, 1.0 reach, 0.25 minimum, 0.65 fill) come from a sweep of seven variants over generated layout and screenshot pages.
+
 ## Evaluation order and memory
 
 As for v0, every output value is an independent sum, so a port may evaluate whole or in bands. The C# reader keeps the v0 banded stages; the stride-16 branch runs on whole stride-16 maps (a quarter of the stride-8 map's size), `p16` is kept until the branch has consumed it, and stage 2's channel means are taken before stage 2 is dropped. On an A4 page at the 0.2.0 widths the scratch in use at once peaks at 24.3 MB at degree 1 (22.8 MB for v0 at its own widths).
