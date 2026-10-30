@@ -19,6 +19,7 @@ namespace OneOcr.Layout;
 /// <param name="StrokeAspect">A stroke is at most this wide, as a fraction of its height.</param>
 /// <param name="ContainedFraction">A word of at most <paramref name="ContainedMaxLength"/> characters whose box lies at least this much inside the box of a longer word is a fragment of that word read twice. 0 turns the rule off.</param>
 /// <param name="ContainedMaxLength">The longest word the contained-fragment rule may drop.</param>
+/// <param name="RepeatFraction">A word whose letters and digits are part of another word's, and whose box lies at least this much inside that word's box, is the same ink read twice (the detector boxed a stretch of a line a second time) and goes; of two identical readings the less confident goes. 0 turns the rule off.</param>
 /// <param name="AccentConfidence">A word read with an accent or dot under a letter is a candidate for <see cref="StrayAccents"/> only when its confidence is below this. 0 turns the rule off.</param>
 /// <param name="AccentMargin">... and the plain spelling must be at least this many quarter-bits (four per doubling) more frequent than the accented one.</param>
 /// <param name="AccentPageShare">The rule applies only to a page on which at most this share of the words holding letters has an accented letter.</param>
@@ -38,6 +39,7 @@ internal sealed record JunkParameters(
     double StrokeAspect = 0.5,
     double ContainedFraction = 0.6,
     int ContainedMaxLength = 1,
+    double RepeatFraction = 0.6,
     double CleanPageShare = 0.95,
     float AccentConfidence = 0.97f,
     int AccentMargin = 12,
@@ -86,6 +88,13 @@ internal static class JunkFilter
             {
                 dropped += DropContained(strips, p.ContainedFraction, p.ContainedMaxLength);
             }
+        }
+
+        // Unlike the rules above this one is safe on any page: a reading that is a run of another word's letters and lies inside its box
+        // is a repeat whatever the page's quality.
+        if (p.RepeatFraction > 0)
+        {
+            dropped += DropRepeats(strips, p.RepeatFraction);
         }
 
         return dropped;
@@ -372,6 +381,107 @@ internal static class JunkFilter
         }
 
         return doomed.Count == 0 ? 0 : DropWords(strips, doomed.Contains);
+    }
+
+    // A stretch of a line that the detector boxed a second time is read again: "firea" and "arn" over "firearms.", a second "in" over
+    // "in". The repeat is made of letters and digits that are a run of the longer word's, and sits inside its box; two printed words
+    // never do both. Of equal readings the less confident one goes (the later one on a tie).
+    private static int DropRepeats(OrderStrip?[] strips, double fraction)
+    {
+        var all = new List<OcrWord>();
+        foreach (OrderStrip? s in strips)
+        {
+            if (s is not null)
+            {
+                all.AddRange(s.Words);
+            }
+        }
+
+        var keys = new string[all.Count];
+        var grid = new Dictionary<long, List<int>>();
+        for (int i = 0; i < all.Count; i++)
+        {
+            keys[i] = Letters(all[i].Text);
+            if (keys[i].Length < 2)
+            {
+                continue;
+            }
+
+            ForCells(all[i].Box, (cx, cy) =>
+            {
+                long key = (cx << 32) ^ (uint)cy;
+                if (!grid.TryGetValue(key, out List<int>? cell))
+                {
+                    grid[key] = cell = [];
+                }
+
+                cell.Add(i);
+            });
+        }
+
+        var doomed = new HashSet<OcrWord>(ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < all.Count; i++)
+        {
+            OcrWord w = all[i];
+            double area = (w.Box.Right - w.Box.Left) * (w.Box.Bottom - w.Box.Top);
+            if (keys[i].Length < 2 || !(area > 0))
+            {
+                continue;
+            }
+
+            bool repeat = false;
+            ForCells(w.Box, (cx, cy) =>
+            {
+                if (repeat || !grid.TryGetValue((cx << 32) ^ (uint)cy, out List<int>? cell))
+                {
+                    return;
+                }
+
+                foreach (int j in cell)
+                {
+                    OcrWord o = all[j];
+                    if (j == i || keys[j].Length < keys[i].Length || !keys[j].Contains(keys[i], StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (keys[j].Length == keys[i].Length && (o.Confidence < w.Confidence || (o.Confidence == w.Confidence && j > i)))
+                    {
+                        continue;
+                    }
+
+                    double iw = Math.Min(w.Box.Right, o.Box.Right) - Math.Max(w.Box.Left, o.Box.Left);
+                    double ih = Math.Min(w.Box.Bottom, o.Box.Bottom) - Math.Max(w.Box.Top, o.Box.Top);
+                    if (iw > 0 && ih > 0 && iw * ih >= fraction * area)
+                    {
+                        repeat = true;
+                        return;
+                    }
+                }
+            });
+            if (repeat)
+            {
+                doomed.Add(w);
+            }
+        }
+
+        return doomed.Count == 0 ? 0 : DropWords(strips, doomed.Contains);
+    }
+
+    // The word's letters and digits, case-folded: what two readings of the same ink share even when the marks around them differ.
+    private static string Letters(string text)
+    {
+        var chars = new char[text.Length];
+        int n = 0;
+        foreach (char c in text)
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                chars[n++] = char.ToLowerInvariant(c);
+            }
+        }
+
+        return new string(chars, 0, n);
     }
 
     private static void ForCells(OcrBox box, Action<long, long> visit)

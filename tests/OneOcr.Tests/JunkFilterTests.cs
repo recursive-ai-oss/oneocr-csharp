@@ -245,11 +245,30 @@ public class JunkFilterTests
             Confident(),
         ];
 
-        Assert.Equal(1, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Equal(1, JunkFilter.Apply(strips, new JunkParameters(RepeatFraction: 0)));
         Assert.Equal(["perfectly"], strips[0]!.Words.Select(w => w.Text));
         Assert.Equal(2, strips[1]!.Words.Count);
         Assert.Equal(2, strips[2]!.Words.Count);
         Assert.Equal(2, strips[3]!.Words.Count);
-        Assert.Equal(0, JunkFilter.Apply([Placed(("perfectly", 0.99f, new OcrBox(100, 100, 300, 130)), ("p", 0.95f, new OcrBox(102, 102, 112, 130)))], new JunkParameters(ContainedFraction: 0)));
+        Assert.Equal(0, JunkFilter.Apply([Placed(("perfectly", 0.99f, new OcrBox(100, 100, 300, 130)), ("p", 0.95f, new OcrBox(102, 102, 112, 130)))], new JunkParameters(ContainedFraction: 0, RepeatFraction: 0)));
+    }
+
+    [Fact]
+    public void AStretchOfALineBoxedAgainIsDroppedAsARepeat()
+    {
+        OrderStrip?[] strips =
+        [
+            Placed(("firearms.", 0.91f, new OcrBox(1132, 1137, 1269, 1177)), ("in", 1.0f, new OcrBox(1093, 1140, 1116, 1164))),
+            // The same stretch read again from a box of its own: pieces of the word and a second "in".
+            Placed(("firea", 0.98f, new OcrBox(1136, 1150, 1193, 1165)), ("arm", 0.92f, new OcrBox(1188, 1150, 1226, 1164)), ("ms.", 0.95f, new OcrBox(1231, 1150, 1269, 1164)), ("in", 0.94f, new OcrBox(1092, 1140, 1116, 1156))),
+            // Words of a line that merely sit side by side stay, and so does a word that is not made of the other's letters.
+            Placed(("the", 0.99f, new OcrBox(100, 200, 140, 230)), ("then", 0.99f, new OcrBox(150, 200, 210, 230)), ("xyz", 0.99f, new OcrBox(1136, 1150, 1193, 1165))),
+            Confident(),
+        ];
+
+        Assert.Equal(4, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Equal(["firearms.", "in"], strips[0]!.Words.Select(w => w.Text));
+        Assert.Equal(["the", "then", "xyz"], strips[2]!.Words.Select(w => w.Text));
+        Assert.Null(strips[1]);
     }
 }
