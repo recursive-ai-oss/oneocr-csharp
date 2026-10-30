@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Runs the bench engine (degree 1, all bundled pins but the detector) over the dev, real-dev, tune and receipt-photo sets with one
-# detector file, then scores every set (scorer v3.1) and counts extra words.
+# detector file, then scores every set (scorer v3.1).
 #
 #   eval/det_table.sh NAME DETECTOR.onm OUT_ROOT [GROUP ...]
 #
 # Groups: b4 (dev sets), v5 (real-PDF dev sets), rg (receipt photos, dev and calib), t1 t2 t3 (held-out tune sets); default all.
 # Environment: MODEL (recognizer .onm), CHARLM, WORDFREQ, B4_ROOT, V5_ROOT, RG_ROOT, T1_ROOT, T2_ROOT, T3_ROOT (set roots; each holds
 # <set>/pages and <set>/truth). Light (4 engine processes at a time); run it under `wq run --class heavy --cores 4`.
-# Writes OUT_ROOT/NAME/<group>/<set>/ (engine output), scores.txt and extra.txt next to them.
+# Writes OUT_ROOT/NAME/<group>/<set>/ (engine output) and scores-<groups>.txt. eval/det_compare.py scores every set again and counts extra words.
 set -euo pipefail
 name=$1 det=$2 out=$3
 shift 3
@@ -26,6 +26,7 @@ dotnet build -c Release bench/OneOcr.Bench -v quiet -clp:NoSummary >/dev/null
 bin=$(find "${ONEOCR_ARTIFACTS:-$repo/../$(basename "$repo").artifacts}/bin/OneOcr.Bench" -name OneOcr.Bench.dll -path '*release*' | head -1)
 M="--model ${MODEL:?} --detector $det --wordlm ${CHARLM:?} --wordfreq ${WORDFREQ:?}"
 base=$out/$name
+scores=$base/scores-$(IFS=-; echo "${groups[*]}").txt
 mkdir -p "$base"
 i=0
 for g in "${groups[@]}"; do
@@ -39,12 +40,12 @@ for g in "${groups[@]}"; do
 done
 wait
 cd bench
-: >"$base/scores.txt"
+: >"$scores"
 for g in "${groups[@]}"; do
   for s in ${SETS[$g]}; do
-    printf '%-4s %-22s ' "$g" "$s" >>"$base/scores.txt"
+    printf '%-4s %-22s ' "$g" "$s" >>"$scores"
     uv run python -m oneocr_bench score --scorer v3.1 --truth "${ROOT[$g]}/$s/truth" --hyp "$base/$g/$s" 2>&1 | grep -E '^pages' |
-      sed -E 's/pages ([0-9]+).*CER ([0-9.]+)%  WER ([0-9.]+)%  order ([0-9.]+)%  recall-CER ([0-9.]+)%  recall-WER ([0-9.]+)%.*ECE ([0-9.]+) \(.*/n=\1 \2 \3 \4 | \5 \6 | ECE \7/' >>"$base/scores.txt"
+      sed -E 's/pages ([0-9]+).*CER ([0-9.]+)%  WER ([0-9.]+)%  order ([0-9.]+)%  recall-CER ([0-9.]+)%  recall-WER ([0-9.]+)%.*ECE ([0-9.]+) \(.*/n=\1 \2 \3 \4 | \5 \6 | ECE \7/' >>"$scores"
   done
 done
-cat "$base/scores.txt"
+cat "$scores"
