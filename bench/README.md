@@ -263,6 +263,31 @@ uv run python -m oneocr_bench score --hyp OUT
 classifier) for one line. `OneOcr.Bench randommodel --out F`
 writes a random-weight model for pipeline checks.
 
+## Platform identity check (osx-arm64, linux-arm64)
+
+Text, boxes, confidences and the page JSON are the same bits on every platform. `OneOcr.Bench ocrhash` prints one SHA-256 per page over the
+text, the `oneocr.page` JSON and the exact bits of every word box and confidence; two platforms agree when their files are equal.
+
+```
+bash bench/scripts/platform_sample.sh DEV_ROOT RECEIPT_PHOTO_DIR SAMPLE     # 2 pages from each of 10 sets + receipt photos
+BIN=<OneOcr.Bench build dir> MODELS=<dir with the four model files> bash bench/scripts/platform_hash.sh SAMPLE OUT 1 4
+diff OUT-linux-x64/hash-d1.txt OUT-other/hash-d1.txt                       # empty when identical; degree 4 equals degree 1
+```
+
+When a page differs, rerun it with `-- --dump DIR` on both platforms (text, JSON and a `.bits` file per page) and `diff` them; then compare
+the line crops and logits the same way to find the first stage that differs. `OneOcr.Bench mathhash` hashes the exp/sigmoid/tanh sweep and
+the softmax denominators on every kernel path the machine has, and the sRGB tables that image resizing is built on.
+
+Steps for each platform (all state under one user directory, no root):
+
+- **osx-arm64:** install the SDK with `dotnet-install.sh --version <global.json version> --install-dir DIR`, then `dotnet build OneOcr.slnx -c Release`,
+  run `OneOcr.Tests`, `dotnet publish tests/OneOcr.AotSmoke -c Release -r osx-arm64` and run the binary (Xcode command line tools provide the linker).
+- **linux-arm64 without arm hardware:** unpack `qemu-user-static` (amd64) and the arm64 `libc6`, `libgcc-s1`, `libstdc++6`, `libssl3t64` (plus the `-dev`
+  packages and `zlib1g-dev` for linking) into a directory with `dpkg -x`; install the arm64 .NET runtime with `dotnet-install.sh --architecture arm64 --os linux --runtime dotnet`.
+  Run managed code as `qemu-aarch64-static -cpu neoverse-n1 -L SYSROOT DOTNET_ROOT/dotnet app.dll` with `DOTNET_EnableWriteXorExecute=0` (the default CPU model
+  advertises SVE, which the emulated runtime does not survive). The managed build from x64 is the same dll. For the NativeAOT smoke, cross-publish from x64 with
+  `dotnet publish tests/OneOcr.AotSmoke -r linux-arm64 -p:CppCompilerAndLinker=clang -p:SysRoot=SYSROOT -p:LinkerFlavor=lld -p:ObjCopyName=llvm-objcopy` and run it under the same qemu.
+
 ## The gate table in one command
 
 ```

@@ -65,6 +65,7 @@ internal static class Program
             "group" => GroupBench.Run(options),
             "gemm" => GemmBench.Run(options),
             "ocrhash" => OcrHash.Run(options),
+            "mathhash" => MathHash.Run(options),
             "trainstep" => TrainBench.Run(options),
             "detect" => DetectBench.Run(options),
             "docextract" => DocExtractBench.Run(options),

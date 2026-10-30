@@ -5,7 +5,7 @@ using System.Text;
 using OneImage;
 using OneOcr;
 
-// OneOcr.Bench ocrhash --pages DIR [--model F --detector F --wordlm F --wordfreq F] [--degree N] [--out FILE]
+// OneOcr.Bench ocrhash --pages DIR [--model F --detector F --wordlm F --wordfreq F] [--degree N] [--out FILE] [--dump DIR]
 //   One line per page: SHA-256 over the plain text, the page JSON and, for every word, the exact bits of its box and confidences.
 //   A change that must leave the output untouched leaves every line untouched. Set DOTNET_EnableAVX512F=0, DOTNET_EnableAVX2=0 or
 //   DOTNET_EnableHWIntrinsic=0 in the environment to run the other kernel paths.
@@ -66,6 +66,17 @@ internal static class OcrHash
                 h.AppendData(bits[..4]);
                 BinaryPrimitives.WriteInt32LittleEndian(bits, BitConverter.SingleToInt32Bits(word.RawConfidence));
                 h.AppendData(bits[..4]);
+            }
+
+            if (o.TryGetValue("dump", out string? dumpDir))
+            {
+                // --dump DIR keeps what was hashed, so two platforms' outputs for a page that differs can be compared with diff.
+                Directory.CreateDirectory(dumpDir);
+                string stem = Path.Combine(dumpDir, Path.GetFileNameWithoutExtension(file));
+                File.WriteAllText(stem + ".txt", page.ToText());
+                File.WriteAllText(stem + ".json", OcrPageJson.ToJson([page]));
+                File.WriteAllLines(stem + ".bits", page.Words.Select(w => string.Create(CultureInfo.InvariantCulture,
+                    $"{BitConverter.DoubleToInt64Bits(w.Box.Left):x16} {BitConverter.DoubleToInt64Bits(w.Box.Top):x16} {BitConverter.DoubleToInt64Bits(w.Box.Right):x16} {BitConverter.DoubleToInt64Bits(w.Box.Bottom):x16} {BitConverter.SingleToInt32Bits(w.Confidence):x8} {BitConverter.SingleToInt32Bits(w.RawConfidence):x8} {w.Text}")));
             }
 
             byte[] digest = h.GetHashAndReset();

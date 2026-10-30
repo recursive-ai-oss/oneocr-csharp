@@ -102,3 +102,14 @@ Reading a leaning line (see [detector-v1](detector-v1.md#line-axis-post-processi
 The sampler is bilinear in double precision with a fixed order of operations (`top`, `bottom`, then their blend), edge pixels repeated and the
 result rounded half up to a byte. It uses no fused multiply-add and no library trigonometry: the axis comes from `sqrt`, `+ - * /` only, so
 every platform and every degree of parallelism produces the same bytes. The sampled crop then goes through the same resize as any line crop.
+
+## Libraries outside the kernels
+
+Every crop is scaled with `RecursiveAI.OneImage` (linear light, 8-bit gray), which is outside these rules. Its sRGB tables are built with the
+platform's `powf`; macOS's differs from glibc's by one binary32 ulp in 2 of the 256 decode entries, and that is enough to change one pixel of a
+crop, a logit, and the last bit of a raw word confidence (text and boxes were unchanged on the sampled pages). Taking the power in double and
+rounding once, `(float)Math.Pow(x, 2.4)`, gives tables equal to glibc's on x64 and arm64 and to macOS's, and leaves every x64 output unchanged.
+Until OneImage ships that, raw confidence can differ in the last bit between macOS and Linux; `OneOcr.Bench mathhash` prints the table hashes.
+The platform identity check is described in `bench/README.md`.
+Two library `Math.Log` calls remain outside the kernels (the detector's logit thresholds and a column-width comparison in the page reader); they are
+double precision, rounded to binary32 or compared, and agreed on every platform tried.
