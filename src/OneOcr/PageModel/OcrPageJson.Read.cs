@@ -31,6 +31,9 @@ public static partial class OcrPageJson
             throw new OcrFormatException("The document is not valid UTF-8.");
         }
 
+        // The same goes for escapes of lone surrogates, which JsonDocument only rejects (as InvalidOperationException) when a string is read.
+        JsonEscapes.RejectLoneSurrogates(json, "The document");
+
         JsonDocument doc;
         try
         {

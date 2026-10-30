@@ -1,0 +1,1 @@
+{"vendor":{"value":"Acme Corp","words":["w0","w1"],"derived":false},"total":{"value":12.5,"words":["w5"],"derived":false},"paid":{"value":true,"words":["w6"],"derived":false},"lines":[{"name":{"value":"Widget","words":["w7"],"derived":false},"qty":{"value":2,"words":["w8"],"derived":false}}]}

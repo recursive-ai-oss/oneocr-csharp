@@ -11,6 +11,8 @@ using SharpFuzz;
 //   OneOcr.Fuzz replay <file>...     run saved inputs once each, to reproduce a finding
 //   OneOcr.Fuzz mutate <seconds> <corpusdir> [seed]
 //                                    a plain in-process mutation loop with no coverage feedback, for a quick local run
+//   OneOcr.Fuzz sweep --degree N --timeout S [--out F] PATH...
+//                                    the no-crash/no-hang sweep with the bundled models over images, PDFs and JSON files
 //   OneOcr.Fuzz seeds <dir>          write the seed corpus (small valid containers)
 internal static class Program
 {
@@ -29,10 +31,15 @@ internal static class Program
             "pagejson" => PageJsonTarget.Run,
             "review" => ReviewImportTarget.Run,
             "pdf" => PdfTarget.Run,
+            "image" => ImageTarget.Run,
+            "image-real" => ImageRealTarget.Run,
+            "normalization" => NormalizationTarget.Run,
             "llm-anthropic" => LlmTarget.RunAnthropic,
             "llm-openai" => LlmTarget.RunOpenAi,
             "llm-gemini" => LlmTarget.RunGemini,
             "llm-schema" => LlmTarget.RunSchema,
+            "llm-answer" => LlmAnswerTarget.Run,
+            "training-files" => TrainingFilesTarget.Run,
             _ => throw new ArgumentException($"Unknown target '{name}'."),
         };
     }
@@ -58,11 +65,13 @@ internal static class Program
                 return 0;
             case "mutate" when args.Length >= 3:
                 return Mutate(double.Parse(args[1], System.Globalization.CultureInfo.InvariantCulture), args[2], args.Length > 3 ? int.Parse(args[3], System.Globalization.CultureInfo.InvariantCulture) : 1);
+            case "sweep":
+                return Sweep.Run(args[1..]);
             case "seeds" when args.Length == 2:
                 WriteSeeds(args[1]);
                 return 0;
             default:
-                Console.Error.WriteLine("usage: OneOcr.Fuzz [replay <file>... | mutate <seconds> <corpusdir> [seed] | seeds <dir>]");
+                Console.Error.WriteLine("usage: OneOcr.Fuzz [replay <file>... | sweep ... | mutate <seconds> <corpusdir> [seed] | seeds <dir>]");
                 return 2;
         }
     }
@@ -140,14 +149,45 @@ internal static class Program
             }
         }
 
-        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + WordFreqTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
+        Console.WriteLine($"mutate: {runs} executions in {clock.Elapsed.TotalSeconds:F0} s ({ContainerTarget.Parsed + CharLmTarget.Parsed + WordFreqTarget.Parsed + LlmTarget.Parsed + ReviewImportTarget.Parsed + LlmAnswerTarget.Parsed + TrainingFilesTarget.Parsed} parsed, {ContainerTarget.Built} built a recognizer, {DocExtractTarget.Parsed} parsed and {DocExtractTarget.Built} built a document model), no findings");
         return 0;
+    }
+
+    private static void WriteNormalizationSeeds(string dir)
+    {
+        string[] samples =
+        [
+            "Total: 1.234,50 EUR", "03/10/2026", "Oct 3, 2026", "\u00e9\u0301\u1100\u1161\u11a8 \ufb01 \u00bd \u2460", "\ud83d\ude00 \ud800 \udc00 x",
+            "\u0041\u030a\u0323 \u1e9b\u0323 \u212b \u2126 \uac00", "(1,234.5) USD  -12,5 \u20ac", "31.12.99 29 Feb 2024 1/2/3",
+        ];
+        for (int i = 0; i < samples.Length; i++)
+        {
+            File.WriteAllBytes(Path.Combine(dir, $"text-{i}.seed"), System.Text.Encoding.Unicode.GetBytes(samples[i]));
+        }
     }
 
     private static void WriteSeeds(string dir)
     {
         Directory.CreateDirectory(dir);
         string target = Environment.GetEnvironmentVariable("ONEOCR_FUZZ_TARGET") ?? "container";
+        if (target == "image")
+        {
+            ImageTarget.WriteSeeds(dir);
+            return;
+        }
+
+        if (target == "image-real")
+        {
+            ImageRealTarget.WriteSeeds(dir);
+            return;
+        }
+
+        if (target == "normalization")
+        {
+            WriteNormalizationSeeds(dir);
+            return;
+        }
+
         if (target == "docextract")
         {
             File.WriteAllBytes(Path.Combine(dir, "small.seed"), TestDocModels.RandomContainer(TestDocModels.Small, 1));
@@ -172,6 +212,18 @@ internal static class Program
             var many = Enumerable.Range(0, 70).Select(i => ("w" + i.ToString("D3", System.Globalization.CultureInfo.InvariantCulture), 3 + i)).ToArray();
             File.WriteAllBytes(Path.Combine(dir, "blocks.seed"), TestWordFrequencies.Build(many));
             File.WriteAllBytes(Path.Combine(dir, "empty.seed"), TestWordFrequencies.Build([]));
+            return;
+        }
+
+        if (target == "llm-answer")
+        {
+            LlmAnswerTarget.WriteSeeds(dir);
+            return;
+        }
+
+        if (target == "training-files")
+        {
+            TrainingFilesTarget.WriteSeeds(dir);
             return;
         }
 

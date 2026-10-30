@@ -41,6 +41,9 @@ internal static class ReviewImport
             throw new OcrFormatException("The review file is not valid UTF-8.");
         }
 
+        // Escapes of lone surrogates would make a later string read throw InvalidOperationException.
+        JsonEscapes.RejectLoneSurrogates(data, "The review file");
+
         var corrections = new List<ReviewCorrection>();
         int unreviewed = 0;
         try

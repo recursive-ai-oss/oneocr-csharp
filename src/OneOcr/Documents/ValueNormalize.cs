@@ -511,7 +511,8 @@ internal static class ValueNormalize
 
         void Add(int? y, int m, int d, bool amb)
         {
-            if (m is < 1 or > 12 || d < 1)
+            // DateTime only holds years 1 to 9999; "5.5.0000" is not a date.
+            if (m is < 1 or > 12 || d < 1 || y is < 1 or > 9999)
             {
                 return;
             }
@@ -686,6 +687,7 @@ internal static class ValueNormalize
             (prev, cur) = (cur, prev);
         }
 
-        return prev[b.Length];
+        // The last row can hold a cell within the bound while the corner is far above it (aa against bbbb).
+        return Math.Min(prev[b.Length], bound + 1);
     }
 }

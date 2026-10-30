@@ -717,39 +717,7 @@ public sealed class ExtractionTrainer
         int maxWords = Math.Min(_options.MaxWordsPerPage, DocLimit());
         foreach (string file in Directory.EnumerateFiles(_labelDir, "*.json").Order(StringComparer.Ordinal))
         {
-            var fi = new FileInfo(file);
-            if (fi.Length > _limits.MaxModelFileBytes)
-            {
-                throw new OcrLimitException(nameof(OcrLimits.MaxModelFileBytes), _limits.MaxModelFileBytes, fi.Length);
-            }
-
-            byte[] bytes = File.ReadAllBytes(file);
-            ExtractLabelsDto doc;
-            try
-            {
-                var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { MaxDepth = _limits.MaxJsonDepth });
-                doc = JsonSerializer.Deserialize(ref reader, ExtractJsonContext.Default.ExtractLabelsDto) ?? throw new OcrFormatException($"'{file}' is empty.");
-            }
-            catch (JsonException ex)
-            {
-                throw new OcrFormatException($"'{file}' is not valid: {ex.Message}", ex);
-            }
-
-            if (doc.Format != LabelsFormat || doc.Version != 1 || !ValidId(doc.Id) || doc.Id != Path.GetFileNameWithoutExtension(file))
-            {
-                throw new OcrFormatException($"'{file}' is not an extraction label file of this version.");
-            }
-
-            if (doc.Words.Count > _limits.MaxWordsPerPage)
-            {
-                throw new OcrLimitException(nameof(OcrLimits.MaxWordsPerPage), _limits.MaxWordsPerPage, doc.Words.Count);
-            }
-
-            if (doc.Boxes.Count != 4L * doc.Words.Count || !(doc.Width > 0) || !(doc.Height > 0) || !double.IsFinite(doc.Width) || !double.IsFinite(doc.Height)
-                || doc.Boxes.Any(static b => !double.IsFinite(b)) || doc.Fields.Any(f => f.Words.Any(w => w < 0 || w >= doc.Words.Count)))
-            {
-                throw new OcrFormatException($"'{file}' has boxes or word indices that do not match its words.");
-            }
+            ExtractLabelsDto doc = ReadLabelFile(file, _limits, out byte[] bytes);
 
             total++;
             if (!doc.Usable || doc.Words.Count == 0 || doc.Words.Count > maxWords)
@@ -766,6 +734,46 @@ public sealed class ExtractionTrainer
         int heldCount = _options.HeldOutFraction <= 0 || n < 2 ? 0 : Math.Min(n - 1, Math.Max(1, (int)Math.Round(n * _options.HeldOutFraction, MidpointRounding.ToEven)));
         HashSet<string> heldIds = [.. docs.OrderBy(d => Key(_options.Seed, d.Doc.Id)).ThenBy(static d => d.Doc.Id, StringComparer.Ordinal).Take(heldCount).Select(static d => d.Doc.Id)];
         return [.. docs.Select(d => d with { HeldOut = heldIds.Contains(d.Doc.Id) })];
+    }
+
+    // Reads and checks one label file; shared with the fuzz target. Only OcrFormatException and OcrLimitException leave it.
+    internal static ExtractLabelsDto ReadLabelFile(string file, OcrLimits limits, out byte[] bytes)
+    {
+        var fi = new FileInfo(file);
+        if (fi.Length > limits.MaxModelFileBytes)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxModelFileBytes), limits.MaxModelFileBytes, fi.Length);
+        }
+
+        bytes = File.ReadAllBytes(file);
+        ExtractLabelsDto doc;
+        try
+        {
+            var reader = new Utf8JsonReader(bytes, new JsonReaderOptions { MaxDepth = limits.MaxJsonDepth });
+            doc = JsonSerializer.Deserialize(ref reader, ExtractJsonContext.Default.ExtractLabelsDto) ?? throw new OcrFormatException($"'{file}' is empty.");
+        }
+        catch (JsonException ex)
+        {
+            throw new OcrFormatException($"'{file}' is not valid: {ex.Message}", ex);
+        }
+
+        if (doc.Format != LabelsFormat || doc.Version != 1 || !ValidId(doc.Id) || doc.Id != Path.GetFileNameWithoutExtension(file))
+        {
+            throw new OcrFormatException($"'{file}' is not an extraction label file of this version.");
+        }
+
+        if (doc.Words.Count > limits.MaxWordsPerPage)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxWordsPerPage), limits.MaxWordsPerPage, doc.Words.Count);
+        }
+
+        if (doc.Boxes.Count != 4L * doc.Words.Count || !(doc.Width > 0) || !(doc.Height > 0) || !double.IsFinite(doc.Width) || !double.IsFinite(doc.Height)
+            || doc.Boxes.Any(static b => !double.IsFinite(b)) || doc.Fields.Any(f => f.Words.Any(w => w < 0 || w >= doc.Words.Count)))
+        {
+            throw new OcrFormatException($"'{file}' has boxes or word indices that do not match its words.");
+        }
+
+        return doc;
     }
 
     private static ulong Key(int seed, string id) =>

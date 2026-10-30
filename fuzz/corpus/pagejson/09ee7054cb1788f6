@@ -1,0 +1,18 @@
+{
+  "format": "oneocr.page",
+  "version": 1,
+  "pageCount": 1,
+  "pages": [
+    {
+      "index": 2,
+      "width": 613,
+      "height": 792,
+      "unitsPerInch": -2,
+      "ts": [
+        {
+             "source": "llm"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "format": "oneocr.page",
+  "version": 1,
+  "pageCount": 1,
+  "pages": [
+    {
+      "index": 2,
+      "width": 612,
+      "height": 792,
+      "unitsPerInch": 72,
+      "toPdf": [1,0,0,-1,0,792
+      ],
+      "diagnostics": [
+        "note \"one\""
+      ],
+      "text": "hi there \"x\" é\uD83D\uDE00\tcell\n\nx",
+      "blocks": [
+        {
+          "role": "body",
+          "table": true,
+          "bounds": [10,20,240,30
+          ],
+          "lines": [
+            {
+              "direction": "ltr",
+              "vertical": false,
+              "bounds": [10,20,240,30
+              ],
+              "cells": [
+                0,
+                2
+              ],
+              "text": "hi \tcell",
+              "words": [
+                {
+                  "text": "hi",
+                  "bounds": [10,20,20,30
+                  ],
+                  "visibl[": true,
+                        "rawConfidence": -1
+                }
+              ],
+              "source": "ocr",
+              "confidence": 0.7
+            }
+          ],
+          "source": "ocr",
+          "confidence": 0.7
+        },
+        {
+          "role": "footer",
+       "source": "ocr",
+          "block": 0
+        }
+      ],
+      "keyValues": [
+        {
+          "key": [
+            ],
+          "value": [
+            1,
+            2
+          ],
+          "bounds": [10,20,240,30
+          ],
+          "confidence": 0.3,
+          "source": "llm"
+        }
+      ]
+    }
+  ]
+}

@@ -10,10 +10,14 @@
     <Using Include="System.Collections.Generic" />
     <Using Include="System.IO" />
     <Using Include="System.Linq" />
+    <Using Include="System.Threading" />
+    <Using Include="System.Threading.Tasks" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="SharpFuzz" Version="2.2.0" />
+    <!-- Draws the text of the image-real seed pages. -->
+    <PackageReference Include="RecursiveAI.OneImage.Text" Version="1.10.1" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,6 +34,7 @@
     <Compile Include="../../tests/OneOcr.Tests/SamplePage.cs" Link="SamplePage.cs" />
     <Compile Include="../../tests/OneOcr.Tests/PdfFixtures.cs" Link="PdfFixtures.cs" />
     <Compile Include="../../tests/OneOcr.Tests/LlmFixtures.cs" Link="LlmFixtures.cs" />
+    <Compile Include="../../tests/OneOcr.Tests/GroundingSupport.cs" Link="GroundingSupport.cs" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,1 @@
+{"format":"oneocr.extraction-labels","version":1,"id":"doc","document":"a.png","wldth":0,"height":50,"usable":true,"words":["To"],"boxes":[1,2,30,12,40,2,70,12],"fieldsat":"oneocr.extraction-labels","version":1,"id":"doc","document":"a.png","wldth":100,"height":50,"usable":true,"words":["Total","12.50"],"boxes":[{"Yme":"total","value":"12.50","words":[1]}],"notes":[]}
