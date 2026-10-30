@@ -57,6 +57,7 @@ class Ctx:
     cps: frozenset[int] = frozenset()
     kv: int = 0
     dark_p: float = 0.0  # share of pages drawn light-on-dark (whole page, or dark bands on a light page)
+    receipt_canvas: tuple = ("tight", "page", "page")  # receipts: what the slip lies on (a page-sized surface shrinks the type)
 
     def clean(self, s: str) -> str:
         return "".join(c for c in s if c.isspace() or ord(c) in self.cps) if self.cps else s

@@ -54,6 +54,13 @@ def sample(rng: random.Random, cfg: dict) -> dict:
     d["jpeg"] = int(round(draw(rng, r["jpeg_q"]))) if rng.random() < p["jpeg"][profile] else 0
     d["bg"] = [round(c, 3) for c in _bg_color(rng, profile)]
     d["seed"] = rng.randrange(2**31)
+    # Optional extras for phone photos of till receipts. They are drawn last and only when the config names them, so page sets made
+    # without them keep their exact draws.
+    if "photo_rot" in r and profile == "photo":
+        d["rot"] = round(draw(rng, r["photo_rot"]) * rng.choice([-1, 1]), 3)
+        d["grow"] = True  # the canvas holds the tilted page whole
+    if "thermal" in r and profile != "screen" and rng.random() < p.get("thermal", 0.0):
+        d["thermal"] = round(draw(rng, r["thermal"]), 3)
     return d
 
 
@@ -133,7 +140,11 @@ def apply(img: Image.Image, d: dict, render_dpi: float, device: str = "cpu") -> 
         img = img.resize((w1, h1), Image.Resampling.BOX if f < 0.6 else Image.Resampling.LANCZOS)
     S = np.diag([w1 / w0, h1 / h0, 1.0])
     m = d["margin"]
-    wc, hc = round(w1 * (1 + 2 * m)), round(h1 * (1 + 2 * m))
+    bw, bh = w1, h1
+    if d.get("grow") and d["rot"]:
+        ca, sa = abs(math.cos(math.radians(d["rot"]))), abs(math.sin(math.radians(d["rot"])))
+        bw, bh = w1 * ca + h1 * sa, w1 * sa + h1 * ca
+    wc, hc = round(bw * (1 + 2 * m)), round(bh * (1 + 2 * m))
     ox, oy = (wc - w1) / 2, (hc - h1) / 2
     corners = np.array([[0, 0], [w1, 0], [w1, h1], [0, h1]], dtype=np.float64)
     dst = corners + [ox, oy]
@@ -164,6 +175,12 @@ def apply(img: Image.Image, d: dict, render_dpi: float, device: str = "cpu") -> 
     H1 = _homography(corners, dst)
     H = H1 @ S
     x = torch.from_numpy(np.asarray(img.convert("RGB"), dtype=np.float32) / 255.0).permute(2, 0, 1)[None].to(device)
+    if d.get("thermal"):
+        # a thermal head fades unevenly: slow blotches plus vertical streaks, applied to the ink in page coordinates
+        blob = F.interpolate(torch.rand(1, 1, 4, 3, generator=g) * 2 - 1, size=(h1, w1), mode="bicubic", align_corners=False)[0, 0]
+        streak = F.interpolate(torch.rand(1, 1, 1, max(6, w1 // 24), generator=g) * 2 - 1, size=(h1, w1), mode="bilinear", align_corners=False)[0, 0]
+        fade = ((0.6 * blob + 0.4 * streak).clamp(-1, 1) * 0.5 + 0.5).to(device)
+        x = 1 - (1 - x) * (1 - d["thermal"] * fade)
     if np.allclose(H1, np.eye(3), atol=1e-9):
         page, alpha = x, torch.ones(1, 1, h1, w1, device=device)
     else:

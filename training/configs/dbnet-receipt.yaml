@@ -1,0 +1,38 @@
+# Detector 0.3.3 candidate, chunk 1 (from the 0.3.0 weights): recall on receipt photos. The new source is synthetic receipt photos
+# (configs/pages-receiptphoto.yaml: tilt up to 32 degrees, perspective, shadow, low resolution, thermal fading) with exact word-box
+# truth. Everything else is the earlier mix as guard (DocLayNet, PubLayNet, synthetic pages, light-on-dark pages, CORD, web windows),
+# with no extra fading on those sources: faint text appears only where the receipt generator draws it. Non-text negatives (icons, borders,
+# skeleton bars, soft shadows; DetDataset.faint_marks) are drawn on every source, labelled background. Blend with the parent afterwards
+# (export/blend_checkpoints.py). Training data labels: exact-truth synthetic geometry, CORD word quads, DocLayNet/PubLayNet boxes; nothing
+# else is used as a box label.
+name: dbnet-receipt
+seed: 126
+size: 1024
+scale: [0.7, 1.15]
+rot_p: 0.25
+datasets_root: ${ONEOCR_DATASETS}
+run_dir: ${ONEOCR_HOME}/runs/dbnet-receipt
+init_from: ${ONEOCR_BASE}
+model: {orient16: true, layout16_blocks: 4, widths: [32, 72, 176, 288], depths: [2, 3, 6, 4], fpn: 48, text: 32, layout: 96, layout16: 160}
+sources:
+  - {name: doclaynet, weight: 0.18, label_source: "DocLayNet 1.0.0 layout boxes + extra-archive text cells (CDLA-Permissive-1.0)"}
+  - {name: publaynet, weight: 0.04, label_source: "PubLayNet 1.0.0 layout boxes, CC0/CC BY articles only (annotations CDLA-Permissive-1.0)"}
+  - {name: pages, weight: 0.14, marks_p: 0.2, dir: "${ONEOCR_PAGES}", cache: "${ONEOCR_HOME}/cache/pages-{split}.json", label_source: "exact-truth synthetic pages (browser layout geometry)"}
+  - {name: pages_dark, weight: 0.08, marks_p: 0.35, dir: "${ONEOCR_PAGES_DARK}", cache: "${ONEOCR_HOME}/cache/pages-dark-{split}.json", label_source: "exact-truth synthetic light-on-dark pages (browser layout geometry)"}
+  - {name: pages_receipt, weight: 0.26, marks_p: 0.3, rot_p: 0.05, dir: "${ONEOCR_PAGES_RECEIPT}", cache: "${ONEOCR_HOME}/cache/pages-receipt-{split}.json", label_source: "exact-truth synthetic receipt photos (browser layout geometry through the camera homography)"}
+  - {name: cord, weight: 0.14, marks_p: 0.25, label_source: "CORD v2 train word quads (CC BY 4.0), grouped into lines; annotated rows only"}
+  - {name: web, weight: 0.16, dir: "${ONEOCR_WEB_WINDOWS}", dark_repeat: 3, marks_p: 0.35, rot_p: 0.1, val_publishers: [nrc],
+     label_source: "DOM line boxes of public-domain US federal web pages rendered in Chromium (train sites only); unverified DOM lines ignored"}
+loss: {prob: 1.0, binary: 1.0, thresh: 10.0, layout_bce: 1.0, layout_dice: 2.0, orient: 0.3}
+train:
+  steps: 9000
+  batch: 12
+  lr: 0.0001
+  warmup: 200
+  weight_decay: 0.0001
+  workers: 10
+  log_every: 200
+  eval_every: 3000
+  ckpt_every: 500
+  val_pages: 150
+  max_minutes: 105
