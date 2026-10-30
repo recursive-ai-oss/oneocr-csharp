@@ -120,6 +120,10 @@ def figures(rng: random.Random) -> str:
                     h=rng.randint(7, 17), mi=rng.randint(0, 59), p1=rng.randint(0, 9999))
 
 
+# Line heights a page may use (a held-out tuning set for set type with tight leading replaces this before rendering).
+LINE_HEIGHTS = [1.3, 1.4, 1.5]
+
+
 def make_blocks(rng: random.Random, paras: list[list[str]]) -> list[tuple[str, list[str]]]:
     """(kind, lines of text); a list block has one entry per item, numbered inside the text."""
     h = lambda: rng.choice(HEAD_TEMPLATES).format(a=rng.choice(NOUNS), b=rng.choice(NOUNS))
@@ -205,7 +209,7 @@ def render_set(count: int, seed: int, out: Path, set_name: str = SET_NAME, post=
             rng = random.Random(f"{set_name}:{seed}:{i}")
             family = fams[i % len(fams)]
             size_pt = rng.choice([10, 10.5, 11, 11.5, 12])
-            lh = rng.choice([1.3, 1.4, 1.5])
+            lh = rng.choice(LINE_HEIGHTS)
             margin = rng.choice([18, 22, 25])
             justify = rng.random() < 0.5
             blocks = make_blocks(rng, paras)

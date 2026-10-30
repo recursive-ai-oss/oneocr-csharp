@@ -161,18 +161,35 @@ internal static class DetectorLines
 
             // Page lines the ink of a line may not be followed into (see ExtendEnds); photos keep their own end handling.
             (int[]? Left, int[]? Right) limits = EndGap > 0 && darkInk is null ? NeighbourLimits(detection.Lines, width) : (null, null);
+            int typicalBox = darkInk is null ? TypicalBoxHeight(detection.Lines) : 0;
             for (int i = 0; i < detection.Lines.Count; i++)
             {
                 int leaf = LeafOf(detection, i);
                 int before = strips.Count;
-                if (TiltedLines.TryInkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, strips, leaf, darkInk))
+                // A box tall enough to hold several lines is tried upright first: the axis of a component that joins lines leans with
+                // the lines it joins, and straightening along it smears the rows between them. When the upright cut finds several
+                // lines they are used; otherwise the box goes on as any other (along its axis if it leans).
+                var boxes = new List<LineBox>(1);
+                LocalInk? local = null;
+                bool cut = false;
+                if (typicalBox > 0 && detection.Lines[i].Bottom - detection.Lines[i].Top >= TallBand * typicalBox)
+                {
+                    var cutFlag = new bool[1];
+                    local = InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes, darkInk, limits.Left?[i] ?? 0, limits.Right?[i] ?? width, typicalBox, RowNeighbours(detection.Lines, i), cutFlag);
+                    cut = cutFlag[0];
+                }
+
+                if (!cut && TiltedLines.TryInkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, strips, leaf, darkInk, typicalBox))
                 {
                     MarkRecovered(strips, before, detection.Lines[i].MinConfidence);
                     continue;
                 }
 
-                var boxes = new List<LineBox>(1);
-                LocalInk? local = InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes, darkInk, limits.Left?[i] ?? 0, limits.Right?[i] ?? width);
+                if (boxes.Count == 0)
+                {
+                    local = InkBoxes(detection.Lines[i], page, width, height, threshold, inkIsBright, boxes, darkInk, limits.Left?[i] ?? 0, limits.Right?[i] ?? width, typicalBox);
+                }
+
                 foreach (LineBox b in boxes)
                 {
                     strips.Add(new StripLine(b, leaf, Local: local, MinConfidence: detection.Lines[i].MinConfidence));
@@ -352,6 +369,189 @@ internal static class DetectorLines
         return (left, right);
     }
 
+    /// <summary>
+    /// A band of ink rows at least this many typical detected-box heights tall is two or more lines the detector joined and is split
+    /// where the rows between the lines are nearly empty (see <see cref="SplitTallBands"/>).
+    /// </summary>
+    internal static double TallBand = 1.5;
+
+    /// <summary>A cut row's ink may be at most this share of the weaker side's densest row for the cut to count as a gap between lines.</summary>
+    internal static double ValleyShare = 0.2;
+
+    /// <summary>The fewest detected lines a page needs for its typical box height to mean anything.</summary>
+    private const int TypicalBoxMinimumLines = 8;
+
+    // The median height of the page's detected boxes (0 when there are too few to say): what one line of this page's running text looks like.
+    private static int TypicalBoxHeight(List<DetectedLine> lines)
+    {
+        if (TallBand <= 0 || lines.Count < TypicalBoxMinimumLines)
+        {
+            return 0;
+        }
+
+        var heights = new List<double>(lines.Count);
+        foreach (DetectedLine l in lines)
+        {
+            if (l.MinConfidence <= 0)
+            {
+                heights.Add(l.Bottom - l.Top);
+            }
+        }
+
+        if (heights.Count < TypicalBoxMinimumLines)
+        {
+            return 0;
+        }
+
+        heights.Sort();
+        return (int)Math.Round(heights[heights.Count / 2]);
+    }
+
+    // Lines set solid (leading barely above the type size) touch row by row, so the blank-gap test above cannot separate two lines the
+    // detector boxed together. A band that is much taller than a typical line is cut at its emptiest row, if that row is a real valley
+    // (almost no ink compared with the denser side, so it lies between two dense bands and not inside one line's ascender or descender
+    // rows) and both parts are at least half a line tall. A part is cut again while it is still much taller than the smaller of the
+    // typical line and its sibling, so a box of three lines of small type is cut twice. The cut row belongs to neither part.
+    private static bool SplitTallBands(int[] counts, List<(int Start, int End, long Mass)> bands, int typicalBox)
+    {
+        bool split = false;
+        var result = new List<(int Start, int End, long Mass)>(bands.Count + 2);
+        var work = new Stack<(int Start, int End, int Reference)>();
+        foreach ((int start, int end, long mass) in bands)
+        {
+            if (end - start + 1 < (int)Math.Ceiling(TallBand * typicalBox))
+            {
+                result.Add((start, end, mass));
+                continue;
+            }
+
+            work.Push((start, end, typicalBox));
+            while (work.Count > 0)
+            {
+                (int s, int e, int reference) = work.Pop();
+                int cut = e - s + 1 >= (int)Math.Ceiling(TallBand * reference) ? Valley(counts, s, e, Math.Max(2, reference / 2)) : -1;
+                if (cut < 0)
+                {
+                    long total = 0;
+                    for (int r = s; r <= e; r++)
+                    {
+                        total += counts[r];
+                    }
+
+                    result.Add((s, e, total));
+                    continue;
+                }
+
+                split = true;
+                int e1 = cut - 1, s2 = cut + 1;
+                while (e1 > s && counts[e1] == 0)
+                {
+                    e1--;
+                }
+
+                while (s2 < e && counts[s2] == 0)
+                {
+                    s2++;
+                }
+
+                work.Push((s2, e, Math.Min(reference, e1 - s + 1)));
+                work.Push((s, e1, Math.Min(reference, e - s2 + 1)));
+            }
+        }
+
+        result.Sort((x, y) => x.Start.CompareTo(y.Start));
+        bands.Clear();
+        bands.AddRange(result);
+        return split;
+    }
+
+    /// <summary>The share of a band's rows that another detected line's box must cover for the band to be that line (read there, not here).</summary>
+    internal static double CoverShare = 0.5;
+
+    // A box that spans several lines is often drawn over a line that has a box of its own (the lines of a shaded note beside running
+    // text, say). A part cut from it that another detected line already covers would be read twice, so it is dropped (when every
+    // part is covered, all are kept).
+    private static void DropCoveredBands(List<(int Start, int End, long Mass)> bands, List<(double Top, double Bottom)> neighbours, int y0)
+    {
+        var keep = new List<(int Start, int End, long Mass)>(bands.Count);
+        foreach ((int start, int end, long mass) in bands)
+        {
+            double from = y0 + start, to = y0 + end + 1, best = 0;
+            foreach ((double top, double bottom) in neighbours)
+            {
+                best = Math.Max(best, Math.Min(to, bottom) - Math.Max(from, top));
+            }
+
+            if (best < CoverShare * (to - from))
+            {
+                keep.Add((start, end, mass));
+            }
+        }
+
+        if (keep.Count > 0)
+        {
+            bands.Clear();
+            bands.AddRange(keep);
+        }
+    }
+
+    // The row of the deepest valley in rows [start, end] with at least `least` rows on each side, or -1 when no row is empty enough.
+    // A row's depth is its ink over the weaker side's densest row; of equal depths the one nearest the middle wins.
+    private static int Valley(int[] counts, int start, int end, int least)
+    {
+        int cut = -1, centre = (start + end) / 2;
+        double bestDepth = double.MaxValue;
+        var above = new int[end - start + 1];
+        int peak = 0;
+        for (int r = start; r <= end; r++)
+        {
+            above[r - start] = peak;
+            peak = Math.Max(peak, counts[r]);
+        }
+
+        int below = 0;
+        for (int r = end; r >= start + least; r--)
+        {
+            if (r <= end - least)
+            {
+                int weaker = Math.Min(above[r - start], below);
+                double depth = (double)counts[r] / Math.Max(1, weaker);
+                if (depth <= ValleyShare && (depth < bestDepth - 1e-9 || (Math.Abs(depth - bestDepth) <= 1e-9 && Math.Abs(r - centre) < Math.Abs(cut - centre))))
+                {
+                    bestDepth = depth;
+                    cut = r;
+                }
+            }
+
+            below = Math.Max(below, counts[r]);
+        }
+
+        return cut;
+    }
+
+    // The vertical extents of the other detected lines that share most of line i's width: what already reads the rows beside and over it.
+    private static List<(double Top, double Bottom)> RowNeighbours(List<DetectedLine> lines, int i)
+    {
+        DetectedLine a = lines[i];
+        var result = new List<(double Top, double Bottom)>();
+        for (int j = 0; j < lines.Count; j++)
+        {
+            DetectedLine b = lines[j];
+            if (j == i || b.MinConfidence > 0)
+            {
+                continue;
+            }
+
+            double shared = Math.Min(a.Right, b.Right) - Math.Max(a.Left, b.Left);
+            if (shared >= 0.5 * Math.Min(a.Right - a.Left, b.Right - b.Left) && b.Bottom - b.Top < a.Bottom - a.Top)
+            {
+                result.Add((b.Top, b.Bottom));
+            }
+        }
+
+        return result;
+    }
+
     // How many line heights short of the detector's extent the ink may stop on a photo before the detector's end is used.
     private const double EndGapHeights = 0.8;
 
@@ -360,7 +560,7 @@ internal static class DetectorLines
     // the page-wide one does not fit the line (see LocalInk), which the line's word boxes must then use too; null otherwise.
     internal static LocalInk? InkBoxes(
         DetectedLine line, ReadOnlySpan<byte> page, int width, int height, int threshold, bool inkIsBright, List<LineBox> result, bool? pageIsDarkInk = null,
-        int leftLimit = 0, int rightLimit = int.MaxValue)
+        int leftLimit = 0, int rightLimit = int.MaxValue, int typicalBox = 0, List<(double Top, double Bottom)>? neighbours = null, bool[]? cutFlag = null)
     {
         int x0 = Math.Clamp((int)Math.Floor(line.Left), 0, width), x1 = Math.Clamp((int)Math.Ceiling(line.Right), 0, width);
         int y0 = Math.Clamp((int)Math.Floor(line.Top), 0, height), y1 = Math.Clamp((int)Math.Ceiling(line.Bottom), 0, height);
@@ -433,11 +633,34 @@ internal static class DetectorLines
                     bestMass = Math.Max(bestMass, mass);
                 }
 
+                bool cutIntoLines = false;
+                if (typicalBox > 0)
+                {
+                    cutIntoLines = SplitTallBands(counts, bands, typicalBox);
+                    if (cutIntoLines && neighbours is not null)
+                    {
+                        DropCoveredBands(bands, neighbours, y0);
+                    }
+
+                    if (cutFlag is { Length: > 0 })
+                    {
+                        cutFlag[0] = cutIntoLines;
+                    }
+
+                    bestMass = 0;
+                    foreach ((int _, int _, long m) in bands)
+                    {
+                        bestMass = Math.Max(bestMass, m);
+                    }
+                }
+
                 // The main band, and any other band that holds at least 40% as much ink (two lines the detector joined); a smaller
                 // one is the edge of a neighbouring line.
                 foreach ((int start, int end, long mass) in bands)
                 {
-                    if (mass * 5 < bestMass * 2)
+                    // Parts cut from a joined box are lines in their own right (a short last line has little ink beside a full one), so
+                    // they only need a tenth of the heaviest part's ink to not be specks.
+                    if (cutIntoLines ? mass * 10 < bestMass : mass * 5 < bestMass * 2)
                     {
                         continue;
                     }

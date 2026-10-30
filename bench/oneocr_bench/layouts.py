@@ -112,6 +112,10 @@ FILL = """([blocks, limit, sel]) => {
 }"""
 
 
+# Line heights a page may use (replaced before rendering to make a set with tight leading).
+LINE_HEIGHTS = [1.3, 1.4]
+
+
 def render(count: int, seed: int, out, set_name: str, kinds: list[str] | None = None) -> tuple[list[dict], str]:
     from playwright.sync_api import sync_playwright
 
@@ -142,7 +146,7 @@ def render(count: int, seed: int, out, set_name: str, kinds: list[str] | None = 
             if kind == "form":
                 body_top = f"<h1>{e(rng.choice(['Application form', 'Order form', 'Registration', 'Delivery request']))}</h1><p>{e(prose(rng, paras, 120, 240))}</p>"
                 cols_blocks = form_blocks(rng)
-            doc = SKEL.format(fonts=font_css(fam), w=W_CSS, h=H_CSS, m=m, fam=fam, fs=fs, lh=rng.choice([1.3, 1.4]),
+            doc = SKEL.format(fonts=font_css(fam), w=W_CSS, h=H_CSS, m=m, fam=fam, fs=fs, lh=rng.choice(LINE_HEIGHTS),
                               ta=rng.choice(["left", "justify"]) if kind.startswith("article") else "left", gap=round(rng.uniform(18, 30)), nc=nc,
                               body=f"{body_top}<div class='cols' id='c'></div>{tail if kind != 'mixed' else ''}<div id='t'></div>")
             page = ctx.new_page()
