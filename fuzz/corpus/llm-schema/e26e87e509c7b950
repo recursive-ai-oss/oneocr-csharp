@@ -1,0 +1,1 @@
+{"type":"object","properties":{"items":{"type":"array","items":{"perties":{"n":{"type":"integer"}}}}},"$defs":{"a":{"type":[""]},"a":{"":"string"}}}

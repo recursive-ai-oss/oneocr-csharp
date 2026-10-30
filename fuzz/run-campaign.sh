@@ -125,7 +125,9 @@ case "$cmd" in
     done
     ;;
   repro)
-    ONEOCR_FUZZ_TARGET="$1" dotnet "$FUZZ_OUT/app/OneOcr.Fuzz.dll" replay "$2"
+    # Instrumented code needs the shared memory libFuzzer sets up, so the input runs under libFuzzer itself (one execution, no mutation).
+    ONEOCR_FUZZ_TARGET="$1" "$FUZZ_TOOLS/libfuzzer-dotnet" --target_path="$(command -v dotnet)" --target_arg="$FUZZ_OUT/app/OneOcr.Fuzz.dll" \
+      -timeout="$FUZZ_TIMEOUT" "$2" && echo "repro: $2 ran clean"
     ;;
   *)
     sed -n 2,12p "$0"

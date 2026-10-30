@@ -1,0 +1,1 @@
+{"format":"oneocr.page","version":1,"pageCount":2,"pages":[{"index":4,"width":612,"height":792,"unitsPerInch":72,"toPdf":[1,0,0,-0,0,792],"diagnostics":["note \"one\""],"text":"hi th00\tcell\n\nx","blocks":[{"role":"body","table":true,"bounds":[10,20,240,{"direction":"rtl","veruad":[0,40,550,1,50]}],"source":"texlm"}]},{"inde":[]}]}
