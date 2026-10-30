@@ -1,0 +1,4 @@
+{
+ "real-pdf": 20291030,
+ "note": "seed for page sampling and selection of bench-v6-clean-real-dev; entries marked tune form the held-out constants split"
+}
