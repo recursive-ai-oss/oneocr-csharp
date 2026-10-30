@@ -389,6 +389,50 @@ def add_distractors(cov: torch.Tensor, widths: torch.Tensor, P: dict, g: torch.G
     return torch.maximum(out, rule * inten * (on & room_ok).view(n, 1, 1, 1))
 
 
+def crop_jitter(cov: torch.Tensor, widths: torch.Tensor, J: dict, g: torch.Generator) -> tuple[torch.Tensor, torch.Tensor]:
+    """Moves each clean line inside its crop the way a page reader's crop box moves: vertically by up to `dy` rows (of the 48 rows), scaled
+    vertically by a factor from `scale`, with the left and right margins cut to a fraction `keep` of their width. The reader's boxes
+    differ from the ideal line box by a few pixels either way, and the same word is read right or wrong depending on where the box fell.
+
+    The label stays exact: ink is never pushed more than `clip` rows out of the crop and the margins never go below `min_margin` columns,
+    so every glyph is still there. Only samples drawn under `p` are changed. cov: [n, 1, 48, Wp]; returns (cov, widths)."""
+    n, _, h, w = cov.shape
+    dev = cov.device
+    wd = widths.to(dev).clamp(max=w)
+    rnd = lambda: torch.rand(n, generator=g, device=dev)  # noqa: E731
+    on = rnd() < J["p"]
+    top, bot, has_r = _extent(cov.amax(dim=(1, 3)) > 0.25)
+    left, right, has_c = _extent(cov.amax(dim=(1, 2)) > 0.25)
+    on = on & has_r & has_c
+    lo, hi = J.get("scale", [1.0, 1.0])
+    s = lo + (hi - lo) * rnd()
+    mid = (h - 1) / 2
+    clip = float(J.get("clip", 1.5))
+    top_s, bot_s = mid + (top.float() - mid) * s, mid + (bot.float() - mid) * s
+    dmax = float(J.get("dy", 0.0))
+    dlo = torch.maximum(torch.full_like(s, -dmax), -clip - top_s)
+    dhi = torch.minimum(torch.full_like(s, dmax), (h - 1) + clip - bot_s)
+    dlo, dhi = torch.minimum(dlo, dhi), dhi  # an empty range (tall ink) collapses to the upper bound
+    dy = dlo + (dhi - dlo) * rnd()
+    s, dy = torch.where(on, s, torch.ones_like(s)), torch.where(on, dy, torch.zeros_like(dy))
+    ys = torch.arange(h, device=dev).float().view(1, h, 1)
+    src_y = (ys - dy.view(n, 1, 1) - mid) / s.view(n, 1, 1) + mid
+    gx = torch.linspace(-1, 1, w, device=dev).view(1, 1, w).expand(n, h, w)
+    grid = torch.stack([gx, (src_y.expand(n, h, w) + 0.5) / h * 2 - 1], -1)
+    out = F.grid_sample(cov, grid, mode="bilinear", padding_mode="zeros", align_corners=False)
+    # margins: keep a fraction of each side's margin (the reader's boxes are tight on some lines and loose on others)
+    klo, khi = J.get("keep", [1.0, 1.0])
+    mm = int(J.get("min_margin", 2))
+    keep_l, keep_r = klo + (khi - klo) * rnd(), klo + (khi - klo) * rnd()
+    lm, rm = left, (wd - 1 - right)
+    cut_l = torch.where(on, (lm.float() * (1 - keep_l)).floor().long(), torch.zeros_like(lm)).clamp(min=0)
+    cut_r = torch.where(on, (rm.float() * (1 - keep_r)).floor().long(), torch.zeros_like(rm)).clamp(min=0)
+    cut_l = torch.minimum(cut_l, (lm - mm).clamp(min=0))
+    cut_r = torch.minimum(cut_r, (rm - mm).clamp(min=0))
+    out = _shift_gather(out, torch.zeros(n, device=dev), -cut_l.float(), wd, False) if bool((cut_l > 0).any()) else out
+    return out, (wd - cut_l - cut_r).clamp(min=8)
+
+
 @torch.no_grad()
 def degrade(clean: torch.Tensor, widths: torch.Tensor, side: dict, g: torch.Generator) -> tuple[torch.Tensor, torch.Tensor, dict]:
     """clean: uint8 [B, 1, 48, Wp] on the device (255 = paper, padded anywhere right of each width); widths: [B] clean widths.
@@ -399,6 +443,8 @@ def degrade(clean: torch.Tensor, widths: torch.Tensor, side: dict, g: torch.Gene
     b, _, _, wp = clean.shape
     params = sample_params(side, b, g, dev)
     cov = 1.0 - clean.float() / 255.0
+    if side.get("jitter"):  # off in the configs of the earlier line sets; drawn after the other parameters so those stay as they were
+        cov, widths = crop_jitter(cov, widths, side["jitter"], g)
     if any(k in side["p"] for k in ("rule", "sliver_v", "sliver_h")):  # off in the configs of the earlier line sets
         cov = add_distractors(cov, widths, side["p"], g)
     w32p = out_width(wp)

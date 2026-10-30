@@ -1,0 +1,89 @@
+# Robustness fine-tune of the bundled recognizer (crnn-v0 0.7.1), aimed at the misreads that remain on real pages: letters lost at a crop's ends
+# or read differently when the crop box sits a few pixels off the ideal line box, and faint, tilted thermal print.
+#  - crop jitter: every clean-line source is moved inside its crop (vertical shift and scale, margins cut to a fraction) before degradation
+#    (degrade/gpu.py crop_jitter), real crops get a vertical shift and scale (train/run.py augment_real); labels stay exact because ink is never
+#    pushed out of the crop by more than a row and a half;
+#  - receipt lines cut from generated receipt photos by the renderer's line quads (gen/receipt_lines.py): tilt up to 32 degrees, thermal fade;
+#  - tiny interface text rendered by Chromium (gen/ui_lines.py with configs/ui-lines-tiny.yaml), at a small share.
+# The production mix and guards of the earlier stages stay; the main (line-v4) stream keeps 40+ of 140 lines per batch so the weights do not drift
+# from the starting model on clean, degraded and layout text. Selection is on validation sets only: relative CER to the starting model, with the
+# sets this run is aimed at weighted up, and shifted copies of held-out sets (gen/jitter_val.py) standing for the crop-box jitter.
+# ${ONEOCR_HOME} is the state directory, ${ONEOCR_START} the run directory of the starting checkpoint (best.pt), ${ONEOCR_RECF} the receipt-line crops,
+# ${ONEOCR_TINY} the tiny interface lines, ${ONEOCR_JIT} the shifted validation copies; the others are as in crnn-rplus.yaml.
+name: crnn-robust
+seed: 129
+init_from: ${ONEOCR_HOME}/start/best.pt
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_PREV}/data/lines-v4
+run_dir: ${ONEOCR_HOME}/runs/crnn-robust
+main_override:
+  p: { resample: 0.5, resample2: 0.25 }
+  ranges: { tilt_deg: [0.0, 0.3] }
+  jitter: &jit { p: 0.5, dy: 5.0, scale: [0.94, 1.06], keep: [0.2, 1.0], clip: 1.5, min_margin: 2 }
+sources:
+  - name: adaptive
+    kind: pack
+    dir: ${ONEOCR_V6}/data/lines-v6/clean/adapt_train
+    line_set: configs/lines-v6.yaml
+    side: adapt
+    per_batch: 10
+    degrade_override: { jitter: *jit }
+    provenance: exact-truth synthetic (configs/lines-v6.yaml)
+    adaptive:
+      stream_dir: ${ONEOCR_V6}/data/lines-v6/clean/adapt_stream
+      every: 3000
+      gamma: 0.7
+      clip: [0.4, 4.0]
+      smooth: 0.5
+      beta: 1.0
+      bins:
+        em: [6, 8, 10, 12, 14, 16, 21, 30, 60, 100]
+        blur_rel: [0.0, 0.03, 0.06, 0.09, 0.125, 0.16]
+        contrast: [45, 65, 90, 130, 180, 256]
+        noise: [0, 2, 4, 6, 8, 12]
+  - { name: receipt-synth, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/train", line_set: configs/lines-v5.yaml, side: receipt, per_batch: 3, degrade_override: { jitter: *jit }, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: gap-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/gaps_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 4, degrade_override: { jitter: *jit }, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: ui-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 12, degrade_override: { jitter: *jit }, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: tight-lines, kind: pack, dir: "${ONEOCR_FT}/data/lines-v5/clean/tight_train", line_set: configs/lines-v4.yaml, side: train, per_batch: 12, degrade_override: { jitter: *jit }, provenance: "exact-truth synthetic (configs/lines-v5.yaml)" }
+  - { name: mask-qty, kind: pack, dir: "${ONEOCR_MASKS}/clean/mq_train", line_set: configs/lines-masks.yaml, side: rcpt, per_batch: 3, degrade_override: { jitter: *jit }, provenance: "exact-truth synthetic (configs/lines-masks.yaml)" }
+  - { name: web-lines, kind: crops, dir: "${ONEOCR_WEB}/train", per_batch: 16, jitter: &rj { p: 0.5, dy: 3.0, scale: [0.94, 1.06] }, provenance: "exact truth: DOM text of public-domain web pages rendered by Chromium (gen/web_lines.py, data/font_allowlist.yaml)" }
+  - { name: cord-train, kind: crops, dir: "${ONEOCR_FT}/data/cord-lines/train/finder", per_batch: 8, jitter: *rj, provenance: "CORD v2 train annotations, CC BY 4.0" }
+  - { name: gen-receipt-engine, kind: crops, dir: "${ONEOCR_GEN}/crops/train/finder", per_batch: 8, jitter: *rj, provenance: "receipt photos generated with Google Gemini 3.1 Flash Image, transcribed by Anthropic Claude Sonnet; engine line crops (gen/receipt_photos.py)" }
+  - { name: receipt-photo-lines, kind: crops, dir: "${ONEOCR_RECF}/train", per_batch: 16, jitter: { p: 0.3, dy: 2.0, scale: [0.96, 1.04] }, provenance: "exact-truth synthetic: receipt photos from pages.generate (configs/pages-receiptphoto.yaml), lines cut by gen/receipt_lines.py" }
+  - { name: ui-tiny, kind: crops, dir: "${ONEOCR_TINY}/train", per_batch: 6, jitter: *rj, provenance: "exact truth: DOM text rendered by Chromium (gen/ui_lines.py, configs/ui-lines-tiny.yaml)" }
+extra_val:
+  receipt_synth: ${ONEOCR_FT}/data/lines-v5/val
+  gaps: ${ONEOCR_FT}/data/lines-v5/gaps_val
+  ui: ${ONEOCR_FT}/data/lines-v5/ui_val
+  tight: ${ONEOCR_FT}/data/lines-v5/tight_val
+  web: ${ONEOCR_WEB}/heldout
+  cord_dev: ${ONEOCR_FT}/data/cord-lines/val/finder
+  gen_calib: ${ONEOCR_GEN}/crops/calib/finder
+  mask: ${ONEOCR_MASKS}/mask_val
+  qty: ${ONEOCR_MASKS}/qty_val
+  phone: ${ONEOCR_PHONE}
+  figures: ${ONEOCR_V6}/data/lines-v6/figures_val
+  small: ${ONEOCR_V6}/data/lines-v6/small_val
+  reader: ${ONEOCR_V6}/data/lines-v6/reader_val
+  shot: ${ONEOCR_V6}/data/lines-v6/shot_val
+  recfaint: ${ONEOCR_RECF}/val
+  ui_tiny: ${ONEOCR_TINY}/val
+  jit_shot: ${ONEOCR_JIT}/shot
+  jit_web: ${ONEOCR_JIT}/web
+  jit_ui: ${ONEOCR_JIT}/ui
+  jit_small: ${ONEOCR_JIT}/small
+train:
+  steps: 14000
+  batch: 140
+  lr: 0.00004
+  warmup: 200
+  weight_decay: 0.01
+  log_every: 200
+  eval_every: 1000
+  ckpt_every: 1000
+  val_penalty: 3.0
+  val_weights: { recfaint: 3.0, gen_calib: 2.0, jit_shot: 2.0, jit_web: 2.0, jit_ui: 2.0, jit_small: 2.0, cord_dev: 1.0 }
+  guard: { val: 0.02, ui: 0.02, tight: 0.02, shot: 0.02, web: 0.02, phone: 0.0 }
+  guard_wer: { shot: 0.0, ui: 0.02, tight: 0.02, phone: 0.0, web: 0.02 }

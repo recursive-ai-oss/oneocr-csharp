@@ -63,13 +63,31 @@ def run_manifest(cfg: dict, data_dirs: dict[str, Path], charset_path: Path) -> d
     }
 
 
-def augment_real(x: torch.Tensor, widths: torch.Tensor, g: torch.Generator) -> tuple[torch.Tensor, torch.Tensor]:
+def shift_rows(f: torch.Tensor, dy: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
+    """f [B,1,H,W] floats: each image moved down by dy rows and scaled vertically by `scale` about its centre, edge rows repeated (the paper
+    colour at the crop's edge), as a crop box that sits a few pixels higher, lower, taller or shorter would show the line."""
+    b, _, h, w = f.shape
+    mid = (h - 1) / 2
+    ys = torch.arange(h, device=f.device).float().view(1, h, 1)
+    src = (ys - dy.view(b, 1, 1) - mid) / scale.view(b, 1, 1) + mid
+    gx = torch.linspace(-1, 1, w, device=f.device).view(1, 1, w).expand(b, h, w)
+    grid = torch.stack([gx, (src.expand(b, h, w) + 0.5) / h * 2 - 1], -1)
+    return torch.nn.functional.grid_sample(f, grid, mode="bilinear", padding_mode="border", align_corners=False)
+
+
+def augment_real(
+    x: torch.Tensor, widths: torch.Tensor, g: torch.Generator, jitter: dict | None = None
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Light photometric and width jitter for real crops (uint8 [B,1,32,W], paper-padded): contrast and brightness, gamma, a little
     blur and noise, width scaled by 0.85-1.15. Real crops are the scarcest data, so they are seen many times with small changes."""
     dev = x.device
     b = x.shape[0]
     u = lambda lo, hi: lo + (hi - lo) * torch.rand(b, generator=g, device=dev)  # noqa: E731
     f = x.float() / 255.0
+    if jitter:  # crop-box jitter: dy rows up or down (of the 32), vertical scale, drawn for a share `p` of the crops
+        on = (torch.rand(b, generator=g, device=dev) < jitter["p"]).float()
+        lo, hi = jitter.get("scale", [1.0, 1.0])
+        f = shift_rows(f, u(-jitter["dy"], jitter["dy"]) * on, 1 + (u(lo, hi) - 1) * on)
     f = f ** u(0.75, 1.35).view(b, 1, 1, 1)
     f = (f - 0.5) * u(0.7, 1.1).view(b, 1, 1, 1) + 0.5 + u(-0.08, 0.08).view(b, 1, 1, 1)
     sig = u(0.3, 0.9) * (torch.rand(b, generator=g, device=dev) < 0.3)
@@ -136,7 +154,7 @@ def main() -> None:
     for k, v in cfg.get(
         "main_override", {}
     ).items():  # e.g. the reader's resampling on the production mix: {p: {resample: 0.3}, ranges: {...}}
-        side = {**side, k: {**side[k], **v}}
+        side = {**side, k: {**side.get(k, {}), **v}}
     # extra training sources mixed into every batch (fine-tune stages): a clean pack degraded on the GPU with its own side of a line-set
     # config (kind pack), or real crops already at model height (kind crops); extra validation sets are scored next to `val`
     sources = []
@@ -144,6 +162,8 @@ def main() -> None:
         if sc["kind"] == "pack":
             ds = PackSet(Path(sc["dir"]), charset)
             sd = yaml.safe_load((BASE / sc["line_set"]).read_text(encoding="utf-8"))["gpu_degrade"][sc["side"]]
+            for k, v in sc.get("degrade_override", {}).items():  # e.g. {jitter: {p: 0.5, dy: 6}} on top of the line set's side
+                sd = {**sd, k: {**sd.get(k, {}), **v}}
         else:
             ds, sd = LineSet(Path(sc["dir"]), charset), None
         sources.append((sc, ds, sd))
@@ -262,7 +282,7 @@ def main() -> None:
                     sd = {**sd, "_bins": adaptive.bins_for(step // adaptive.every)}
                 gx, gw, _ = degrade(gx, gw, sd, gen)
             else:
-                gx, gw = augment_real(gx, gw, gen)
+                gx, gw = augment_real(gx, gw, gen, sources[si - 1][0].get("jitter"))
             gl = gw.tolist()
             for k in range(gx.shape[0]):
                 imgs.append(gx[k : k + 1, :, :, : int(gl[k])].float())
