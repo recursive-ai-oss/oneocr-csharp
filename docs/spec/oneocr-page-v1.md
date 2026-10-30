@@ -505,10 +505,13 @@ dialog screenshots, form pages) and then checked on held-out screenshot and layo
 glyphs appear. The other values were chosen on pages that are
 not part of the benchmark sets: a degraded-scan set and a screenshot set rendered with new seeds, and the validation split of the
 generated page set. The dropped words never reach reading order, tables, `text` or the JSON; the page gets one diagnostic stating
-how many words were dropped. The stroke and contained-fragment rules and the bracket gap were found on the unmatched words of held-out
-layout and screenshot sets (pages rendered with other seeds than the benchmark sets), where most of the extra words of a clean page
-are these three kinds; on those sets they remove 70% to 90% of the extra words and 3 of about 100 correct words (lone `I` and `1` read
-without confidence). `OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM are not
+how many words were dropped. The stroke and contained-fragment rules and the bracket gap were found on the unmatched words of held-out layout and screenshot
+sets (pages rendered with other seeds than the benchmark sets), where most of the extra words on a clean page are these three kinds.
+Together the new rules removed 80 words from the four held-out and two benchmark synthetic layout and screenshot sets, all of them
+extra or wrong; 108 from real-PDF pages, 11 of them right (form `X` marks and a capital letter); and 36 from degraded, phone and
+receipt pages, none right. Three values were set after reading dropped words on benchmark development pages, not on held-out sets:
+the confidence bound of 0.2 and the clean-page gate (the first version lost recall on receipt photos), and the one-character limit
+of the contained-fragment rule (two-letter words such as `If` and `be` were dropped on real forms). `OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM are not
 filtered.
 
 ## Compatibility
