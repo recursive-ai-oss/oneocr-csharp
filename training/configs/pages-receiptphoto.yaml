@@ -1,0 +1,63 @@
+# Detector data: till receipts photographed on a desk. Receipt pages only (configs/pages-docs.yaml's receipt layout), mostly the
+# photo profile with a tilt of up to 32 degrees (the canvas grows to hold the tilted page), perspective, shadows and uneven light, low
+# resolution (8-16 px type), and thermal-print fading: `thermal` fades the ink unevenly (blotches and vertical streaks) on top of `faint`.
+# Every box is the image of the renderer's own word box under the page homography, so truth stays exact. `train` and `heldout` ranges are
+# disjoint; the heldout set is for the training monitor, never for choosing between candidates.
+# ranges: see configs/pages-docs.yaml. photo_rot: photo tilt in degrees, either sign. thermal: strength of the print fade (0 = none).
+mix: { receipt: 1.0 }
+receipt_canvas: [tight, tight, tight, page]
+degrade:
+  train:
+    profiles: { clean: 0.05, scan: 0.15, photo: 0.80, screen: 0.0 }
+    ranges:
+      dpi: [[56, 80], [80, 110], [110, 150]]
+      rot: [0.0, 4.0]
+      photo_rot: [[0.0, 8.0], [8.0, 20.0], [20.0, 32.0]]
+      persp: [0.0, 0.10]
+      margin: [0.03, 0.10]
+      light: [0.0, 0.45]
+      faint: [0.40, 1.0]
+      thermal: [0.25, 0.85]
+      blur: [0.0, 1.4]
+      motion: [3, 6]
+      read: [0.0, 0.02]
+      shot: [0.0, 0.03]
+      jpeg_q: [[40, 60], [60, 95]]
+    p:
+      light: 0.7
+      shadow: 0.45
+      faint: 0.35
+      thermal: 0.55
+      blur: 0.6
+      motion: 0.15
+      noise: 0.7
+      gray: 0.3
+      binarize: 0.0
+      jpeg: { clean: 0.3, scan: 0.6, photo: 0.9, screen: 0.4 }
+  heldout:
+    profiles: { clean: 0.05, scan: 0.15, photo: 0.80, screen: 0.0 }
+    ranges:
+      dpi: [[48, 56], [150, 170]]
+      rot: [4.0, 6.0]
+      photo_rot: [[32.0, 38.0]]
+      persp: [0.10, 0.14]
+      margin: [0.03, 0.10]
+      light: [0.45, 0.6]
+      faint: [0.30, 0.40]
+      thermal: [0.85, 0.92]
+      blur: [1.4, 1.9]
+      motion: [6, 9]
+      read: [0.02, 0.03]
+      shot: [0.03, 0.04]
+      jpeg_q: [[20, 40]]
+    p:
+      light: 0.7
+      shadow: 0.45
+      faint: 0.35
+      thermal: 0.55
+      blur: 0.6
+      motion: 0.15
+      noise: 0.7
+      gray: 0.3
+      binarize: 0.0
+      jpeg: { clean: 0.3, scan: 0.6, photo: 0.9, screen: 0.4 }

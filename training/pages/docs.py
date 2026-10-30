@@ -363,7 +363,7 @@ def receipt_page(ctx: Ctx, seed: int) -> PageSpec:
     for _ in range(300):
         tpl = {
             "kind": "receipt", "align": rng.choice(["center", "left"]), "item": rng.choice(["dots", "plain", "grid"]), "sep": rng.choice(["dash", "star", "rule", "none"]),
-            "role": rng.choice(["mono", "mono", "sans"]), "qtyfmt": rng.choice(["x", "pre", "none"]), "canvas": rng.choice(["tight", "page", "page"]),
+            "role": rng.choice(["mono", "mono", "sans"]), "qtyfmt": rng.choice(["x", "pre", "none"]), "canvas": rng.choice(ctx.receipt_canvas),
             "barcode": rng.random() < 0.5, "taxcode": rng.random() < 0.3,
         }  # fmt: skip
         if template_split(tpl) == ("train" if ctx.split == "train" else "val"):
