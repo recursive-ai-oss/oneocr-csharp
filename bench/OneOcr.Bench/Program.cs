@@ -190,6 +190,17 @@ internal static class Program
     // --endext GAP[:REACH[:MIN[:FILL]]]: follow a line's ink past the detected box's ends (see DetectorLines.EndGap); 0 is off.
     private static void ApplyEndExt(Dictionary<string, string> o)
     {
+        // --tall BAND[:VALLEY]: where a detected box's ink band is cut as joined lines (see DetectorLines.TallBand); 0 is off.
+        if (o.TryGetValue("tall", out string? tall))
+        {
+            string[] t = tall.Split(':');
+            DetectorLines.TallBand = double.Parse(t[0], CultureInfo.InvariantCulture);
+            if (t.Length > 1)
+            {
+                DetectorLines.ValleyShare = double.Parse(t[1], CultureInfo.InvariantCulture);
+            }
+        }
+
         if (o.TryGetValue("endext", out string? endExt))
         {
             string[] f = endExt.Split(':');

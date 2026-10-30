@@ -498,9 +498,16 @@ of its box area inside the box of a word with more characters, it is the same in
 the word as a line of its own: `p` over `perfect`, `(` over `(with`). Two printed words never share a box like that, so the short
 word is dropped, whatever its confidence. Candidates are found through a grid with 128-pixel cells, so a page costs one pass.
 
+*Repeats* (any strip height, any page): when a word has at least `RepeatFraction` of its box area inside the box of another word, has at
+least two letters or digits, and its letters and digits (case-folded, marks left out) are a contiguous run of the other word's, it is the
+same ink read again (the detector boxed a stretch of a line a second time, so `firea` and `ms.` appear over `firearms.`, or a second `in`
+over `in`). The repeat is dropped; of two readings with equal letters the less confident goes (the later one when equally confident). A
+misread repeat (`arn` for `arm`) is not a run of the word's letters and stays. Same grid as above. Unlike the two rules above it does not
+wait for a clean page: it needs a shared box and shared letters, which two printed words never have.
+
 The parameters are `MaxConfidence` = 0.5, `RelativeHeight` = 0.6, `MaxHeight` = 12 px, `TinyHeight` = 8 px, `TinyConfidence` = 0.99,
 `AnchorConfidence` = 0.9, `MinAnchorLines` = 3, `SpeckConfidence` = 0.9, `SpeckPageMin` = 3, `ControlConfidence` = 0.9,
-`ControlBracketGap` = 0.2, `StrokeConfidence` = 0.2, `StrokeAspect` = 0.5, `ContainedFraction` = 0.6, `ContainedMaxLength` = 1, `CleanPageShare` = 0.95. The control rule's glyph set and bar were read off the unmatched words of two benchmark sets (form and
+`ControlBracketGap` = 0.2, `StrokeConfidence` = 0.2, `StrokeAspect` = 0.5, `ContainedFraction` = 0.6, `ContainedMaxLength` = 1, `RepeatFraction` = 0.6, `CleanPageShare` = 0.95. The control rule's glyph set and bar were read off the unmatched words of two benchmark sets (form and
 dialog screenshots, form pages) and then checked on held-out screenshot and layout sets rendered with other seeds, where the same
 glyphs appear. The other values were chosen on pages that are
 not part of the benchmark sets: a degraded-scan set and a screenshot set rendered with new seeds, and the validation split of the

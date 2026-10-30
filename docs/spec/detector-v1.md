@@ -116,6 +116,37 @@ found, each end is therefore followed outwards on **pages that are not camera ph
 Without step 2, about one strip in ten on screenshot pages grew by a whole line height onto the fill of buttons and bars. The constants
 (0.25 gap, 1.0 reach, 0.25 minimum, 0.65 fill) come from a sweep of seven variants over generated layout and screenshot pages.
 
+## Joined lines on flat pages (page reader, any detector version)
+
+Lines set solid (leading barely above the type size, as in statute and report text) touch row by row: a descender reaches the next line's
+ascenders, so no pixel row between two lines is empty. The detector can then box two or three lines as one, and the ink-band rule above
+(a gap of more than an eighth of the box height ends a band) cannot cut it. A recognizer line crop that holds two lines reads as noise. On
+**pages that are not camera photos**, with at least 8 detected lines:
+
+1. **Typical box.** `T` is the median height of the page's detected boxes (faint-text recoveries left out).
+2. **Tall band.** A band of ink rows (found as above, rows counted over the box's width) at least `ceil(1.5 * T)` rows tall is cut.
+3. **Valley.** Let `count[r]` be the ink pixels in row `r` over the box's width, `above(r)` and `below(r)` the densest rows on either side
+   within the band. A row is a valley when `count[r] <= 0.2 * min(above(r), below(r))` (so it lies between two dense bands, not in one
+   line's ascender or descender rows) and at least `max(2, floor(R / 2))` rows remain on each side, `R` being the reference height
+   (`T` at first). The valley with the smallest ratio is the cut (ties: nearest the band's middle); the cut row belongs to neither part and
+   blank rows at the cut ends are trimmed.
+4. **Again.** Each part is cut again by steps 2 and 3 while it is at least `ceil(1.5 * R')` tall, with `R'` the smaller of `R` and its
+   sibling's height. A box of three lines of small type is cut twice; two lines of normal type once.
+5. **No duplicates.** A box is often drawn over a line that has a box of its own (the lines of a shaded note beside running text). A part
+   is dropped when another detected line that is shorter than this box and shares at least half of the narrower width covers at least half
+   of the part's rows. When every part would be dropped, all are kept.
+6. The parts go through the ink-band mass rule with a lower bar than ordinary bands: a part is kept with a tenth of the heaviest part's
+   ink (ordinary bands need 40%), because a short last line has little ink beside a full one. Each part's horizontal extent is taken from
+   its own rows.
+
+7. A box this tall is cut upright first (the principal axis of a component that joins lines leans with them, and straightening along it
+   smears the rows between the lines). If it was cut, the parts are used; otherwise the box goes on as any other, along its axis if it
+   leans (see "Line axis"), where the same cut is tried in the straightened strip with `T` unchanged and without step 5.
+
+Without step 5 a line already read through its own box was read twice. The constants (1.5, 0.2, the cover share 0.5) were chosen on held-out
+real-PDF pages (IRS layout, scans) and on generated solid-set pages; on those, a tall-band factor anywhere from 1.2 to 1.7 gives identical
+output, and a valley share of 0.35 made generated layout pages worse by splitting single lines.
+
 ## Evaluation order and memory
 
 As for v0, every output value is an independent sum, so a port may evaluate whole or in bands. The C# reader keeps the v0 banded stages; the stride-16 branch runs on whole stride-16 maps (a quarter of the stride-8 map's size), `p16` is kept until the branch has consumed it, and stage 2's channel means are taken before stage 2 is dropped. On an A4 page at the 0.2.0 widths the scratch in use at once peaks at 24.3 MB at degree 1 (22.8 MB for v0 at its own widths).
