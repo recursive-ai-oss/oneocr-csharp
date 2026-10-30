@@ -514,6 +514,35 @@ the confidence bound of 0.2 and the clean-page gate (the first version lost reca
 of the contained-fragment rule (two-letter words such as `If` and `be` were dropped on real forms). `OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM are not
 filtered.
 
+## Stray accents
+
+On a badly scanned page a speck above or below a letter is read as part of it: the network writes `thé` for `the`, `dọwn` for
+`down`, `budġet` for `budget`, usually with middling confidence. Right after recognition, before the noise filter, a page-wide pass takes
+such marks off. It changes characters, never boxes or confidences, and it is part of the noise cleanup
+(`OcrOptions.FixStrayAccents`, default true, does nothing when `DropNoise` is false). It needs the word frequency table
+(`word-lm-v1`); without one nothing changes.
+
+*Page gate.* Count the words that hold a letter, and among them the words that hold a precomposed Latin letter with marks (a letter
+whose canonical decomposition is an ASCII letter followed only by combining marks). When the second count exceeds `AccentPageShare`
+of the first, the page is in a language that uses accents and nothing changes.
+
+*Word rule.* A word changes when all of these hold:
+
+1. Its calibrated confidence is under `AccentConfidence`.
+2. Trimming characters that are neither letters nor digits from both ends leaves at least two characters, and every one of them is an
+   ASCII letter or a precomposed Latin letter with marks. A digit, a hyphen or apostrophe inside, a letter of another script and a
+   letter without a plain form (`ß`, `æ`, `œ`) leave the word as it is.
+3. The lowercase word with its marks taken off is in the frequency table, and its count, in quarter-bits (four times the base-2
+   logarithm), is at least `AccentMargin` above that of the lowercase accented spelling (a word the table lacks has the table's
+   missing value). Eight times as frequent is `AccentMargin` = 12.
+
+Each marked letter is replaced by its ASCII letter in the case it had; the word's characters (when kept) change the same way. The
+page gets one diagnostic with the number of words changed. The decomposition comes from the pinned normalization tables
+(`text-normalization-v1`), so the result does not depend on the platform's globalization settings. Values: `AccentConfidence` =
+0.97, `AccentMargin` = 12, `AccentPageShare` = 0.12. They were fixed in advance and kept after trying margin 8, a bound of
+0.99 and no page gate on three held-out degraded scan sets, where the choice moved the word error by under 0.02 points. The
+page gate never fires on the degraded sets used, so its value is a precaution for accented languages and was not tuned.
+
 ## Compatibility
 
 A reader of version 1 accepts documents with additional members. Documents written by a future version 2 are rejected with

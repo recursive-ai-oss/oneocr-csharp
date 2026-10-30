@@ -1,3 +1,5 @@
+using OneOcr.Decoding;
+
 namespace OneOcr.Layout;
 
 /// <summary>The thresholds of <see cref="JunkFilter"/>.</summary>
@@ -17,6 +19,9 @@ namespace OneOcr.Layout;
 /// <param name="StrokeAspect">A stroke is at most this wide, as a fraction of its height.</param>
 /// <param name="ContainedFraction">A word of at most <paramref name="ContainedMaxLength"/> characters whose box lies at least this much inside the box of a longer word is a fragment of that word read twice. 0 turns the rule off.</param>
 /// <param name="ContainedMaxLength">The longest word the contained-fragment rule may drop.</param>
+/// <param name="AccentConfidence">A word read with an accent or dot under a letter is a candidate for <see cref="StrayAccents"/> only when its confidence is below this. 0 turns the rule off.</param>
+/// <param name="AccentMargin">... and the plain spelling must be at least this many quarter-bits (four per doubling) more frequent than the accented one.</param>
+/// <param name="AccentPageShare">The rule applies only to a page on which at most this share of the words holding letters has an accented letter.</param>
 internal sealed record JunkParameters(
     float MaxConfidence = 0.5f,
     double RelativeHeight = 0.6,
@@ -33,7 +38,10 @@ internal sealed record JunkParameters(
     double StrokeAspect = 0.5,
     double ContainedFraction = 0.6,
     int ContainedMaxLength = 1,
-    double CleanPageShare = 0.95);
+    double CleanPageShare = 0.95,
+    float AccentConfidence = 0.97f,
+    int AccentMargin = 12,
+    double AccentPageShare = 0.12);
 
 /// <summary>
 /// Removes detections that are noise read as text: specks, scan grain and edges that the detector cut as tiny lines and the
@@ -47,7 +55,15 @@ internal static class JunkFilter
     /// Entries become null when no word is left. Returns how many words were dropped.
     /// </summary>
     public static int Apply(OrderStrip?[] strips, JunkParameters p)
+        => Apply(strips, p, null, out _);
+
+    /// <summary>
+    /// Like <see cref="Apply(OrderStrip?[], JunkParameters)"/>, and with word frequencies also takes stray accents off letters (see
+    /// <see cref="StrayAccents"/>); <paramref name="accents"/> is the number of words that changed.
+    /// </summary>
+    public static int Apply(OrderStrip?[] strips, JunkParameters p, WordFrequencyModel? frequencies, out int accents)
     {
+        accents = frequencies is not null && p.AccentConfidence > 0 ? StrayAccents.Apply(strips, p, frequencies) : 0;
         int dropped = DropSmall(strips, p);
         if (p.SpeckConfidence > 0)
         {

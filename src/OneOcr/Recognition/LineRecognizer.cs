@@ -38,6 +38,9 @@ public sealed class LineRecognizer
 
     internal bool HasWordFrequencies => _frequencies is not null;
 
+    /// <summary>The word frequency table, or null when the recognizer has none.</summary>
+    internal WordFrequencyModel? WordFrequencies => _frequencies;
+
     /// <summary>A recognizer that shares this one's weights and buffers and lets <paramref name="frequencies"/> take back spaces inside words (null: none).</summary>
     internal LineRecognizer WithWordFrequencies(WordFrequencyModel? frequencies)
     {

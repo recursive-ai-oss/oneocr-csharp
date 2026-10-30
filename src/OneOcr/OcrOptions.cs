@@ -63,7 +63,7 @@ public sealed class OcrOptions
     /// three digits, a run of letters and digits (the pieces between punctuation) that holds only digits and capital <c>O</c>s,
     /// with at least one of each, has its <c>O</c>s read as <c>0</c>: <c>ACC-71O3O5</c> becomes <c>ACC-710305</c> and
     /// <c>2020-04-O7</c> becomes <c>2020-04-07</c>. Words with other letters inside the run (<c>CO2</c>, <c>COVID19</c>) and
-    /// short strings (<c>O2</c>) are left as read. Together with <see cref="FixSeparators"/> it is the only step after recognition that changes a character; set it to
+    /// short strings (<c>O2</c>) are left as read. Together with <see cref="FixSeparators"/> and <see cref="FixStrayAccents"/> it is a step after recognition that changes a character; set it to
     /// false to keep exactly what the network read.
     /// </summary>
     public bool FixDigitLookalikes { get; init; } = true;
@@ -77,6 +77,17 @@ public sealed class OcrOptions
     /// inside words are never touched. Set it to false to keep exactly what the network read.
     /// </summary>
     public bool FixSeparators { get; init; } = true;
+
+    /// <summary>
+    /// Whether to take stray accents and dots off letters. Default true. On a degraded scan a speck over or under a letter is read as
+    /// part of it (<c>thé</c> for <c>the</c>, <c>dọwn</c> for <c>down</c>). A word is changed only when all of these hold: it is read with
+    /// a calibrated confidence under 0.97, it consists of Latin letters (and marks at its ends), its plain spelling is in the word
+    /// frequency table and at least eight times as frequent as the accented one, and no more than 12% of the page's words have
+    /// accents (a page in French or Vietnamese keeps them). Box and confidence are kept. It needs the engine's word frequencies
+    /// (<see cref="OcrEngine.WithWordFrequencies"/>; the bundled engine has them) and is part of the noise cleanup: it does nothing when
+    /// <see cref="DropNoise"/> is false. Set it to false to keep exactly what the network read.
+    /// </summary>
+    public bool FixStrayAccents { get; init; } = true;
 
     /// <summary>Replaces the noise filter's thresholds; used to tune them. Null uses the defaults.</summary>
     internal global::OneOcr.Layout.JunkParameters? JunkTuning { get; init; }
