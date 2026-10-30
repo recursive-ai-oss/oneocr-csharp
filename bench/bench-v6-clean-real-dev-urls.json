@@ -1,15 +1,5 @@
 [
  {
-  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-12r1.pdf",
-  "source": "NIST (nvlpubs.nist.gov)",
-  "split": "dev"
- },
- {
-  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-61r2.pdf",
-  "source": "NIST (nvlpubs.nist.gov)",
-  "split": "dev"
- },
- {
   "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-70r4.pdf",
   "source": "NIST (nvlpubs.nist.gov)",
   "split": "tune"
@@ -60,11 +50,6 @@
   "split": "dev"
  },
  {
-  "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63-3.pdf",
-  "source": "NIST (nvlpubs.nist.gov)",
-  "split": "dev"
- },
- {
   "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-56Cr2.pdf",
   "source": "NIST (nvlpubs.nist.gov)",
   "split": "dev"
@@ -95,19 +80,9 @@
   "split": "dev"
  },
  {
-  "url": "https://nvlpubs.nist.gov/nistpubs/AI/NIST.AI.100-1.pdf",
-  "source": "NIST (nvlpubs.nist.gov)",
-  "split": "dev"
- },
- {
   "url": "https://nvlpubs.nist.gov/nistpubs/AI/NIST.AI.100-2e2023.pdf",
   "source": "NIST (nvlpubs.nist.gov)",
   "split": "tune"
- },
- {
-  "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.04162018.pdf",
-  "source": "NIST (nvlpubs.nist.gov)",
-  "split": "dev"
  },
  {
   "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.20.pdf",
