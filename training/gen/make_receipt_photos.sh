@@ -23,5 +23,5 @@ for split in train val; do
     built=$((built + 1))
   done
 done
-uv run python -m pages.check "$out" --split train --n 500 --workers "$workers" --report "$out/check-train.json" > /dev/null || true
-uv run python -m pages.check "$out" --split val --n 250 --workers "$workers" --report "$out/check-val.json" > /dev/null || true
+uv run python -m pages.check "$out" --split train --n 500 --workers "$workers" --config "$cfg" --report "$out/check-train.json" > /dev/null || true
+uv run python -m pages.check "$out" --split val --n 250 --workers "$workers" --config "$cfg" --report "$out/check-val.json" > /dev/null || true
