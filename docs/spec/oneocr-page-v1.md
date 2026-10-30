@@ -288,9 +288,10 @@ glyph); `widest[p]` is the widest stretch touching pair `p`.
 Word breaks the network left out are put in by two further rules, after the ink-gap rule above (which needs a stretch of `SplitGap`
 (9) pixels and `SplitRatio` (3.5) times the line's letter gap):
 
-- *Vertical bar.* A bar (`|`) and the letter, digit or closing mark before it, or the letter, digit or opening mark after it, are
-  cut when the stretch between them is at least `BarGap` (5) pixels and at least `BarExtra` (2) more than the line's median letter
-  gap (`Genealogy|` `Search`). The same address-word guard as for the ink-gap rule applies. Two bars in a row stay together.
+- *Vertical bar, middle dot and bullet.* A separator mark (`|`, `·` or `•`) and the letter, digit or closing mark before it, or the
+  letter, digit or opening mark after it, are cut when the stretch between them is at least `BarGap` (5) pixels and at least
+  `BarExtra` (2) more than the line's median letter gap (`Genealogy|` `Search`, `Alvarez·` `Oct`). The same address-word guard
+  as for the ink-gap rule applies. Two separator marks in a row stay together.
 - *Fused capital I.* A network word that is a capital `I` followed by two or more lower-case ASCII letters is cut after the `I`
   when the stretch is at least `FusedIGap` (4) pixels and `FusedIExtra` (2) more than the line's letter gap, the rest is in the
   word frequency table with `q >= FusedIWordQuarter` (20; `agree` has 23) and the whole word, lower-cased, is not in the table with
@@ -308,7 +309,10 @@ Word breaks the network left out are put in by two further rules, after the ink-
    `//` (`https:` `//irs.gov`); (e) the left word holds `//` or starts with `www.`, ends in `/`, and the right word starts with a
    letter or digit; (f) the left word ends in `$`, `£` or `€` that no digit precedes, and the right word starts with two digits, or a digit
    and a point or comma (`$` `17,906.36`; a lone digit is not an amount). Characters never change: only the break is taken out.
-   Rules 1 to 4 are tried in that order and any one of them takes the space out.
+5. *Contractions and possessives* (`widest[p] <= CodeGap` = 6): the left word ends in a letter and the right word is an apostrophe
+   (`'` or `’`) followed by one of `s t d m ll re ve`, closing marks allowed after it (`brother` `'s`). Nothing else starts with
+   an apostrophe and a bare ending, so no model is needed.
+   Rules 1 to 5 are tried in that order and any one of them takes the space out.
 
 **Putting a space in.** A stretch that no network space accounts for (no pair it touches has a network space) becomes a space at
 the pair it overlaps most when its width is at least `max(SplitGap, SplitRatio x letterGap)` (`SplitGap` = 9 pixels,
@@ -471,18 +475,43 @@ Dashes, bullets, middle dots and other separators are words of their own on real
 
 *Controls* (any strip height): radio buttons and checkboxes are drawn rings and squares that the detector finds as lines of their
 own and the recognizer reads as a letter or a letter and a bracket. A word whose text is one character from
-`O Q L D C [` or such a character followed by one from `] ) [ l I |` is dropped when its calibrated confidence is under
+`O Q L D C E Г [ ]`, such a character followed by one from `] ) [ l I |`, or such a character followed by one of `l I | 1` and a
+closing bracket `] )` (a box with a stroke inside, read as `Dl]`), is dropped when its calibrated confidence is under
 `ControlConfidence` and it is alone in its strip, or first or last in it with a gap to its neighbour of at least half its own
-height (a control sits apart from its label; a letter in running text is a word space away). A letter read with confidence (a
-grade, a column label) stays, as does any word with a letter outside this set (`Do`, `OK`) and a digit.
+height (a control sits apart from its label; a letter in running text is a word space away). A word that ends in a closing bracket
+is shaped like nothing else on a page, so it needs only `ControlBracketGap` of its height (a checkbox's label often starts closer
+than half a height). A letter read with confidence (a grade, a column label) stays, as does any word with a letter outside this
+set (`Do`, `OK`) and a digit.
+
+*Strokes* and *contained fragments* below apply only on a clean page: one where at least `CleanPageShare` of the characters are in
+words read with a calibrated confidence of 0.9 or more. On a photo of a receipt or a noisy scan thin real characters (`1`, `I`,
+`T`) are read with little confidence as well, and dropping them costs recall.
+
+*Strokes* (any strip height): a table rule's edge, a letter's stem or a line at the page edge is cut by the detector as a thin line
+of its own, and the recognizer reads it as one narrow character (`1`, `I`, `l`, `]`) with the lowest confidence it gives. A word of
+one letter, digit or bracket (`[ ] ( ) |`) is dropped when its calibrated confidence is under `StrokeConfidence` and its box is at
+most `StrokeAspect` times as wide as it is high. Dashes, dots and bullets are not strokes. A real narrow character (a lone `I` or
+`1`) is read with confidence and stays.
+
+*Contained fragments* (any strip height): when a word of at most `ContainedMaxLength` characters has at least `ContainedFraction`
+of its box area inside the box of a word with more characters, it is the same ink read twice (the detector cut a stem or a letter of
+the word as a line of its own: `p` over `perfect`, `(` over `(with`). Two printed words never share a box like that, so the short
+word is dropped, whatever its confidence. Candidates are found through a grid with 128-pixel cells, so a page costs one pass.
 
 The parameters are `MaxConfidence` = 0.5, `RelativeHeight` = 0.6, `MaxHeight` = 12 px, `TinyHeight` = 8 px, `TinyConfidence` = 0.99,
-`AnchorConfidence` = 0.9, `MinAnchorLines` = 3, `SpeckConfidence` = 0.9, `SpeckPageMin` = 3, `ControlConfidence` = 0.9. The control rule's glyph set and bar were read off the unmatched words of two benchmark sets (form and
+`AnchorConfidence` = 0.9, `MinAnchorLines` = 3, `SpeckConfidence` = 0.9, `SpeckPageMin` = 3, `ControlConfidence` = 0.9,
+`ControlBracketGap` = 0.2, `StrokeConfidence` = 0.2, `StrokeAspect` = 0.5, `ContainedFraction` = 0.6, `ContainedMaxLength` = 1, `CleanPageShare` = 0.95. The control rule's glyph set and bar were read off the unmatched words of two benchmark sets (form and
 dialog screenshots, form pages) and then checked on held-out screenshot and layout sets rendered with other seeds, where the same
 glyphs appear. The other values were chosen on pages that are
 not part of the benchmark sets: a degraded-scan set and a screenshot set rendered with new seeds, and the validation split of the
 generated page set. The dropped words never reach reading order, tables, `text` or the JSON; the page gets one diagnostic stating
-how many words were dropped. `OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM are not
+how many words were dropped. The stroke and contained-fragment rules and the bracket gap were found on the unmatched words of held-out layout and screenshot
+sets (pages rendered with other seeds than the benchmark sets), where most of the extra words on a clean page are these three kinds.
+Together the new rules removed 80 words from the four held-out and two benchmark synthetic layout and screenshot sets, all of them
+extra or wrong; 108 from real-PDF pages, 11 of them right (form `X` marks and a capital letter); and 36 from degraded, phone and
+receipt pages, none right. Three values were set after reading dropped words on benchmark development pages, not on held-out sets:
+the confidence bound of 0.2 and the clean-page gate (the first version lost recall on receipt photos), and the one-character limit
+of the contained-fragment rule (two-letter words such as `If` and `be` were dropped on real forms). `OcrOptions.DropNoise = false` turns the filter off. Pages from a PDF text layer or an LLM are not
 filtered.
 
 ## Compatibility

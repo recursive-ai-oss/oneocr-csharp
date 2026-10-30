@@ -276,7 +276,7 @@ internal static class WordSegmenter
             return false;
         }
 
-        if (!(char.IsLetterOrDigit(r) || Opening.Contains(r) || (allowBar && r == '|')) || !(char.IsLetterOrDigit(l) || Closing.Contains(l) || (allowBar && l == '|')))
+        if (!(char.IsLetterOrDigit(r) || Opening.Contains(r) || (allowBar && IsSeparatorMark(r))) || !(char.IsLetterOrDigit(l) || Closing.Contains(l) || (allowBar && IsSeparatorMark(l))))
         {
             return false;
         }
@@ -294,9 +294,13 @@ internal static class WordSegmenter
         return true;
     }
 
-    // Exactly one of the two characters is a vertical bar (two bars in a row are one mark).
+    // Exactly one of the two characters is a separator mark: a vertical bar, a middle dot or a bullet (two in a row are one mark).
     private static bool IsBarPair(IReadOnlyList<RecognizedChar> chars, int p) =>
-        (chars[p].Text == "|") != (chars[p + 1].Text == "|");
+        IsSeparatorMark(chars[p].Text) != IsSeparatorMark(chars[p + 1].Text);
+
+    private static bool IsSeparatorMark(string text) => text is "|" or "\u00B7" or "\u2022";
+
+    private static bool IsSeparatorMark(char c) => c is '|' or '\u00B7' or '\u2022';
 
     // Whether the break after character p cuts a capital I from the word after it: the network's word is "I" and lower-case letters,
     // the rest is a common word of the frequency table and the whole is not a word of it ("Iagree", "Iam"; "Index" and "Ian" are).
@@ -372,6 +376,12 @@ internal static class WordSegmenter
             return true;
         }
 
+        // A contraction or possessive cut off its word ("brother" "'s"): the apostrophe belongs to the letters before it.
+        if (gap <= CodeGap && JoinsContraction(l, r))
+        {
+            return true;
+        }
+
         if (words is not null && gap <= ModelGapWeak && !(wordGap != 0 && gap > ModelRatio * wordGap)
             && JoinEvidence(words, l, r) is { } evidence)
         {
@@ -385,6 +395,25 @@ internal static class WordSegmenter
         }
 
         return frequencies is not null && JoinsByFrequency(frequencies, l, r, gap, wordGap);
+    }
+
+    private static readonly string[] ContractionEnds = ["s", "t", "d", "m", "ll", "re", "ve"];
+
+    // The left word ends in a letter and the right one is an apostrophe and a contraction ending, with at most marks after it.
+    internal static bool JoinsContraction(string left, string right)
+    {
+        if (left.Length == 0 || !char.IsLetter(left[^1]) || right.Length < 2 || right[0] is not ('\'' or '\u2019'))
+        {
+            return false;
+        }
+
+        int end = right.Length;
+        while (end > 1 && Closing.Contains(right[end - 1]))
+        {
+            end--;
+        }
+
+        return Array.IndexOf(ContractionEnds, right[1..end]) >= 0;
     }
 
     // How much more word-like the two words are as one word than as two (null when the model has no score for them): the pieces
