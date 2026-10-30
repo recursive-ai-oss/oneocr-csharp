@@ -51,7 +51,8 @@ def main() -> None:
         for _, d in runs:
             hd = Path(d) / s
             res.append(count(Path(a.truth_root) / s / "truth", hd) if hd.exists() else None)
-        print(f"{s:26s}" + "".join(f"{(str(r['hyp_words']).rjust(8) + str(r['extra']).rjust(8) + str(r['paired']).rjust(8)) if r else 'missing':>28s}" for r in res))
+        cells = [f"{r['hyp_words']:8d}{r['extra']:8d}{r['paired']:8d}" if r else "missing" for r in res]
+        print(f"{s:26s}" + "".join(f"{c:>28s}" for c in cells))
         if a.pages and res[0]:
             for pid, e0 in res[0]["per_page"].items():
                 for (n, _), r in zip(runs[1:], res[1:], strict=False):
