@@ -117,9 +117,9 @@ these works. The pages were read with an honest User-Agent, robots.txt honoured,
 permission notice were dropped, images were never drawn, and every label is the page's own DOM text. Only the model weights are distributed; no page
 text or screenshot is stored in the package or the repository.
 
-The pages show the typefaces their sites serve. The ones seen in the training lines are Public Sans, Merriweather, Figtree, Jost and Roboto
-(open licences: SIL OFL 1.1 for the first four, Apache-2.0 for Roboto) and the platform's Helvetica-compatible, Liberation (OFL-1.1) and DejaVu
-(free licence of the DejaVu fonts, https://dejavu-fonts.github.io/License.html) substitutes. Lines set in a held-out evaluation family were redrawn in Open Sans before use.
+The pages show the typefaces their sites serve. Only families on the allowlist `training/data/font_allowlist.yaml` were kept: Public Sans,
+Merriweather, Figtree, Jost, Inter, Open Sans and the Noto families (SIL OFL 1.1), Roboto (Apache-2.0), and the platform's Helvetica-compatible,
+Liberation (OFL-1.1) and DejaVu (free licence of the DejaVu fonts, https://dejavu-fonts.github.io/License.html) substitutes. Lines set in a held-out evaluation family were redrawn in Open Sans before use.
 
 The page detector `dbnet-lite-v1` 0.3.2 (the weights of 0.3.0 with post-processing parameters added to its manifest) was fine-tuned on the same kind of pages: viewport-sized windows of screenshots of the sites above
 (plus justice.gov, which was a training site when the detector was fine-tuned) with the line boxes the browser reported for the page's own
@@ -131,7 +131,9 @@ were not used for training. The same terms and handling apply: no page text or s
 The receipt stage of the recognizer training (`crnn-v0` 0.6.2 and later, including 0.7.1 to 0.7.3) also used 1,166 photographs of receipts generated with Google's
 Gemini image model (`gemini-3.1-flash-image`) from varied text prompts, and a transcription of each image made by a Claude Sonnet
 model. Text lines were cut from the generated images with the page reader and aligned to the transcription; lines the transcriber marked
-unsure were not used. The photos depict invented stores and purchases; they are not photographs of real receipts. The images and the
+unsure were not used. A further 250 of the photos were held out to calibrate the confidence curve and to choose between candidate
+models; they were not trained on. The photos were generated under the Gemini API Additional Terms of Service and transcribed under
+Anthropic's commercial terms; the project's use of both is described here so that you can judge it against those terms. The photos depict invented stores and purchases; they are not photographs of real receipts. The images and the
 transcriptions are not redistributed.
 
 ### Synthetic pages and text
@@ -229,6 +231,31 @@ The font files and the full licence texts are in the Google Fonts repository und
 | worksans | OFL-1.1 | 2 | train | 2019 The Work Sans Project Authors (https://github.com/weiweihuanghuang/Work-Sans) |
 | yanonekaffeesatz | OFL-1.1 | 1 | heldout | 2010 The Yanone Kaffeesatz Project Authors (https://github.com/yanone/kaffeesatz) |
 | zillaslab | OFL-1.1 | 8 | train | 2017, The Mozilla Foundation |
+
+Interface-style text lines (buttons, menus, labels, tiny text) are rendered with a second font pool, taken from the same Google Fonts
+commit, except DejaVu, which comes from its 2.37 release archive (`training/data/fonts_ui.yaml`: 41 files in 15 families, with file hashes and
+the hash of each family's own licence file).
+Twelve families are under the SIL Open Font License 1.1, three (DejaVu Sans, Sans Mono and Serif 2.37) under the Bitstream Vera-derived
+DejaVu licence (https://dejavu-fonts.github.io/License.html, permission to use and distribute the font software; the fonts are only used
+to draw images and are not distributed). Libre Franklin, Overpass and Nunito are held out for evaluation.
+
+| Family | Licence | Files | Use | Copyright |
+|---|---|---|---|---|
+| publicsans | OFL-1.1 | 2 | train | 2015 The Public Sans Project Authors (https://github.com/uswds/public-sans) |
+| cantarell | OFL-1.1 | 4 | train | 2009 The Cantarell Project Authors (https://github.com/davelab6/cantarell) |
+| atkinsonhyperlegible | OFL-1.1 | 4 | train | 2020 Braille Institute of America, Inc. |
+| notosansdisplay | OFL-1.1 | 2 | train | 2012 Google Inc. All Rights Reserved. |
+| poppins | OFL-1.1 | 8 | train | 2020 The Poppins Project Authors (https://github.com/itfoundry/Poppins) |
+| raleway | OFL-1.1 | 2 | train | 2010 The Raleway Project Authors (impallari@gmail.com), with Reserved Font Name "Raleway". |
+| mulish | OFL-1.1 | 2 | train | 2016 The Mulish Project Authors (https://github.com/googlefonts/mulish) |
+| dmsans | OFL-1.1 | 2 | train | 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fonts) |
+| firacode | OFL-1.1 | 1 | train | 2014-2020 The Fira Code Project Authors (https://github.com/tonsky/FiraCode) |
+| librefranklin | OFL-1.1 | 2 | heldout | 2020 The Libre Franklin Project Authors (https://github.com/googlefonts/Libre-Franklin) |
+| overpass | OFL-1.1 | 2 | heldout | 2021 The Overpass Project Authors (https://github.com/RedHatOfficial/Overpass) |
+| nunito | OFL-1.1 | 2 | heldout | 2014 The Nunito Project Authors (https://github.com/googlefonts/nunito) |
+| dejavusans | Bitstream-Vera | 4 | train | 2003 Bitstream, Inc.; DejaVu changes in the public domain; Arev glyphs 2006 Tavmjong Bah |
+| dejavusansmono | Bitstream-Vera | 2 | train | same |
+| dejavuserif | Bitstream-Vera | 2 | train | same |
 
 Screenshot-style training pages are also rendered with the Noto and Liberation fonts as installed from the Debian/Ubuntu
 packages (SIL Open Font License 1.1) and the Ubuntu font family (Ubuntu Font Licence 1.0).
