@@ -2,7 +2,7 @@
 using OneImage;
 using OneOcr;
 
-OneOcr.OneOcr.Configure();
+OcrEngine.ConfigureDefault();
 
 Image image = Image.Load(Path.Combine(AppContext.BaseDirectory, "hello.png"));
 string text = image.ToText();

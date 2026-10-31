@@ -45,7 +45,7 @@ catch (OcrModelException) when (!OneOcr.Models.BundledModels.HasRecognizer)
 
 // A page of four text-like lines through the whole pipeline: line finding, scaling, recognition, and the default engine.
 var pageShape = new TestModels.Shape(32, [(8, 2, 2), (16, 2, 2), (16, 2, 1), (32, 2, 1), (32, 2, 1)], 24, 2, 41);
-OcrEngine engine = OcrEngine.Load(new System.IO.MemoryStream(TestModels.RandomContainer(pageShape, 3)));
+OcrEngine engine = OcrEngine.Load(new System.IO.MemoryStream(TestModels.RandomContainer(pageShape, 3)), withBundledModels: false);
 var pixels = new OneImage.Gray8[600 * 300];
 Array.Fill(pixels, new OneImage.Gray8(255));
 foreach (int top in new[] { 40, 110, 180 })
@@ -151,7 +151,7 @@ if (!spaced.HasWordModel || engine.HasWordModel || s1 != s4 || spaced.Ocr(page, 
 
 // A version 1 container: calibration is parsed (source-generated JSON), applied, and words come back with boxes.
 OcrEngine calibrated = OcrEngine.Load(new System.IO.MemoryStream(TestModels.RandomContainerV1(pageShape, 3,
-    "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,1],\"y\":[0,0.5]}}}")));
+    "{\"raw\":\"word-mean-max-run\",\"scripts\":{\"Latin\":{\"x\":[0,1],\"y\":[0,0.5]}}}")), withBundledModels: false);
 OneOcr.OcrPage words = calibrated.Ocr(page, new OneOcr.OcrOptions { MaxDegreeOfParallelism = 1 });
 if (words.ToText() != t1 || words.Blocks.Sum(bl => bl.Lines.Count) != 3 || calibrated.Ocr(page, new OneOcr.OcrOptions { MaxDegreeOfParallelism = 4 }).ToText() != t1)
 {
