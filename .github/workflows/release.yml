@@ -1,0 +1,227 @@
+name: release
+
+# Publishes the NuGet packages and the GitHub release when a version tag is pushed. nuget.org trusts this workflow through
+# Trusted Publishing: the job exchanges its GitHub identity token for a short-lived API key, so no key is stored in the
+# repository or its secrets.
+#
+# The weights are assets of a draft release with the same tag (see RELEASING.md). They are checked against the pins in the
+# models.json manifests before anything is built, and the draft is published only after every package is on nuget.org.
+#
+#   verify   the tag is well formed, is the package version, is on main, CI passed on that commit, the changelog has the version
+#   weights  fetch the weights from the draft release and check size and SHA-256 against the pins
+#   publish  build, test, pack, check, consume the packages from a fresh program, attest, push to nuget.org
+#   release  attach the packages to the release and publish it, with the changelog section as notes
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # Actions are pinned by commit because the publish job can obtain a publishing key.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Tag is well formed and is the package version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::$TAG is not a version tag such as v1.2.3 or v1.2.3-rc.1"; exit 1; }
+          version=$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' Directory.Build.props | head -n 1)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::tag $TAG does not match the package version $version in Directory.Build.props"
+            exit 1
+          fi
+      - name: Tag is on main
+        run: |
+          # Only commits that are already on main are published.
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::the tagged commit is not on main"; exit 1; }
+      - name: CI passed on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=100" \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')
+          if [ "$passed" -lt 1 ]; then
+            echo "::error::no successful ci run for $GITHUB_SHA; run CI on a ci-check/release-x.y.z branch at this commit first"
+            exit 1
+          fi
+      - name: Changelog has a section for the version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=${TAG#v}
+          awk -v heading="## [$version]" 'index($0, heading) == 1 { found = 1 } END { exit !found }' CHANGELOG.md \
+            || { echo "::error::CHANGELOG.md has no \"## [$version]\" section"; exit 1; }
+
+  weights:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write   # to list the draft release; nothing is changed here
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch the weights from the draft release and verify them
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: tools/ci/fetch-weights.sh "$TAG" "$RUNNER_TEMP/weights"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weights
+          path: ${{ runner.temp }}/weights/*
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs: weights
+    runs-on: ubuntu-latest
+    environment: nuget
+    timeout-minutes: 120
+    permissions:
+      id-token: write       # nuget.org Trusted Publishing and the provenance attestation
+      attestations: write   # provenance for the packages
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Keep build output out of the checkout
+        run: echo "ONEOCR_ARTIFACTS=$RUNNER_TEMP/artifacts" >> "$GITHUB_ENV"
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: weights
+          path: ${{ runner.temp }}/weights
+      - name: Native AOT toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
+      # The build hashes each weight file against its pin before embedding it, and stops on a mismatch.
+      - name: Point the build at the weights
+        run: tools/ci/weights-env.sh "$RUNNER_TEMP/weights" >> "$GITHUB_ENV"
+
+      - name: Restore
+        run: dotnet restore OneOcr.slnx
+
+      # A tag that does not build and pass its tests never publishes.
+      - name: Build
+        run: dotnet build OneOcr.slnx -c Release --no-restore
+      - name: Test
+        run: dotnet test --solution OneOcr.slnx -c Release --no-build
+
+      - name: Pack
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          # The seven packages from the binaries the tests ran on, with symbols as .snupkg files, then the same check CI runs.
+          tools/ci/pack.sh "$RUNNER_TEMP/packages" "$RUNNER_TEMP/weights" --no-build
+          python3 tools/ci/check-packages.py "$RUNNER_TEMP/packages" "${TAG#v}"
+          ls -l "$RUNNER_TEMP/packages"
+
+      - name: Use the packages from a fresh program, on the JIT and as a NativeAOT binary
+        env:
+          TAG: ${{ github.ref_name }}
+        run: tools/ci/consumer-smoke.sh "$RUNNER_TEMP/packages" "${TAG#v}" linux-x64
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            ${{ runner.temp }}/packages/*.nupkg
+            ${{ runner.temp }}/packages/*.snupkg
+
+      - name: Keep the packages for the release job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packages
+          path: |
+            ${{ runner.temp }}/packages/*.nupkg
+            ${{ runner.temp }}/packages/*.snupkg
+          if-no-files-found: error
+
+      - name: Log in to nuget.org
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: recursiveai.org
+
+      - name: Push
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=${TAG#v}
+          # Dependencies first. --no-symbols: pushing a .nupkg would otherwise also push the .snupkg beside it.
+          for id in OneOcr.Models OneOcr OneOcr.Models.Documents OneOcr.Llm OneOcr.Training OneOcr.Pdf OneOcr.Tool; do
+            dotnet nuget push "$RUNNER_TEMP/packages/RecursiveAI.$id.$version.nupkg" --api-key "$NUGET_API_KEY" --no-symbols \
+              --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
+          for id in OneOcr.Models OneOcr OneOcr.Models.Documents OneOcr.Llm OneOcr.Training OneOcr.Pdf OneOcr.Tool; do
+            dotnet nuget push "$RUNNER_TEMP/packages/RecursiveAI.$id.$version.snupkg" --api-key "$NUGET_API_KEY" \
+              --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # attach the packages and publish the release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packages
+          path: packages
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=${TAG#v}
+          # The notes are the changelog section of this version: from its heading up to the next version heading or the
+          # link definitions at the end of the file.
+          awk -v heading="## [$version]" '
+            index($0, heading) == 1 { on = 1; next }
+            on && (index($0, "## [") == 1 || $0 ~ /^\[[^]]+\]: /) { exit }
+            on { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "::error::the changelog section for $version is empty"; exit 1; fi
+
+          # The draft release holds the weights; it is found by listing, because a draft has no tag lookup.
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n 1)
+          if [ -z "$id" ]; then echo "::error::no release with tag $TAG"; exit 1; fi
+          have=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '.assets[].name')
+          for f in packages/*; do
+            name=$(basename "$f")
+            if grep -qxF "$name" <<< "$have"; then continue; fi
+            gh api --method POST -H "Content-Type: application/octet-stream" --input "$f" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$name" > /dev/null
+          done
+          prerelease=false
+          case "$version" in *-*) prerelease=true ;; esac
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$id" \
+            -f name="$TAG" -F body=@notes.md -F draft=false -F prerelease="$prerelease" > /dev/null
+          echo "published release $TAG"
