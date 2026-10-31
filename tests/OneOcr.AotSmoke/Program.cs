@@ -63,7 +63,7 @@ foreach (int top in new[] { 40, 110, 180 })
 }
 
 OneImage.Image page = OneImage.Image.FromPixels<OneImage.Gray8>(pixels, 600, 300);
-string t1 = engine.ToText(page, 1), t4 = page.ToText(engine);
+string t1 = engine.ToText(page, new OcrOptions { MaxDegreeOfParallelism = 1 }), t4 = page.ToText(engine);
 if (t1 != t4 || t1.Split('\n').Length != 3)
 {
     Console.Error.WriteLine("ToText disagrees or found the wrong number of lines");
@@ -76,6 +76,28 @@ if (await page.ToTextAsync(engine) != t1 || OcrPageJson.ToJson([await engine.Ocr
 {
     Console.Error.WriteLine("async twins disagree with sync");
     return 1;
+}
+
+// Pages read from file bytes: the density reader and the typed errors for bad files.
+using (var png = new System.IO.MemoryStream())
+{
+    page.Save(png, OneImage.PngFormat.Instance, new OneImage.SaveOptions(), default);
+    System.Collections.Generic.IReadOnlyList<OcrPage> fromBytes = engine.OcrPages(png.ToArray());
+    if (fromBytes.Count != 1 || fromBytes[0].ToText() != t1 || fromBytes[0].Diagnostics.Any(d => d.Code.Length != 6))
+    {
+        Console.Error.WriteLine("OcrPages(bytes) disagrees with Ocr(image)");
+        return 1;
+    }
+}
+
+try
+{
+    engine.OcrPages(new byte[] { 1, 2, 3, 4 });
+    Console.Error.WriteLine("a file that is not an image was read");
+    return 1;
+}
+catch (OcrFormatException)
+{
 }
 
 using (var cancelled = new System.Threading.CancellationTokenSource())
@@ -111,7 +133,7 @@ var beam = new OneOcr.Decoding.DecodeOptions
     LanguageModel = OneOcr.Decoding.CharLanguageModel.Parse(TestLm.Build("smoke", alphabet, [string.Concat(alphabet.Take(4)), string.Concat(alphabet.Skip(2).Take(5))], 3)),
     Lexicon = OneOcr.Decoding.Lexicon.FromWords([string.Concat(alphabet.Take(3)), "x1"]),
 };
-string b1 = engine.ToText(page, beam, 1), b4 = engine.WithDecoding(beam).ToText(page, 4);
+string b1 = engine.ToText(page, beam, new OcrOptions { MaxDegreeOfParallelism = 1 }), b4 = engine.WithDecoding(beam).ToText(page, new OcrOptions { MaxDegreeOfParallelism = 4 });
 if (b1 != b4 || b1.Split('\n').Length != 3)
 {
     Console.Error.WriteLine("beam decoding disagrees across degrees");
@@ -156,7 +178,7 @@ catch (OneOcr.OcrFormatException)
 {
 }
 
-OneOcr.OneOcr.Configure(engine);
+OcrEngine.ConfigureDefault(engine);
 if (page.ToText() != t1)
 {
     Console.Error.WriteLine("default engine disagrees");
@@ -315,7 +337,7 @@ for (int i = 0; i < docWords.Length; i++)
 
 var docLines = docWords.Select(w => new OcrLine(w.Text, [w], [0], w.Box, 0.9f, OcrSource.Ocr)).ToArray();
 var docPage = new OcrPage(0, docWidth, docHeight, 72, [new OcrBlock(OcrBlockRole.Body, false, new OcrBox(0, 0, docWidth, docHeight), docLines, 0.9f)]);
-OneOcr.Documents.Invoice invoice1 = extractor.ExtractInvoice(docPage, 1), invoice4 = extractor.ExtractInvoice(docPage, 4);
+OneOcr.Documents.Invoice invoice1 = extractor.ExtractInvoice(docPage, new OneOcr.Documents.DocumentExtractionOptions { MaxDegreeOfParallelism = 1 }), invoice4 = extractor.ExtractInvoice(docPage, new OneOcr.Documents.DocumentExtractionOptions { MaxDegreeOfParallelism = 4 });
 string Describe(OneOcr.Documents.Invoice v) => string.Join(";", v.Extraction.Fields.Select(f => f.Id + "=" + f.Text + "@" + f.Confidence.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
 if (Describe(invoice1) != Describe(invoice4) || extractor.WithKeyValues(docPage).KeyValues.Count != extractor.FindKeyValues(docPage).Count)
 {
@@ -327,7 +349,7 @@ if (Describe(invoice1) != Describe(invoice4) || extractor.WithKeyValues(docPage)
 if (OneOcr.Models.Documents.DocumentModels.HasExtractor)
 {
     OneOcr.Documents.DocumentExtractor bundled = OneOcr.Models.Documents.DocumentModels.LoadExtractor();
-    if (Describe(bundled.ExtractInvoice(docPage, 1)) != Describe(bundled.ExtractInvoice(docPage, 4)))
+    if (Describe(bundled.ExtractInvoice(docPage, new OneOcr.Documents.DocumentExtractionOptions { MaxDegreeOfParallelism = 1 })) != Describe(bundled.ExtractInvoice(docPage, new OneOcr.Documents.DocumentExtractionOptions { MaxDegreeOfParallelism = 4 })))
     {
         Console.Error.WriteLine("bundled document extraction disagrees across degrees");
         return 1;
@@ -361,7 +383,7 @@ OneOcr.Training.ExtractionReport extractReport = new OneOcr.Training.ExtractionT
 {
     ModelPath = extractModel, Schema = formSchema, WorkDirectory = extractWork, Steps = 3, BatchSize = 2, HeldOutFraction = 0.34, MaxDegreeOfParallelism = 1,
 }).Train();
-OneOcr.Documents.ExtractionResult<SmokeForm> tunedForm = OneOcr.Documents.DocumentExtractor.Load(extractReport.ModelPath).Extract(docPage, SmokeContext.Default.SmokeForm, 1);
+OneOcr.Documents.ExtractionResult<SmokeForm> tunedForm = OneOcr.Documents.DocumentExtractor.Load(extractReport.ModelPath).Extract(docPage, SmokeContext.Default.SmokeForm, new OneOcr.Documents.DocumentExtractionOptions { MaxDegreeOfParallelism = 1 });
 if (extractReport.Fields.Count != 1 || extractReport.HeldOutDocuments != 2 || tunedForm.Extraction is null
     || !OneOcr.Training.ExtractionTrainer.ToJson(extractReport).Contains("\"accuracyAfter\"", StringComparison.Ordinal))
 {

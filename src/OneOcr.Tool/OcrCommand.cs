@@ -81,7 +81,7 @@ internal static class OcrCommand
                 }
                 else
                 {
-                    text = engine.ToText(image, degree);
+                    text = engine.ToText(image, new OcrOptions { MaxDegreeOfParallelism = degree });
                 }
 
                 times.Add((id, clock.Elapsed.TotalMilliseconds));

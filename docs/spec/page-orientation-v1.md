@@ -92,9 +92,10 @@ the head's winner is at least 0.9 confident the page is turned clockwise by the 
 detected again on the turned page, otherwise the first detection is the one used. The classical decision is not run.
 
 How the turns compose: quarter turn (head) → skew estimate and deskew on the turned page → detection on the turned, straightened page.
-The detector's quarter turn is reported as it always was: the page model is in the *turned* frame (`Width`/`Height` are the turned
-page's), `Orientation` stays 0 and a diagnostic names the turn and the head's confidence. Deskew, when it acts, is carried back to
-that turned frame by the mapping below (so boxes get quads there) and reported in `SkewDegrees`. A page with neither a confident
+The page model is always in the input image's coordinates, with or without a detector: `Width`/`Height` are the input's, the quarter
+turn is reported in `Orientation` (the same 0/90/180/270 as above), and a diagnostic (`OCR103`) names the turn and the head's
+confidence and says positions stay in the image as given. The elements read on the turned page are carried back by the mapping below, so
+they get quads. Deskew, when it acts, is carried back the same way and reported in `SkewDegrees`. A page with neither a confident
 turn nor a tilt is detected once, exactly as without the orientation step.
 
 ## Angle search
@@ -126,7 +127,7 @@ Every reading is an ordinary page reading, so the search is bit-identical on eve
 
 ## Mapping back
 
-Without a detector the page model is in the input image's coordinates: `Width`/`Height` are the input's. A point `(u, v)` of the straightened frame
+The page model is in the input image's coordinates: `Width`/`Height` are the input's. A point `(u, v)` of the straightened frame
 maps to the turned frame by `R(s)` about the canvas and page centers (the sampling formula above, `qx, qy`), then to the input by the
 inverse of the quarter turn: for 1 quarter `(x, y) = (qy, H − qx)`, for 2 `(W − qx, H − qy)`, for 3 `(W − qy, qx)` (`W`, `H` the input's
 size). Every box becomes the corner quad of its four mapped corners, in the order top-left, top-right, bottom-right, bottom-left of

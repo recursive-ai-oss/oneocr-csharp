@@ -4,7 +4,7 @@ Fine-tune the OneOcr line recognizer on your own documents.
 
 ```csharp
 var llm = new LlmClient(new OpenAiProvider(key, "your-model"), new LlmOptions { SpendCapUsd = 2m });
-var trainer = new OcrTrainer(new OcrTrainerOptions { ModelPath = "recognizer.onm", WorkDirectory = "run1" }, llm);
+var trainer = new OcrTrainer(new OcrTrainerOptions { ModelPath = "recognizer.onm", WorkDirectory = "run1" }, llm);   // ModelPath is optional: leave it out to start from the bundled recognizer
 TrainingReport report = await trainer.RunAsync("scans/");
 Console.WriteLine(OcrTrainer.ToJson(report));
 ```

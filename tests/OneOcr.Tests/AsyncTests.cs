@@ -63,11 +63,11 @@ public class AsyncTests
         using var cts = new CancellationTokenSource();
         cts.Cancel();
         Assert.ThrowsAny<OperationCanceledException>(() => s_engine.Ocr(image, null, cts.Token));
-        Assert.ThrowsAny<OperationCanceledException>(() => s_engine.ToText(image, 0, cts.Token));
+        Assert.ThrowsAny<OperationCanceledException>(() => s_engine.ToText(image, null, cts.Token));
         Assert.ThrowsAny<OperationCanceledException>(() => image.ToMarkdown(s_engine, null, cts.Token));
         Assert.ThrowsAny<OperationCanceledException>(() => s_engine.Ocr([image, image], null, cts.Token));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => image.OcrAsync(s_engine, null, cts.Token));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => image.ToTextAsync(s_engine, cts.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => image.ToTextAsync(s_engine, null, cts.Token));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => image.ToMarkdownAsync(s_engine, null, cts.Token));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => s_engine.OcrAsync([image], null, cts.Token));
     }

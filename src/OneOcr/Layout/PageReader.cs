@@ -27,7 +27,7 @@ internal static partial class PageReader
     private static FoundStrips FindStrips(Gray8[] gray, int width, int height, OcrLimits limits, BufferPool<byte> masks, int degree, out List<RuleGrid> grids)
     {
         grids = FindGrids(gray, width, height, degree);
-        List<StripLine> strips = StripFinder.Find(gray, width, height, limits.MaxLinesPerPage, masks, degree, out _, out int level, out bool bright);
+        List<StripLine> strips = StripFinder.Find(gray, width, height, limits.LineCandidateCap, masks, degree, out _, out int level, out bool bright);
         return new FoundStrips(strips, level, bright);
     }
 
@@ -200,14 +200,20 @@ internal static partial class PageReader
 
     private static OcrPage ReadStrips(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, ResizerPool resizers, Gray8[] gray, int width, int height,
-        List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<string> notes, List<RuleGrid> grids, int pageIndex, double? dpi, int degree,
+        List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<OcrDiagnostic> notes, List<RuleGrid> grids, int pageIndex, double? dpi, int degree,
         bool includeChars, JunkParameters? junk, bool respace, bool digits, bool separators, CancellationToken cancellationToken)
     {
         int count = checked(width * height);
-        var diagnostics = new List<string>(notes);
+        var diagnostics = new List<OcrDiagnostic>(notes);
+        if (strips.Count > limits.MaxLinesPerPage)
+        {
+            // The documented bound counts the lines to read; finding them may look at more candidates (see OcrLimits.LineCandidateCap).
+            throw new OcrLimitException(nameof(OcrLimits.MaxLinesPerPage), limits.MaxLinesPerPage, strips.Count);
+        }
+
         if (!recognizer.HasCalibration)
         {
-            diagnostics.Add(ModelContainer.NoCalibrationNote);
+            diagnostics.Add(Diag.Info(OcrDiagnosticCodes.NoCalibration, ModelContainer.NoCalibrationNote));
         }
 
         var boxes = new List<LineBox>(strips.Count);
@@ -238,12 +244,12 @@ internal static partial class PageReader
         {
             double estimate = typical * 72.0 / AssumedBodyPoints;
             units = Nearest(estimate);
-            diagnostics.Add($"UnitsPerInch is estimated at {units:0} from the size of the text; pass OcrOptions.Dpi to set it.");
+            diagnostics.Add(Diag.Info(OcrDiagnosticCodes.DpiEstimated, $"UnitsPerInch is estimated at {units:0} from the size of the text; pass OcrOptions.Dpi to set it."));
         }
         else
         {
             units = 72;
-            diagnostics.Add("UnitsPerInch is 72 because the page has no text to estimate it from; pass OcrOptions.Dpi to set it.");
+            diagnostics.Add(Diag.Info(OcrDiagnosticCodes.DpiDefaulted, "UnitsPerInch is 72 because the page has no text to estimate it from; pass OcrOptions.Dpi to set it."));
         }
 
         if (strips.Count == 0)
@@ -253,7 +259,7 @@ internal static partial class PageReader
 
         int modelHeight = recognizer.InputHeight;
         var read = new OrderStrip?[strips.Count];
-        var skipped = new string?[strips.Count];
+        var skipped = new OcrDiagnostic?[strips.Count];
 
         // A line with a dot leader is cut at the leader and its parts are read apart (see LeaderFinder); every other line is one item.
         Leader?[] leaders = FindLeaders(gray, width, height, strips, threshold, inkIsBright, typical, degree, cancellationToken, out bool[] consumed);
@@ -489,12 +495,12 @@ internal static partial class PageReader
 
         if (accentWords > 0)
         {
-            diagnostics.Add($"{accentWords} word(s) had accents or dots taken off letters that were read from grain; pass OcrOptions.FixStrayAccents = false to keep what the network read.");
+            diagnostics.Add(Diag.Info(OcrDiagnosticCodes.StrayAccentsFixed, $"{accentWords} word(s) had accents or dots taken off letters that were read from grain; pass OcrOptions.FixStrayAccents = false to keep what the network read."));
         }
 
         if (junkWords > 0)
         {
-            diagnostics.Add($"{junkWords} word(s) read from specks, grain or stray marks were dropped as noise; pass OcrOptions.DropNoise = false to keep them.");
+            diagnostics.Add(Diag.Info(OcrDiagnosticCodes.NoiseDropped, $"{junkWords} word(s) read from specks, grain or stray marks were dropped as noise; pass OcrOptions.DropNoise = false to keep them."));
         }
 
         var ordered = new List<OrderStrip>(strips.Count);
@@ -601,12 +607,12 @@ internal static partial class PageReader
     private static bool InkTooNarrow(int inkWidth, int extent, int lineHeight) =>
         inkWidth > 0 && extent * 2 >= lineHeight && inkWidth * 4 < extent;
 
-    private static string SkipNote(LineBox ink, OcrLimits limits) =>
-        $"A line at x {ink.X}, y {ink.Y} ({ink.Width} by {ink.Height} pixels) was skipped: scaled to the model's input height it would be wider than OcrLimits.MaxLineWidth ({limits.MaxLineWidth}).";
+    private static OcrDiagnostic SkipNote(LineBox ink, OcrLimits limits) =>
+        Diag.Warn(OcrDiagnosticCodes.LineSkipped, $"A line at x {ink.X}, y {ink.Y} ({ink.Width} by {ink.Height} pixels) was skipped: scaled to the model's input height it would be wider than OcrLimits.MaxLineWidth ({limits.MaxLineWidth}).");
 
     private static OcrPage Assemble(
         List<OrderBlock> plan, List<OrderStrip> strips, List<DetectedRegion> detected, int pageIndex, int width, int height, double units,
-        List<string> diagnostics)
+        List<OcrDiagnostic> diagnostics)
     {
         var blocks = new List<OcrBlock>(plan.Count);
         var tables = new List<OcrTable>();
@@ -716,7 +722,7 @@ internal static partial class PageReader
             chars += w.Text.Length;
         }
 
-        return new OcrLine(text, words, cellStarts, box, (float)(weighted / chars), OcrSource.Ocr, Quad: EnclosingQuad(words));
+        return new OcrLine(text, words, cellStarts, box, (float)(weighted / chars), OcrSource.Ocr, quad: EnclosingQuad(words));
     }
 
     private static OcrBlock MakeBlock(OrderBlock block, List<OcrLine> lines)

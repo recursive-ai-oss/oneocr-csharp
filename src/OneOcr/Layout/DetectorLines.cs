@@ -73,7 +73,7 @@ internal sealed class LocatedPage
     public required List<DetectedRegion> Regions { get; init; }
     public required int Threshold { get; init; }
     public required bool InkIsBright { get; init; }
-    public required List<string> Notes { get; init; }
+    public required List<OcrDiagnostic> Notes { get; init; }
 
     /// <summary>Gives the rotated copy back to <paramref name="pool"/>, if there is one.</summary>
     public void Release(BufferPool<Gray8> pool)
@@ -89,8 +89,12 @@ internal sealed class LocatedPage
 internal static class DetectorLines
 {
     /// <summary>The diagnostic that says the orientation head turned the page upright.</summary>
-    public static string TurnedNote(int turns, float confidence) =>
-        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"The page was turned {turns * 90} degrees clockwise to read it upright (orientation confidence {confidence:0.00}); positions refer to the turned page.");
+    public static OcrDiagnostic TurnedNote(int turns, float? confidence) =>
+        Diag.Info(
+            OcrDiagnosticCodes.PageTurned,
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"The page content was turned {turns * 90} degrees clockwise and was read upright{(confidence is float c ? $" (orientation confidence {c:0.00})" : "")}; positions refer to the image as given and rotated elements carry a quad."));
 
     // Region classes whose lines read together as one column or paragraph run (one leaf); lines of other classes, and lines outside
     // every region, are leaves of their own, so cells of a table row on one baseline still join into a row.
@@ -108,7 +112,7 @@ internal static class DetectorLines
         IPageDetector detector, Gray8[] gray, int width, int height, BufferPool<Gray8> pixels, ResizerPool resizers, int degree, CancellationToken cancellationToken,
         PageDetection? first = null, bool turn = true, (int Level, bool InkIsBright)? known = null)
     {
-        var notes = new List<string>();
+        var notes = new List<OcrDiagnostic>();
         int count = checked(width * height);
         long clock = StageClock.Start();
         PageDetection detection = first ?? detector.Detect(gray.AsSpan(0, count), width, height, pixels, resizers, degree, cancellationToken);

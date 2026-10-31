@@ -110,23 +110,90 @@ public class DetectorEngineTests
         var stub = new StubDetector(call => call == 0 ? Detection([], quarter: 1) : Detection(planned));
         OcrPage page = classical.WithDetector(stub, confirmTurns: false).Ocr(rotated, new OcrOptions { SearchAngle = false });
         Assert.Equal([(420, 900), (900, 420)], stub.Calls);
-        Assert.Equal(900, page.Width);
-        Assert.Equal(420, page.Height);
-        Assert.Contains(page.Diagnostics, d => d.Contains("90 degrees clockwise", StringComparison.Ordinal));
+        // Coordinates stay in the image as given; the turn is reported as the orientation.
+        Assert.Equal(420, page.Width);
+        Assert.Equal(900, page.Height);
+        Assert.Equal(270, page.Orientation);
+        OcrDiagnostic turnedNote = Assert.Single(page.Diagnostics, d => d.Code == OcrDiagnosticCodes.PageTurned);
+        Assert.Contains("90 degrees clockwise", turnedNote.Message, StringComparison.Ordinal);
+        Assert.Contains("image as given", turnedNote.Message, StringComparison.Ordinal);
         Assert.Equal(classical.Ocr(upright).Text, page.Text);
 
         // With the classical check on (the default), a turn the head asks for on a page the line reading finds upright is not made.
         var wrong = new StubDetector(_ => Detection(planned, quarter: 2, confidence: 0.99f));
         OcrPage kept = classical.WithDetector(wrong).Ocr(upright, new OcrOptions { SearchAngle = false });
-        Assert.DoesNotContain(kept.Diagnostics, d => d.Contains("turned", StringComparison.Ordinal));
+        Assert.DoesNotContain(kept.Diagnostics, d => d.Message.Contains("turned", StringComparison.Ordinal));
         Assert.Equal((900, 420), (kept.Width, kept.Height));
 
         // Not sure enough: read as it is.
         var unsure = new StubDetector(_ => Detection(planned, quarter: 2, confidence: 0.6f));
         OcrPage asIs = classical.WithDetector(unsure).Ocr(upright, new OcrOptions { SearchAngle = false });
         Assert.Single(unsure.Calls);
-        Assert.DoesNotContain(asIs.Diagnostics, d => d.Contains("turned", StringComparison.Ordinal));
+        Assert.DoesNotContain(asIs.Diagnostics, d => d.Message.Contains("turned", StringComparison.Ordinal));
         Assert.Equal(classical.Ocr(upright).Text, asIs.Text);
+    }
+
+    // The content turned clockwise by k quarter turns is read upright by turning it back; every box must then sit on ink of the image
+    // that was passed in, and carry the quad of the text's own frame.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void RotatedPagesReportBoxesAndQuadsInTheImageAsGiven(int turnedBy)
+    {
+        var (classical, upright, planned, pixels) = Setup();
+        var source = pixels.Select(b => new Gray8(b)).ToArray();
+        var pool = new BufferPool<Gray8>(1 << 20, 1);
+        Gray8[] turned = PageOrientation.Rotate(source, 900, 420, turnedBy, pool, out int w, out int h);
+        byte[] ink = turned.AsSpan(0, w * h).ToArray().Select(g => g.V).ToArray();
+        Image rotated = Image.FromPixels<Gray8>(turned.AsSpan(0, w * h).ToArray(), w, h);
+
+        var stub = new StubDetector(call => call == 0 ? Detection([], quarter: 4 - turnedBy) : Detection(planned));
+        OcrPage page = classical.WithDetector(stub, confirmTurns: false).Ocr(rotated, new OcrOptions { SearchAngle = false });
+        Assert.Equal((w, h), (page.Width, page.Height));
+        Assert.Equal(90 * turnedBy, page.Orientation);
+        Assert.Equal(classical.Ocr(upright).Text, page.Text);
+        Assert.NotEmpty(page.Words);
+
+        double Dark(OcrBox b)
+        {
+            int x0 = Math.Max(0, (int)Math.Floor(b.Left)), x1 = Math.Min(w, (int)Math.Ceiling(b.Right));
+            int y0 = Math.Max(0, (int)Math.Floor(b.Top)), y1 = Math.Min(h, (int)Math.Ceiling(b.Bottom));
+            long dark = 0, total = 0;
+            for (int y = y0; y < y1; y++)
+            {
+                for (int x = x0; x < x1; x++)
+                {
+                    total++;
+                    if (ink[(y * w) + x] < 128)
+                    {
+                        dark++;
+                    }
+                }
+            }
+
+            return total == 0 ? 0 : (double)dark / total;
+        }
+
+        foreach (OcrWord word in page.Words)
+        {
+            Assert.InRange(word.Box.Left, 0, w);
+            Assert.InRange(word.Box.Right, 0, w);
+            Assert.InRange(word.Box.Top, 0, h);
+            Assert.InRange(word.Box.Bottom, 0, h);
+            Assert.True(Dark(word.Box) > 0.25, $"word '{word.Text}' box {word.Box} covers {Dark(word.Box):0.00} ink on the input image");
+            OcrQuad q = Assert.NotNull(word.Quad);
+            foreach (OcrPoint pt in new[] { q.P0, q.P1, q.P2, q.P3 })
+            {
+                Assert.InRange(pt.X, -1, w + 1);
+                Assert.InRange(pt.Y, -1, h + 1);
+            }
+        }
+
+        foreach (OcrLine line in page.Blocks.SelectMany(b => b.Lines))
+        {
+            Assert.NotNull(line.Quad);
+        }
     }
 
     [Fact]

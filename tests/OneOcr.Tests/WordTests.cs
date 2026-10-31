@@ -350,7 +350,7 @@ public class WordTests
         var lines = baseline.Blocks.SelectMany(b => b.Lines).ToList();
         Assert.Equal(4, lines.Count);
         Assert.Contains(lines, l => l.Words.Count > 1);
-        Assert.Equal(scalar.ToText(page, 1), baseline.ToText());
+        Assert.Equal(scalar.ToText(page, Opt.Degree(1)), baseline.ToText());
         Assert.Equal(flat, Flatten(Ocr(scalar, page, 4)));
         Assert.Equal(flat, Flatten(scalar.Ocr(page)));
         string json = OcrPageJson.ToJson([baseline]);
@@ -384,7 +384,7 @@ public class WordTests
         var (_, page) = EngineSetup();
         var engine = OcrEngine.Create(ModelContainer.Parse(Container(null)), null, KernelPath.Scalar);
         OcrPage r = Ocr(engine, page, 1);
-        Assert.Contains(ModelContainer.NoCalibrationNote, r.Diagnostics);
+        Assert.Contains(r.Diagnostics, d => d.Message == ModelContainer.NoCalibrationNote);
         foreach (OcrWord w in r.Words)
         {
             Assert.Equal(w.RawConfidence, w.Confidence);

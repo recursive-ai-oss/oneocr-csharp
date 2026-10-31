@@ -21,6 +21,6 @@ public static class SamplePage
         var table = new OcrTable(new OcrBox(10, 20, 240, 30), 1, 2, [new OcrTableCell(0, 0, 1, 1, new OcrBox(10, 20, 80, 30), [0, 1]), new OcrTableCell(0, 1, 1, 1, new OcrBox(200, 20, 240, 30), [2])], 0.75f, OcrSource.Ocr, 0);
         var region = new OcrRegion(OcrRegionRole.FormField, new OcrBox(0, 0, 300, 100), 0.6f, OcrSource.Llm, [0, 1]);
         var kv = new OcrKeyValue([0], [1, 2], new OcrBox(10, 20, 240, 30), 0.3f, OcrSource.Llm);
-        return new OcrPage(2, 612, 792, 72, [b1, b2], [region], [table], [kv], ["note \"one\""], new OcrMatrix(1, 0, 0, -1, 0, 792));
+        return new OcrPage(2, 612, 792, 72, [b1, b2], [region], [table], [kv], [new OcrDiagnostic("OCR901", OcrDiagnosticSeverity.Warning, "note \"one\"")], new OcrMatrix(1, 0, 0, -1, 0, 792));
     }
 }

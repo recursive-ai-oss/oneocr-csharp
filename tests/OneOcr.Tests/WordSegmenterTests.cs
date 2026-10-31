@@ -314,7 +314,7 @@ public class WordSegmenterTests
     public void WeakEvidenceJoinsAFragmentOnlyWhenAPieceIsNoWord(string text, int cut, int stretch, bool joins)
     {
         byte[] data = [];
-        if (!BundledModels.HasLanguageModel || BundledModels.TryReadLanguageModel(out data) is not null)
+        if (!BundledModels.HasLanguageModel || !BundledModels.TryReadLanguageModel(out data, out _))
         {
             return;
         }

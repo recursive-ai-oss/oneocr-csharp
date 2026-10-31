@@ -230,14 +230,14 @@ public class DecodingTests
 
         OneImage.Image page = OneImage.Image.FromPixels<OneImage.Gray8>(pixels, 500, 200);
         var beam = new DecodeOptions { Mode = CtcDecoding.Beam, BeamWidth = 4 };
-        string greedy = engine.ToText(page, 1);
-        Assert.Equal(greedy, engine.ToText(page, DecodeOptions.Greedy, 1));
-        string viaCall = engine.ToText(page, beam, 1);
+        string greedy = engine.ToText(page, Opt.Degree(1));
+        Assert.Equal(greedy, engine.ToText(page, DecodeOptions.Greedy, Opt.Degree(1)));
+        string viaCall = engine.ToText(page, beam, Opt.Degree(1));
         OcrEngine other = engine.WithDecoding(beam);
         Assert.Same(beam, other.Decoding);
         Assert.Same(DecodeOptions.Greedy, engine.Decoding);
-        Assert.Equal(viaCall, other.ToText(page, 1));
-        Assert.Equal(viaCall, other.ToText(page, 4));
+        Assert.Equal(viaCall, other.ToText(page, Opt.Degree(1)));
+        Assert.Equal(viaCall, other.ToText(page, Opt.Degree(4)));
         Assert.Throws<ArgumentNullException>(() => engine.WithDecoding(null!));
         Assert.Throws<OcrLimitException>(() => engine.WithDecoding(new DecodeOptions { Mode = CtcDecoding.Beam, BeamWidth = 1000 }));
     }

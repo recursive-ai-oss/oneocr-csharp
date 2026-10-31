@@ -15,7 +15,7 @@ public static class PdfOcr
 {
     /// <summary>Reads the pages of a PDF held in memory.</summary>
     /// <param name="pdf">The file's bytes.</param>
-    /// <param name="engine">The recognizer; <see cref="OneOcr.Default"/> when null.</param>
+    /// <param name="engine">The recognizer; <see cref="OcrEngine.Default"/> when null.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
     /// <returns>One page per PDF page in the selected range (<see cref="PdfOcrOptions.FirstPage"/>, <see cref="PdfOcrOptions.PageCount"/>).</returns>
@@ -28,7 +28,7 @@ public static class PdfOcr
     {
         options ??= new PdfOcrOptions();
         options.Validate();
-        engine ??= OneOcr.Default;
+        engine ??= OcrEngine.Default;
         if (pdf.Length > options.MaxFileBytes)
         {
             throw new OcrLimitException(nameof(PdfOcrOptions.MaxFileBytes), options.MaxFileBytes, pdf.Length);
@@ -43,7 +43,7 @@ public static class PdfOcr
 
     /// <summary>Reads the pages of a PDF file.</summary>
     /// <param name="path">The file.</param>
-    /// <param name="engine">The recognizer; <see cref="OneOcr.Default"/> when null.</param>
+    /// <param name="engine">The recognizer; <see cref="OcrEngine.Default"/> when null.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
     /// <returns>One page per PDF page in the selected range.</returns>
@@ -68,7 +68,7 @@ public static class PdfOcr
 
     /// <summary>Reads the pages of a PDF from a stream, reading at most <see cref="PdfOcrOptions.MaxFileBytes"/> bytes.</summary>
     /// <param name="stream">A readable stream positioned at the start of the file.</param>
-    /// <param name="engine">The recognizer; <see cref="OneOcr.Default"/> when null.</param>
+    /// <param name="engine">The recognizer; <see cref="OcrEngine.Default"/> when null.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
     /// <returns>One page per PDF page in the selected range.</returns>
@@ -101,7 +101,7 @@ public static class PdfOcr
 
     /// <summary>Like <see cref="Read(ReadOnlyMemory{byte}, OcrEngine?, PdfOcrOptions?, CancellationToken)"/>, on a worker thread.</summary>
     /// <param name="pdf">The file's bytes.</param>
-    /// <param name="engine">The recognizer; <see cref="OneOcr.Default"/> when null.</param>
+    /// <param name="engine">The recognizer; <see cref="OcrEngine.Default"/> when null.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
     /// <returns>The pages.</returns>
@@ -111,7 +111,7 @@ public static class PdfOcr
 
     /// <summary>Like <see cref="Read(string, OcrEngine?, PdfOcrOptions?, CancellationToken)"/>, on a worker thread.</summary>
     /// <param name="path">The file.</param>
-    /// <param name="engine">The recognizer; <see cref="OneOcr.Default"/> when null.</param>
+    /// <param name="engine">The recognizer; <see cref="OcrEngine.Default"/> when null.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
     /// <returns>The pages.</returns>
@@ -213,14 +213,14 @@ public static class PdfOcr
 /// </remarks>
 public static class PdfOcrExtensions
 {
-    /// <summary>Reads one page with <see cref="OneOcr.Default"/>.</summary>
+    /// <summary>Reads one page with <see cref="OcrEngine.Default"/>.</summary>
     /// <param name="page">The page.</param>
     /// <param name="options">Per-call options; null for the defaults. <see cref="PdfOcrOptions.FirstPage"/> and <see cref="PdfOcrOptions.PageCount"/> are ignored.</param>
     /// <param name="cancellationToken">Cancels between regions.</param>
     /// <returns>The page model.</returns>
-    /// <exception cref="OcrModelException">No default engine is configured.</exception>
+    /// <exception cref="InvalidOperationException">No default engine is configured.</exception>
     public static OcrPage Ocr(this PdfPage page, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
-        Ocr(page, OneOcr.Default, options, cancellationToken);
+        Ocr(page, OcrEngine.Default, options, cancellationToken);
 
     /// <summary>Reads one page with the given engine.</summary>
     /// <param name="page">The page.</param>
@@ -255,12 +255,12 @@ public static class PdfOcrExtensions
         return PdfOcr.ReadPages(page.Document, () => Serialize(page.Document), engine, single, cancellationToken)[0];
     }
 
-    /// <summary>Reads the text of one page with <see cref="OneOcr.Default"/>: lines joined by <c>\n</c>.</summary>
+    /// <summary>Reads the text of one page with <see cref="OcrEngine.Default"/>: lines joined by <c>\n</c>.</summary>
     /// <param name="page">The page.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between regions.</param>
     /// <returns>The text.</returns>
-    /// <exception cref="OcrModelException">No default engine is configured.</exception>
+    /// <exception cref="InvalidOperationException">No default engine is configured.</exception>
     public static string ToText(this PdfPage page, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
         Ocr(page, options, cancellationToken).ToText();
 
@@ -273,14 +273,14 @@ public static class PdfOcrExtensions
     public static string ToText(this PdfPage page, OcrEngine engine, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
         Ocr(page, engine, options, cancellationToken).ToText();
 
-    /// <summary>Reads the pages of an open document with <see cref="OneOcr.Default"/>.</summary>
+    /// <summary>Reads the pages of an open document with <see cref="OcrEngine.Default"/>.</summary>
     /// <param name="document">The document.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
     /// <returns>One page model per page in the selected range.</returns>
-    /// <exception cref="OcrModelException">No default engine is configured.</exception>
+    /// <exception cref="InvalidOperationException">No default engine is configured.</exception>
     public static IReadOnlyList<OcrPage> Ocr(this PdfDocument document, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
-        Ocr(document, OneOcr.Default, options, cancellationToken);
+        Ocr(document, OcrEngine.Default, options, cancellationToken);
 
     /// <summary>Reads the pages of an open document with the given engine.</summary>
     /// <param name="document">The document.</param>
@@ -300,7 +300,7 @@ public static class PdfOcrExtensions
         return PdfOcr.ReadPages(document, () => saved ??= Serialize(document), engine, options, cancellationToken);
     }
 
-    /// <summary>Reads the text of an open document with <see cref="OneOcr.Default"/>: pages joined by a form feed (<c>\f</c>).</summary>
+    /// <summary>Reads the text of an open document with <see cref="OcrEngine.Default"/>: pages joined by a form feed (<c>\f</c>).</summary>
     /// <param name="document">The document.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
@@ -317,13 +317,13 @@ public static class PdfOcrExtensions
     public static string ToText(this PdfDocument document, OcrEngine engine, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
         string.Join('\f', Ocr(document, engine, options, cancellationToken).Select(p => p.ToText()));
 
-    /// <summary>Reads one page with <see cref="OneOcr.Default"/> and writes it as Markdown (see <see cref="OcrMarkdown"/>). Header and footer roles from the text layer are honored.</summary>
+    /// <summary>Reads one page with <see cref="OcrEngine.Default"/> and writes it as Markdown (see <see cref="OcrMarkdown"/>). Header and footer roles from the text layer are honored.</summary>
     /// <param name="page">The page.</param>
     /// <param name="markdown">Markdown options; null for the defaults.</param>
     /// <param name="options">Per-call read options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between regions.</param>
     /// <returns>The Markdown.</returns>
-    /// <exception cref="OcrModelException">No default engine is configured.</exception>
+    /// <exception cref="InvalidOperationException">No default engine is configured.</exception>
     public static string ToMarkdown(this PdfPage page, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
         Ocr(page, options, cancellationToken).ToMarkdown(markdown);
 
@@ -337,7 +337,7 @@ public static class PdfOcrExtensions
     public static string ToMarkdown(this PdfPage page, OcrEngine engine, MarkdownOptions? markdown = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default) =>
         Ocr(page, engine, options, cancellationToken).ToMarkdown(markdown);
 
-    /// <summary>Reads an open document with <see cref="OneOcr.Default"/> and writes it as Markdown, pages separated by a thematic break.</summary>
+    /// <summary>Reads an open document with <see cref="OcrEngine.Default"/> and writes it as Markdown, pages separated by a thematic break.</summary>
     /// <param name="document">The document.</param>
     /// <param name="markdown">Markdown options; null for the defaults.</param>
     /// <param name="options">Per-call read options; null for the defaults.</param>

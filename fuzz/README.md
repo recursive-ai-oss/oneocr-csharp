@@ -19,6 +19,7 @@ Anything else, a timeout (20 s) or an out-of-memory (2 GB heap) is a finding.
 | `pdf` | PDF bytes through the PDF path | page JSON round trip |
 | `image` | image bytes through OneImage and the page path with random small models | page JSON round trip |
 | `image-real` | the same with the shipped models (needs the model files at build time) | page JSON round trip |
+| `density` | image file headers (PNG, JPEG, TIFF) | never throws; an answer is finite and in 10..10000 dpi; deterministic |
 | `normalization` | UTF-16 code units, lone surrogates included | NFC/NFKC idempotence, amount/date/currency parsing, bounded edit distance |
 
 Seeds live in `fuzz/corpus/<target>/`; `ONEOCR_FUZZ_TARGET=<target> OneOcr.Fuzz seeds <dir>` writes them. Minimized reproducers of

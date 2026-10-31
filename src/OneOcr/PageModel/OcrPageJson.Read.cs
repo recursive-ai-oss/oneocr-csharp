@@ -197,13 +197,13 @@ public static partial class OcrPageJson
                 }
             }
 
-            var diagnostics = new List<string>();
+            var diagnostics = new List<OcrDiagnostic>();
             JsonElement diag = Req(e, "diagnostics", path);
             Array(diag, path + ".diagnostics");
             CheckCount(diag.GetArrayLength(), limits.MaxPageElements, nameof(OcrLimits.MaxPageElements));
             foreach (JsonElement d in diag.EnumerateArray())
             {
-                diagnostics.Add(Text(d, path + ".diagnostics"));
+                diagnostics.Add(Diag.FromMessage(Text(d, path + ".diagnostics")));
             }
 
             Text(Req(e, "text", path), path + ".text");

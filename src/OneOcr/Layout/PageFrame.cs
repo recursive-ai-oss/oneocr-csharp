@@ -110,7 +110,7 @@ internal sealed class PageFrame
     /// Carries a page read in the deskewed frame back to the input image: sizes become the input's, every box becomes the box
     /// around its mapped corners, and every element that carries a quad gets the mapped corners.
     /// </summary>
-    public OcrPage MapPage(OcrPage page, IReadOnlyList<string> notes)
+    public OcrPage MapPage(OcrPage page, IReadOnlyList<OcrDiagnostic> notes)
     {
         var blocks = new List<OcrBlock>(page.Blocks.Count);
         foreach (OcrBlock b in page.Blocks)
@@ -166,7 +166,7 @@ internal sealed class PageFrame
             keyValues.Add(k with { Box = Map(k.Box).Box });
         }
 
-        var diagnostics = new List<string>(page.Diagnostics);
+        var diagnostics = new List<OcrDiagnostic>(page.Diagnostics);
         diagnostics.AddRange(notes);
         return new OcrPage(
             page.Index, Width, Height, page.UnitsPerInch, blocks, regions, tables, keyValues, diagnostics, page.ToPdf, Orientation, SkewDegrees);

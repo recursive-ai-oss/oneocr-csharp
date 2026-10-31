@@ -2,11 +2,14 @@ using OneOcr.Kernels;
 
 namespace OneOcr.Training;
 
-/// <summary>Settings of an <see cref="OcrTrainer"/> run. Every value has a default except the two paths.</summary>
+/// <summary>Settings of an <see cref="OcrTrainer"/> run. Every value has a default except the work directory.</summary>
 public sealed class OcrTrainerOptions
 {
-    /// <summary>The model to start from: a container file with architecture <c>crnn-v0</c>, normally the recognizer that ships with the library. Required.</summary>
-    public required string ModelPath { get; init; }
+    /// <summary>
+    /// The model to start from: a container file with architecture <c>crnn-v0</c>. Default null: the recognizer that ships in the models
+    /// package, written to <c>start-model.onm</c> in <see cref="WorkDirectory"/> (see also <c>BundledModels.ExportRecognizer</c>).
+    /// </summary>
+    public string? ModelPath { get; init; }
 
     /// <summary>
     /// The run's directory: labelled documents, the reviewer's corrections, the checkpoint and the report. Created if missing.
@@ -85,7 +88,11 @@ public sealed class OcrTrainerOptions
 
     internal void Validate()
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(ModelPath);
+        if (ModelPath is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(ModelPath);
+        }
+
         ArgumentException.ThrowIfNullOrWhiteSpace(WorkDirectory);
         if (Steps < 1 || BatchSize < 1 || CheckpointEvery < 1 || StopAfterSteps < 0 || (WarmupSteps ?? 0) < 0 || MaxDegreeOfParallelism < 0)
         {

@@ -268,7 +268,7 @@ public class ExtractionTrainerTests : IDisposable
         for (int i = 0; i < 20; i++)
         {
             Form f = MakeForm(5000 + i);
-            ExtractionResult<CustomForm> x = tuned.Extract(f.Page, CustomFormContext.Default.CustomForm, 1);
+            ExtractionResult<CustomForm> x = tuned.Extract(f.Page, CustomFormContext.Default.CustomForm, Opt.Doc(1));
             asked += 3;
             right += (x.Value.OrderNo == f.OrderNo ? 1 : 0)
                 + (x.Value.Amount == (f.Amount is null ? null : decimal.Parse(f.Amount, CultureInfo.InvariantCulture)) ? 1 : 0)
@@ -285,10 +285,10 @@ public class ExtractionTrainerTests : IDisposable
         byte[] head = DocContainerWriter.WithNewHead(ModelContainer.Parse(BaseModel(), Limits), ["amount"], 2, Limits);
         DocumentExtractor ex = DocumentExtractor.Load(head);
         OcrPage page = MakeForm(1).Page;
-        ExtractionResult<OtherForm> r = ex.Extract(page, CustomFormContext.Default.OtherForm, 1);
+        ExtractionResult<OtherForm> r = ex.Extract(page, CustomFormContext.Default.OtherForm, Opt.Doc(1));
         Assert.Null(r.Value.Unknown);
-        Assert.Contains(r.Diagnostics, static d => d.Contains("no class 'unknown'", StringComparison.Ordinal));
-        Assert.Throws<ArgumentException>(() => ex.Extract(page, CustomFormContext.Default.StrictForm, 1));
+        Assert.Contains(r.Diagnostics, static d => d.Message.Contains("no class 'unknown'", StringComparison.Ordinal));
+        Assert.Throws<ArgumentException>(() => ex.Extract(page, CustomFormContext.Default.StrictForm, Opt.Doc(1)));
         Assert.Throws<ArgumentNullException>(() => ex.Extract<OtherForm>(page, null!));
     }
 }

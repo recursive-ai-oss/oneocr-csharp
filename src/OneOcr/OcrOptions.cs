@@ -1,11 +1,17 @@
 namespace OneOcr;
 
-/// <summary>Per-call options of <see cref="OcrEngine.Ocr(OneImage.Image, OcrOptions?, CancellationToken)"/>. Everything has a default.</summary>
+/// <summary>
+/// Options of <see cref="OcrEngine.Ocr(OneImage.Image, OcrOptions?, CancellationToken)"/>, <see cref="OcrEngine.ToText(OneImage.Image, OcrOptions?, CancellationToken)"/>
+/// and their relatives. Everything has a default. Set engine-wide defaults with <see cref="OcrEngine.WithOptions"/>; options passed to a call
+/// replace them as a whole. Invalid values make the call throw <see cref="ArgumentOutOfRangeException"/> for the parameter <c>options</c>.
+/// </summary>
 public sealed class OcrOptions
 {
     /// <summary>
-    /// Resolution of the image in pixels per inch, written to <see cref="OcrPage.UnitsPerInch"/>. Null (the default) estimates it from
-    /// the size of the text, assuming body text of about 11 points, and says so in the page's diagnostics. Must be positive and finite.
+    /// Resolution of the image in pixels per inch, written to <see cref="OcrPage.UnitsPerInch"/>. Null (the default) takes the resolution
+    /// the file declares when the image is read with <c>OcrPages</c> from a path, a seekable stream or bytes (PNG, JPEG and TIFF are
+    /// understood); otherwise it estimates it from the size of the text, assuming body text of about 11 points, and says so in the page's
+    /// diagnostics (<see cref="OcrDiagnosticCodes.DpiEstimated"/>). Must be positive and finite.
     /// </summary>
     public double? Dpi { get; init; }
 
@@ -92,21 +98,32 @@ public sealed class OcrOptions
     /// <summary>Replaces the noise filter's thresholds; used to tune them. Null uses the defaults.</summary>
     internal global::OneOcr.Layout.JunkParameters? JunkTuning { get; init; }
 
+    /// <summary>These options with <see cref="Dpi"/> set to the resolution a file declares, unless the caller set one.</summary>
+    internal OcrOptions WithDeclaredDpi(double? declared) =>
+        Dpi is not null || declared is null
+            ? this
+            : new OcrOptions
+            {
+                Dpi = declared, MaxDegreeOfParallelism = MaxDegreeOfParallelism, IncludeChars = IncludeChars, PageIndex = PageIndex, DetectOrientation = DetectOrientation,
+                Deskew = Deskew, SearchAngle = SearchAngle, DropNoise = DropNoise, FixWordSpacing = FixWordSpacing, FixDigitLookalikes = FixDigitLookalikes,
+                FixSeparators = FixSeparators, FixStrayAccents = FixStrayAccents, JunkTuning = JunkTuning,
+            };
+
     internal void Validate()
     {
         if (Dpi is double d && (!double.IsFinite(d) || d <= 0))
         {
-            throw new ArgumentException("Dpi must be positive and finite.", nameof(Dpi));
+            throw new ArgumentOutOfRangeException("options", d, "Dpi must be positive and finite.");
         }
 
         if (MaxDegreeOfParallelism < 0)
         {
-            throw new ArgumentException("MaxDegreeOfParallelism must not be negative.", nameof(MaxDegreeOfParallelism));
+            throw new ArgumentOutOfRangeException("options", MaxDegreeOfParallelism, "MaxDegreeOfParallelism must not be negative.");
         }
 
         if (PageIndex < 0)
         {
-            throw new ArgumentException("PageIndex must not be negative.", nameof(PageIndex));
+            throw new ArgumentOutOfRangeException("options", PageIndex, "PageIndex must not be negative.");
         }
     }
 }

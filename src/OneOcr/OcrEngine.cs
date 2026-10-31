@@ -25,11 +25,15 @@ public sealed class OcrEngine
     private readonly IOrientationDetector _orientation;
     private readonly IPageDetector? _detector;
     private readonly bool _confirmTurns;
+    private readonly OcrOptions _options;
+
+    private static OcrEngine? s_default;
 
     private OcrEngine(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixels, BufferPool<byte> masks, ResizerPool resizers, DecodeOptions decoding,
-        IPageDetector? detector, bool confirmTurns = true)
+        IPageDetector? detector, bool confirmTurns, OcrOptions options)
     {
+        _options = options;
         _detector = detector;
         _confirmTurns = confirmTurns;
         _resizers = resizers;
@@ -72,15 +76,15 @@ public sealed class OcrEngine
     {
         ArgumentNullException.ThrowIfNull(decoding);
         decoding.Validate(_limits);
-        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, decoding, _detector, _confirmTurns);
+        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, decoding, _detector, _confirmTurns, _options);
     }
 
     /// <summary>
     /// An engine that shares this one's recognizer and finds text lines, layout regions and the page's orientation with a page detector
     /// model (architecture <c>dbnet-lite-v0</c> or <c>dbnet-lite-v1</c>) instead of the built-in classical line finding. Page methods (<see cref="Ocr(Image, OcrOptions?, CancellationToken)"/>,
-    /// <see cref="ToText(Image, int, CancellationToken)"/>) use it: lines come from the detector, regions fill
+    /// <see cref="ToText(Image, OcrOptions?, CancellationToken)"/>) use it: lines come from the detector, regions fill
     /// <see cref="OcrPage.Regions"/> and set header and footer blocks, and a page the detector is sure is rotated by 90, 180 or 270
-    /// degrees is turned upright first (a diagnostic says so, and positions refer to the turned page). Layout classes the model was not
+    /// degrees is turned upright first (a diagnostic says so; positions stay in the image as given and rotated elements carry a quad). Layout classes the model was not
     /// trained on (<c>form_field</c> and <c>checkbox</c> unless the model's <c>layout_trained</c> lists them) are never reported.
     /// </summary>
     /// <param name="detectorModelPath">A model container with architecture <c>dbnet-lite-v0</c> or <c>dbnet-lite-v1</c>.</param>
@@ -114,7 +118,7 @@ public sealed class OcrEngine
     /// <param name="model">The model, for example from <see cref="CharLanguageModel.Load(string, OcrLimits?)"/>, or null for none.</param>
     /// <returns>The new engine; this one is unchanged.</returns>
     public OcrEngine WithWordModel(CharLanguageModel? model) =>
-        new(_recognizer.WithWordModel(model is null ? null : new WordPlausibility(model)), _limits, _pixels, _masks, _resizers, _decoding, _detector, _confirmTurns);
+        new(_recognizer.WithWordModel(model is null ? null : new WordPlausibility(model)), _limits, _pixels, _masks, _resizers, _decoding, _detector, _confirmTurns, _options);
 
     /// <summary>Whether this engine has word frequencies that take back spaces the network put inside words (see <see cref="WithWordFrequencies"/>).</summary>
     public bool HasWordFrequencies => _recognizer.HasWordFrequencies;
@@ -129,36 +133,78 @@ public sealed class OcrEngine
     /// <param name="frequencies">The table, for example from <see cref="WordFrequencyModel.Load(string, OcrLimits?)"/>, or null for none.</param>
     /// <returns>The new engine; this one is unchanged.</returns>
     public OcrEngine WithWordFrequencies(WordFrequencyModel? frequencies) =>
-        new(_recognizer.WithWordFrequencies(frequencies), _limits, _pixels, _masks, _resizers, _decoding, _detector, _confirmTurns);
+        new(_recognizer.WithWordFrequencies(frequencies), _limits, _pixels, _masks, _resizers, _decoding, _detector, _confirmTurns, _options);
 
     /// <summary>An engine that shares this one's recognizer and has no page detector: lines come from the built-in classical finder.</summary>
     /// <returns>The new engine; this one is unchanged.</returns>
-    public OcrEngine WithoutDetector() => new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, null);
+    public OcrEngine WithoutDetector() => new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, null, true, _options);
 
     internal OcrEngine WithDetector(ModelContainer container, KernelPath path) =>
         WithDetector(new PageDetector(DbNetModel.FromContainer(container, _limits), _limits, path, _recognizer.ScratchPool));
 
     // confirmTurns: whether a quarter turn the detector's head asks for is checked by the classical decision before it is acted on.
     internal OcrEngine WithDetector(IPageDetector detector, bool confirmTurns = true) =>
-        new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, detector, confirmTurns);
+        new(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, detector, confirmTurns, _options);
 
-    /// <summary>Loads a recognition model from a container file.</summary>
+    /// <summary>The engine set by <see cref="ConfigureDefault()"/>, used by the extension methods that take no engine.</summary>
+    /// <exception cref="InvalidOperationException">No default engine has been configured.</exception>
+    public static OcrEngine Default =>
+        Volatile.Read(ref s_default) ?? throw new InvalidOperationException(
+            "No default OCR engine is configured. Call OcrEngine.ConfigureDefault() (the bundled models) or OcrEngine.ConfigureDefault(OcrEngine.Load(modelPath)) once at startup, or pass an engine explicitly.");
+
+    /// <summary>Sets <see cref="Default"/>. May be called once per process.</summary>
+    /// <param name="engine">The engine to use by default.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="engine"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A default engine was already configured.</exception>
+    public static void ConfigureDefault(OcrEngine engine)
+    {
+        ArgumentNullException.ThrowIfNull(engine);
+        if (Interlocked.CompareExchange(ref s_default, engine, null) is not null)
+        {
+            throw new InvalidOperationException("OcrEngine.Default is already configured.");
+        }
+    }
+
+    /// <summary>Loads the models that ship in the models package (see <see cref="LoadBundled"/>) and sets them as <see cref="Default"/>. May be called once per process.</summary>
+    /// <exception cref="OcrModelException">The package carries no weights, or they do not match their pin.</exception>
+    /// <exception cref="InvalidOperationException">A default engine was already configured.</exception>
+    public static void ConfigureDefault() => ConfigureDefault(LoadBundled());
+
+    /// <summary>Loads a recognizer file (with the bundled page models, see <see cref="Load(string, OcrLimits?, bool)"/>) and sets it as <see cref="Default"/>. May be called once per process.</summary>
+    /// <param name="modelPath">A model container file.</param>
+    /// <exception cref="OcrModelException">The model is malformed.</exception>
+    /// <exception cref="InvalidOperationException">A default engine was already configured.</exception>
+    public static void ConfigureDefault(string modelPath) => ConfigureDefault(Load(modelPath));
+
+    /// <summary>
+    /// Loads a recognition model from a container file. The page models that ship with the models package (page detector, word model and
+    /// word frequencies, when this build carries them) are attached, so a recognizer you tuned from the shipped one reads pages the way
+    /// the shipped one does.
+    /// </summary>
     /// <param name="modelPath">A model container (architecture <c>crnn-v0</c>).</param>
     /// <param name="limits">Bounds to enforce; <see cref="OcrLimits.Default"/> when null.</param>
+    /// <param name="withBundledModels">False to get the recognizer alone: lines then come from the built-in classical finder and no word model is used.</param>
     /// <returns>The engine.</returns>
-    /// <exception cref="OcrModelException">The file is malformed or describes another architecture.</exception>
+    /// <exception cref="OcrModelException">The file is malformed or describes another architecture, or a bundled model does not match its pin.</exception>
     /// <exception cref="OcrLimitException">The model exceeds <paramref name="limits"/>.</exception>
-    public static OcrEngine Load(string modelPath, OcrLimits? limits = null) =>
-        Create(ModelContainer.Load(modelPath, limits), limits, Dispatch.Best);
+    public static OcrEngine Load(string modelPath, OcrLimits? limits = null, bool withBundledModels = true)
+    {
+        OcrEngine engine = Create(ModelContainer.Load(modelPath, limits), limits, Dispatch.Best);
+        return withBundledModels ? AttachBundled(engine, limits) : engine;
+    }
 
-    /// <summary>Loads a recognition model from a stream, reading at most <see cref="OcrLimits.MaxModelFileBytes"/> bytes.</summary>
+    /// <summary>Loads a recognition model from a stream, reading at most <see cref="OcrLimits.MaxModelFileBytes"/> bytes. Attaches the bundled page models like <see cref="Load(string, OcrLimits?, bool)"/>.</summary>
     /// <param name="model">A stream positioned at the start of a model container.</param>
     /// <param name="limits">Bounds to enforce; <see cref="OcrLimits.Default"/> when null.</param>
+    /// <param name="withBundledModels">False to get the recognizer alone.</param>
     /// <returns>The engine.</returns>
-    /// <exception cref="OcrModelException">The data is malformed or describes another architecture.</exception>
+    /// <exception cref="OcrModelException">The data is malformed or describes another architecture, or a bundled model does not match its pin.</exception>
     /// <exception cref="OcrLimitException">The model exceeds <paramref name="limits"/>.</exception>
-    public static OcrEngine Load(Stream model, OcrLimits? limits = null) =>
-        Create(ModelContainer.Load(model, limits), limits, Dispatch.Best);
+    public static OcrEngine Load(Stream model, OcrLimits? limits = null, bool withBundledModels = true)
+    {
+        OcrEngine engine = Create(ModelContainer.Load(model, limits), limits, Dispatch.Best);
+        return withBundledModels ? AttachBundled(engine, limits) : engine;
+    }
 
     /// <summary>Loads the recognizer, the word model and the page detector that ship in the models package (pinned by SHA-256; checked on every load). A build of the package without the detector file reads pages with the built-in line finder.</summary>
     /// <param name="limits">Bounds to enforce; <see cref="OcrLimits.Default"/> when null.</param>
@@ -167,49 +213,48 @@ public sealed class OcrEngine
     /// <exception cref="OcrLimitException">The model exceeds <paramref name="limits"/>.</exception>
     public static OcrEngine LoadBundled(OcrLimits? limits = null)
     {
-        string? problem = BundledModels.TryReadRecognizer(out byte[] data);
-        if (problem is not null)
+        if (!BundledModels.TryReadRecognizer(out byte[] data, out string? problem))
         {
-            throw new OcrModelException(problem);
+            throw new OcrModelException(problem!);
         }
 
-        OcrEngine engine = Create(ModelContainer.Parse(data, limits), limits, Dispatch.Best);
+        return AttachBundled(Create(ModelContainer.Parse(data, limits), limits, Dispatch.Best), limits);
+    }
 
-        // The character model that helps place word breaks ships next to the recognizer; a build without it keeps the pixel evidence only.
+    // The character model that helps place word breaks, the word frequencies and the page detector ship next to the recognizer. A build
+    // of the models package without one keeps the evidence it has (a development build reads pages with the classical line finder); a
+    // file that does not match its pin is an error.
+    private static OcrEngine AttachBundled(OcrEngine engine, OcrLimits? limits)
+    {
+        string? problem;
         if (BundledModels.HasLanguageModel)
         {
-            problem = BundledModels.TryReadLanguageModel(out byte[] words);
-            if (problem is not null)
+            if (!BundledModels.TryReadLanguageModel(out byte[] words, out problem))
             {
-                throw new OcrModelException(problem);
+                throw new OcrModelException(problem!);
             }
 
             engine = engine.WithWordModel(CharLanguageModel.Parse(words, limits));
         }
 
-        // The word frequencies that take back spaces inside words ship next to it; a build without them keeps the other evidence only.
         if (BundledModels.HasWordFrequencies)
         {
-            problem = BundledModels.TryReadWordFrequencies(out byte[] frequencies);
-            if (problem is not null)
+            if (!BundledModels.TryReadWordFrequencies(out byte[] frequencies, out problem))
             {
-                throw new OcrModelException(problem);
+                throw new OcrModelException(problem!);
             }
 
             engine = engine.WithWordFrequencies(WordFrequencyModel.Parse(frequencies, limits));
         }
 
-        // The page detector ships with the recognizer. A build of the models package without it (a development build) reads pages with
-        // the classical line finder; a build with a detector that does not match its pin is an error.
         if (!BundledModels.HasDetector)
         {
             return engine;
         }
 
-        problem = BundledModels.TryReadDetector(out byte[] detector);
-        if (problem is not null)
+        if (!BundledModels.TryReadDetector(out byte[] detector, out problem))
         {
-            throw new OcrModelException(problem);
+            throw new OcrModelException(problem!);
         }
 
         return engine.WithDetector(ModelContainer.Parse(detector, limits), Dispatch.Best);
@@ -220,71 +265,122 @@ public sealed class OcrEngine
         limits ??= OcrLimits.Default;
         return new OcrEngine(
             new LineRecognizer(CrnnModel.FromContainer(container, limits), limits, path), limits,
-            new BufferPool<Gray8>(limits.MaxPooledBufferBytes, 1), new BufferPool<byte>(limits.MaxPooledBufferBytes, 1), new ResizerPool(), DecodeOptions.Greedy, null);
+            new BufferPool<Gray8>(limits.MaxPooledBufferBytes, 1), new BufferPool<byte>(limits.MaxPooledBufferBytes, 1), new ResizerPool(), DecodeOptions.Greedy, null, true, new OcrOptions());
     }
 
     /// <summary>
-    /// Reads the text of a clean, upright, single-column page: finds the text lines, reads each, and joins the non-empty results
-    /// top to bottom with <c>\n</c>. Within a line, spaces come from the recognizer, checked against the line's pixels (see <see cref="OcrOptions.FixWordSpacing"/>).
+    /// The options a call uses when it passes none: the engine-wide defaults. A new engine has <c>new OcrOptions()</c>; change them with
+    /// <see cref="WithOptions"/>. Options passed to a call replace these as a whole (they are not merged).
+    /// </summary>
+    public OcrOptions Options => _options;
+
+    /// <summary>An engine that shares this one's models and uses <paramref name="options"/> for every call that passes none.</summary>
+    /// <param name="options">The engine-wide defaults for <see cref="Ocr(Image, OcrOptions?, CancellationToken)"/>, <see cref="ToText(Image, OcrOptions?, CancellationToken)"/> and their relatives.</param>
+    /// <returns>The new engine; this one is unchanged.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="options"/> holds a value out of range.</exception>
+    public OcrEngine WithOptions(OcrOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        options.Validate();
+        return new OcrEngine(_recognizer, _limits, _pixels, _masks, _resizers, _decoding, _detector, _confirmTurns, options);
+    }
+
+    /// <summary>
+    /// Reads the text of a page: finds the text lines, reads each, and joins the non-empty results in reading order with <c>\n</c>
+    /// (cells of a line with a tab; no blank lines between blocks, see <see cref="OcrPage.ToText()"/>). Spaces within a line come
+    /// from the recognizer, checked against the line's pixels (see <see cref="OcrOptions.FixWordSpacing"/>). An image with several frames
+    /// (a multi-page TIFF) is read frame by frame and the texts are joined with a blank line, one per frame.
     /// Images are converted to 8-bit grayscale first (transparency is not composited; flatten such images yourself).
     /// </summary>
-    /// <param name="image">The page.</param>
-    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores). The text does not depend on it.</param>
+    /// <param name="image">The page, or a multi-frame image.</param>
+    /// <param name="options">Options for this call; null for the engine's <see cref="Options"/>. Only the options that affect the text are used.</param>
     /// <param name="cancellationToken">Cancels between lines.</param>
     /// <returns>The text; empty when no text lines were found.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="image"/> is null.</exception>
-    /// <exception cref="OcrLimitException">The image, the number of lines or a line's width exceeds the limits.</exception>
-    public string ToText(Image image, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        ToText(image, _decoding, maxDegreeOfParallelism, cancellationToken);
+    /// <exception cref="ArgumentException"><paramref name="options"/> holds a value out of range.</exception>
+    /// <exception cref="OcrLimitException">The image, the number of lines, the number of frames or a line's width exceeds the limits.</exception>
+    /// <exception cref="OcrFormatException">The image data is damaged or in a format the image library does not read.</exception>
+    public string ToText(Image image, OcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        ToText(image, _decoding, options, cancellationToken);
 
     /// <summary>
-    /// Like <see cref="ToText(Image, int, CancellationToken)"/>, on a thread-pool thread: the same code runs, so the text is identical.
+    /// Like <see cref="ToText(Image, OcrOptions?, CancellationToken)"/>, on a thread-pool thread: the same code runs, so the text is identical.
     /// The caller must keep <paramref name="image"/> alive until the task completes.
     /// </summary>
     /// <param name="image">The page.</param>
-    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the engine's <see cref="Options"/>.</param>
     /// <param name="cancellationToken">Cancels between lines; the task then ends as cancelled.</param>
     /// <returns>The text; empty when no text lines were found.</returns>
-    public Task<string> ToTextAsync(Image image, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        Task.Run(() => ToText(image, _decoding, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+    public Task<string> ToTextAsync(Image image, OcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToText(image, _decoding, options, cancellationToken), cancellationToken);
 
-    /// <summary>Like <see cref="ToText(Image, DecodeOptions, int, CancellationToken)"/>, on a thread-pool thread, with the same text.</summary>
+    /// <summary>Like <see cref="ToText(Image, DecodeOptions, OcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same text.</summary>
     /// <param name="image">The page.</param>
     /// <param name="decoding">How each line's network output becomes text.</param>
-    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the engine's <see cref="Options"/>.</param>
     /// <param name="cancellationToken">Cancels between lines; the task then ends as cancelled.</param>
     /// <returns>The text; empty when no text lines were found.</returns>
-    public Task<string> ToTextAsync(Image image, DecodeOptions decoding, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        Task.Run(() => ToText(image, decoding, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+    public Task<string> ToTextAsync(Image image, DecodeOptions decoding, OcrOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ToText(image, decoding, options, cancellationToken), cancellationToken);
 
     /// <summary>
-    /// Like <see cref="ToText(Image, int, CancellationToken)"/> with the given decoding for this call instead of the engine's.
+    /// Like <see cref="ToText(Image, OcrOptions?, CancellationToken)"/> with the given decoding for this call instead of the engine's.
     /// </summary>
-    /// <param name="image">The page.</param>
+    /// <param name="image">The page, or a multi-frame image.</param>
     /// <param name="decoding">How each line's network output becomes text.</param>
-    /// <param name="maxDegreeOfParallelism">Most threads to use; 0 means min(4, cores). The text does not depend on it.</param>
+    /// <param name="options">Options for this call; null for the engine's <see cref="Options"/>.</param>
     /// <param name="cancellationToken">Cancels between lines.</param>
     /// <returns>The text; empty when no text lines were found.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="image"/> or <paramref name="decoding"/> is null.</exception>
-    /// <exception cref="ArgumentException">A decoding setting is out of range.</exception>
-    /// <exception cref="OcrLimitException">The image, the number of lines, a line's width or the beam search exceed the limits.</exception>
-    public string ToText(Image image, DecodeOptions decoding, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
+    /// <exception cref="ArgumentException">A decoding or option setting is out of range.</exception>
+    /// <exception cref="OcrLimitException">The image, the number of lines, the number of frames, a line's width or the beam search exceed the limits.</exception>
+    /// <exception cref="OcrFormatException">The image data is damaged or in a format the image library does not read.</exception>
+    public string ToText(Image image, DecodeOptions decoding, OcrOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(decoding);
         decoding.Validate(_limits);
+        options ??= _options;
+        options.Validate();
+        int frames = ImageGuard.Run(() => image.FrameCount);
+        if (frames <= 1)
+        {
+            return ToTextOfFrame(image, decoding, options, cancellationToken);
+        }
+
+        if (frames > _limits.MaxPagesPerCall)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxPagesPerCall), _limits.MaxPagesPerCall, frames);
+        }
+
+        var texts = new string[frames];
+        for (int i = 0; i < frames; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            texts[i] = ToTextOfFrame(ImageGuard.Run(() => image.Frames[i].ToImage()), decoding, options, cancellationToken);
+        }
+
+        return string.Join("\n\n", texts);
+    }
+
+    private string ToTextOfFrame(Image image, DecodeOptions decoding, OcrOptions options, CancellationToken cancellationToken)
+    {
         if (decoding.Mode != CtcDecoding.Beam)
         {
-            return BuildPage(image, 0, null, maxDegreeOfParallelism, includeChars: false, orient: true, deskew: true, new JunkParameters(), respace: true, digits: true, separators: true, searchAngle: true, cancellationToken).ToText();
+            // Only the text is wanted, so words are built without their characters.
+            return BuildPage(
+                image, 0, null, options.MaxDegreeOfParallelism, includeChars: false, options.DetectOrientation, options.Deskew, JunkFor(options), options.FixWordSpacing,
+                options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken).ToText();
         }
 
         string[] texts = [];
         ForEachLine(
-            image, maxDegreeOfParallelism, count => texts = new string[count],
+            image, options.MaxDegreeOfParallelism, count => texts = new string[count],
             (index, _, _, pixels, cropWidth) =>
                 // Lines are the unit of parallelism, so each is recognized on one thread.
                 texts[index] = _recognizer.Recognize(pixels, cropWidth, decoding, 1, cancellationToken).Text,
-            cancellationToken, orient: true);
+            cancellationToken, orient: options.DetectOrientation);
 
         var result = new StringBuilder();
         foreach (string text in texts)
@@ -310,47 +406,173 @@ public sealed class OcrEngine
     /// puts words, lines and blocks into reading order, with tables where a block is a grid of short cells. Words are always read
     /// with greedy decoding, whatever <see cref="Decoding"/> says, because beam search keeps no alignment and the boxes come from it.
     /// Images are converted to 8-bit grayscale first (transparency is not composited; flatten such images yourself).
-    /// Word boxes are the ink extent of each word; character boxes are approximate and say so. Output is bit-identical on every
+    /// Word boxes are the ink extent of each word; character boxes are approximate and say so. Coordinates are those of the image as
+    /// given, also when the page content is turned (see <see cref="OcrPage.Orientation"/>). Output is bit-identical on every
     /// supported CPU path and at every degree of parallelism.
     /// </summary>
-    /// <param name="image">The page image.</param>
-    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="image">The page image. It must have one frame; use <see cref="OcrPages(Image, OcrOptions?, CancellationToken)"/> for a multi-page TIFF.</param>
+    /// <param name="options">Options for this call; null for the engine's <see cref="Options"/>.</param>
     /// <param name="cancellationToken">Cancels between lines.</param>
     /// <returns>The page; with no blocks when no text was found.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="image"/> is null.</exception>
-    /// <exception cref="ArgumentException"><paramref name="options"/> holds a value out of range.</exception>
+    /// <exception cref="ArgumentException"><paramref name="options"/> holds a value out of range, or <paramref name="image"/> has more than one frame.</exception>
     /// <exception cref="OcrLimitException">The image, the number of lines or a line's width exceeds the limits.</exception>
+    /// <exception cref="OcrFormatException">The image data is damaged or in a format the image library does not read.</exception>
     public OcrPage Ocr(Image image, OcrOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(image);
-        options ??= new OcrOptions();
+        options ??= _options;
         options.Validate();
-        return BuildPage(image, options.PageIndex, options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, JunkFor(options), options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken);
+        RequireOneFrame(image);
+        return PageOf(image, options.PageIndex, options, cancellationToken);
     }
 
     /// <summary>Like <see cref="Ocr(Image, OcrOptions?, CancellationToken)"/>, on a thread-pool thread: the same code runs, so the page is identical.</summary>
     /// <param name="image">The page image; keep it alive until the task completes.</param>
-    /// <param name="options">Per-call options; null for the defaults.</param>
+    /// <param name="options">Options for this call; null for the engine's <see cref="Options"/>.</param>
     /// <param name="cancellationToken">Cancels between lines; the task then ends as cancelled.</param>
     /// <returns>The page.</returns>
     public Task<OcrPage> OcrAsync(Image image, OcrOptions? options = null, CancellationToken cancellationToken = default) =>
         Task.Run(() => Ocr(image, options, cancellationToken), cancellationToken);
 
     /// <summary>
+    /// Reads every frame of an image, one page each, in order: the way to read a multi-page TIFF. A single-frame image gives one page.
+    /// Page <c>i</c> gets <see cref="OcrPage.Index"/> = <c>options.PageIndex + i</c>.
+    /// </summary>
+    /// <param name="image">The image.</param>
+    /// <param name="options">Options for every page; null for the engine's <see cref="Options"/>.</param>
+    /// <param name="cancellationToken">Cancels between pages and lines.</param>
+    /// <returns>The pages in order.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="image"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="options"/> holds a value out of range.</exception>
+    /// <exception cref="OcrLimitException">The image has more frames than <see cref="OcrLimits.MaxPagesPerCall"/>, or one of the limits of a single page is exceeded.</exception>
+    /// <exception cref="OcrFormatException">The image data is damaged or in a format the image library does not read.</exception>
+    public IReadOnlyList<OcrPage> OcrPages(Image image, OcrOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        options ??= _options;
+        options.Validate();
+        int frames = ImageGuard.Run(() => image.FrameCount);
+        if (frames > _limits.MaxPagesPerCall)
+        {
+            throw new OcrLimitException(nameof(OcrLimits.MaxPagesPerCall), _limits.MaxPagesPerCall, frames);
+        }
+
+        if (frames <= 1)
+        {
+            return [PageOf(image, options.PageIndex, options, cancellationToken)];
+        }
+
+        var pages = new List<OcrPage>(frames);
+        for (int i = 0; i < frames; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            pages.Add(PageOf(ImageGuard.Run(() => image.Frames[i].ToImage()), checked(options.PageIndex + i), options, cancellationToken));
+        }
+
+        return pages;
+    }
+
+    /// <summary>
+    /// Decodes an image file under this engine's <see cref="Limits"/> and reads every frame (see <see cref="OcrPages(Image, OcrOptions?, CancellationToken)"/>).
+    /// Damaged data and exceeded image limits surface as <see cref="OcrFormatException"/> and <see cref="OcrLimitException"/> with the
+    /// image library's exception as the inner exception, so one <c>catch (OcrException)</c> covers untrusted images.
+    /// </summary>
+    /// <param name="path">The file.</param>
+    /// <param name="options">Options for every page; null for the engine's <see cref="Options"/>.</param>
+    /// <param name="cancellationToken">Cancels between pages and lines.</param>
+    /// <returns>The pages in order.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="path"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="options"/> holds a value out of range.</exception>
+    /// <exception cref="OcrFormatException">The data is damaged or in a format the image library does not read.</exception>
+    /// <exception cref="OcrLimitException">The image or the number of frames exceeds the limits.</exception>
+    /// <exception cref="IOException">The file cannot be read.</exception>
+    public IReadOnlyList<OcrPage> OcrPages(string path, OcrOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        options ??= _options;
+        options.Validate();
+        double? declared = null;
+        if (options.Dpi is null)
+        {
+            using FileStream file = File.OpenRead(path);
+            declared = ImageDensity.TryRead(ReadPrefix(file));
+        }
+
+        return OcrPages(ImageGuard.Run(() => Image.Load(path, ImageGuard.LoadOptionsFor(_limits), cancellationToken)), options.WithDeclaredDpi(declared), cancellationToken);
+    }
+
+    /// <summary>Like <see cref="OcrPages(string, OcrOptions?, CancellationToken)"/>, decoding a stream (read to its end).</summary>
+    /// <param name="stream">A stream positioned at the start of the image.</param>
+    /// <param name="options">Options for every page; null for the engine's <see cref="Options"/>.</param>
+    /// <param name="cancellationToken">Cancels between pages and lines.</param>
+    /// <returns>The pages in order.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="stream"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="options"/> holds a value out of range.</exception>
+    /// <exception cref="OcrFormatException">The data is damaged or in a format the image library does not read.</exception>
+    /// <exception cref="OcrLimitException">The image or the number of frames exceeds the limits.</exception>
+    public IReadOnlyList<OcrPage> OcrPages(Stream stream, OcrOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        options ??= _options;
+        options.Validate();
+        double? declared = null;
+        if (options.Dpi is null && stream.CanSeek)
+        {
+            long start = stream.Position;
+            declared = ImageDensity.TryRead(ReadPrefix(stream));
+            stream.Position = start;
+        }
+
+        return OcrPages(ImageGuard.Run(() => Image.Load(stream, ImageGuard.LoadOptionsFor(_limits), cancellationToken)), options.WithDeclaredDpi(declared), cancellationToken);
+    }
+
+    /// <summary>Like <see cref="OcrPages(string, OcrOptions?, CancellationToken)"/>, decoding image bytes.</summary>
+    /// <param name="data">The encoded image.</param>
+    /// <param name="options">Options for every page; null for the engine's <see cref="Options"/>.</param>
+    /// <param name="cancellationToken">Cancels between pages and lines.</param>
+    /// <returns>The pages in order.</returns>
+    /// <exception cref="ArgumentException"><paramref name="options"/> holds a value out of range.</exception>
+    /// <exception cref="OcrFormatException">The data is damaged or in a format the image library does not read.</exception>
+    /// <exception cref="OcrLimitException">The image or the number of frames exceeds the limits.</exception>
+    public IReadOnlyList<OcrPage> OcrPages(ReadOnlyMemory<byte> data, OcrOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        options ??= _options;
+        options.Validate();
+        double? declared = options.Dpi is null ? ImageDensity.TryRead(data.Span) : null;
+        return OcrPages(ImageGuard.Run(() => Image.Load(data, ImageGuard.LoadOptionsFor(_limits), cancellationToken)), options.WithDeclaredDpi(declared), cancellationToken);
+    }
+
+    // The start of a file, as much as the density reader looks at.
+    private static ReadOnlySpan<byte> ReadPrefix(Stream stream)
+    {
+        int size = stream.CanSeek ? (int)Math.Clamp(stream.Length - stream.Position, 0, ImageDensity.WindowBytes) : ImageDensity.WindowBytes;
+        byte[] buffer = new byte[size];
+        int filled = 0, read;
+        while (filled < buffer.Length && (read = stream.Read(buffer, filled, buffer.Length - filled)) > 0)
+        {
+            filled += read;
+        }
+
+        return buffer.AsSpan(0, filled);
+    }
+
+    /// <summary>
     /// Reads several images, one page each, in order. Page <c>i</c> gets <see cref="OcrPage.Index"/> = <c>options.PageIndex + i</c>; each page is
     /// identical to what <see cref="Ocr(Image, OcrOptions?, CancellationToken)"/> gives for that image alone with that index. The token is checked before
     /// each page and between lines. Pages are read one after another, each at the options' degree of parallelism.
     /// </summary>
-    /// <param name="images">The page images, for example the frames of a multi-page TIFF.</param>
-    /// <param name="options">Per-call options applied to every page; null for the defaults.</param>
+    /// <param name="images">The page images; each must have one frame (use <see cref="OcrPages(Image, OcrOptions?, CancellationToken)"/> for a multi-page file).</param>
+    /// <param name="options">Options applied to every page; null for the engine's <see cref="Options"/>.</param>
     /// <param name="cancellationToken">Cancels between pages and lines.</param>
     /// <returns>The pages in order; empty for no images.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="images"/> or one of its images is null.</exception>
+    /// <exception cref="ArgumentException">An image has more than one frame.</exception>
     /// <exception cref="OcrLimitException">There are more images than <see cref="OcrLimits.MaxPagesPerCall"/>, or one of the limits of a single page is exceeded.</exception>
     public IReadOnlyList<OcrPage> Ocr(IEnumerable<Image> images, OcrOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(images);
-        options ??= new OcrOptions();
+        options ??= _options;
         options.Validate();
         var pages = new List<OcrPage>();
         foreach (Image image in images)
@@ -362,7 +584,8 @@ public sealed class OcrEngine
             }
 
             ArgumentNullException.ThrowIfNull(image);
-            pages.Add(BuildPage(image, checked(options.PageIndex + pages.Count), options.Dpi, options.MaxDegreeOfParallelism, options.IncludeChars, options.DetectOrientation, options.Deskew, JunkFor(options), options.FixWordSpacing, options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken));
+            RequireOneFrame(image);
+            pages.Add(PageOf(image, checked(options.PageIndex + pages.Count), options, cancellationToken));
         }
 
         return pages;
@@ -370,11 +593,26 @@ public sealed class OcrEngine
 
     /// <summary>Like <see cref="Ocr(IEnumerable{Image}, OcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same pages.</summary>
     /// <param name="images">The page images; keep them alive until the task completes.</param>
-    /// <param name="options">Per-call options applied to every page; null for the defaults.</param>
+    /// <param name="options">Options applied to every page; null for the engine's <see cref="Options"/>.</param>
     /// <param name="cancellationToken">Cancels between pages and lines; the task then ends as cancelled.</param>
     /// <returns>The pages in order.</returns>
     public Task<IReadOnlyList<OcrPage>> OcrAsync(IEnumerable<Image> images, OcrOptions? options = null, CancellationToken cancellationToken = default) =>
         Task.Run(() => Ocr(images, options, cancellationToken), cancellationToken);
+
+    private static void RequireOneFrame(Image image)
+    {
+        int frames = ImageGuard.Run(() => image.FrameCount);
+        if (frames > 1)
+        {
+            throw new ArgumentException(
+                $"The image has {frames} frames and this call reads one page. Use OcrPages to read every frame, or pass a single frame.", nameof(image));
+        }
+    }
+
+    private OcrPage PageOf(Image image, int pageIndex, OcrOptions o, CancellationToken cancellationToken) =>
+        BuildPage(
+            image, pageIndex, o.Dpi, o.MaxDegreeOfParallelism, o.IncludeChars, o.DetectOrientation, o.Deskew, JunkFor(o), o.FixWordSpacing, o.FixDigitLookalikes, o.FixSeparators,
+            o.SearchAngle, cancellationToken);
 
     // The noise cleanup of one call: off with DropNoise = false, and without the accent rule when FixStrayAccents is false.
     private static JunkParameters? JunkFor(OcrOptions options)
@@ -390,6 +628,19 @@ public sealed class OcrEngine
 
     private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
     {
+        try
+        {
+            return BuildPageCore(image, pageIndex, dpi, maxDegreeOfParallelism, includeChars, orient, deskew, junk, respace, digits, separators, searchAngle, cancellationToken);
+        }
+        catch (OcrLimitException e) when (e.LimitName == nameof(OcrLimits.MaxLinesPerPage) && e.Limit != _limits.MaxLinesPerPage)
+        {
+            // A line finder gave up on its candidate cap (see OcrLimits.LineCandidateCap); the bound the caller set is the one to report.
+            throw new OcrLimitException(e.LimitName, _limits.MaxLinesPerPage, e.Actual);
+        }
+    }
+
+    private OcrPage BuildPageCore(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
+    {
         long pixels = (long)image.Width * image.Height;
         if (pixels > _limits.MaxImagePixels)
         {
@@ -403,7 +654,7 @@ public sealed class OcrEngine
         {
             int pixelCount = checked(width * height);
             long t = StageClock.Start();
-            image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
+            ImageGuard.Run(() => image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken));
             StageClock.Stop("1 decode+gray copy", t);
             return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, junk, respace, digits, separators, searchAngle, cancellationToken);
         }
@@ -423,7 +674,7 @@ public sealed class OcrEngine
     {
         var evidence = new OrientationEvidence();
         PreparedPage prepared = PagePreparation.Prepare(
-            gray, width, height, orient, deskew, Seam, _limits, _pixels, degree, evidence, quarterInInputFrame: _detector is null, cancellationToken);
+            gray, width, height, orient, deskew, Seam, _limits, _pixels, degree, evidence, cancellationToken);
         try
         {
             // The head's first look is reusable when the pixels the reader gets are the ones it looked at.
@@ -475,7 +726,7 @@ public sealed class OcrEngine
                 OcrPage page = PageReader.Read(
                     _recognizer, _limits, _pixels, _masks, _resizers, _detector, turned, frame.DeskewedWidth, frame.DeskewedHeight, pageIndex, dpi, degree, includeChars,
                     null, turn: false, null, cancellationToken, null, junk, respace, digits, separators);
-                var notes = new List<string>(source.Notes);
+                var notes = new List<OcrDiagnostic>(source.Notes);
                 return frame.MapPage(page, notes);
             }
             finally
@@ -487,7 +738,7 @@ public sealed class OcrEngine
         (OcrPage page, int? angle) = PageAngleSearch.Search(first, ReadAt, cancellationToken, light);
         if (angle is int a)
         {
-            var diagnostics = new List<string>(page.Diagnostics) { PageAngleSearch.Note(a) };
+            var diagnostics = new List<OcrDiagnostic>(page.Diagnostics) { PageAngleSearch.Note(a) };
             return new OcrPage(
                 page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, page.KeyValues, diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees);
         }
@@ -538,10 +789,10 @@ public sealed class OcrEngine
         try
         {
             int pixelCount = checked(width * height);
-            image.CopyPixelsTo<Gray8>(rented.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken);
+            ImageGuard.Run(() => image.CopyPixelsTo<Gray8>(rented.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken));
             var evidence = new OrientationEvidence();
             prepared = orient
-                ? PagePreparation.Prepare(grayPixels, width, height, true, true, Seam, _limits, _pixels, degree, evidence, quarterInInputFrame: _detector is null, cancellationToken)
+                ? PagePreparation.Prepare(grayPixels, width, height, true, true, Seam, _limits, _pixels, degree, evidence, cancellationToken)
                 : null;
             if (prepared is not null)
             {
@@ -556,7 +807,7 @@ public sealed class OcrEngine
             List<LineBox> lines;
             if (_detector is null)
             {
-                lines = LineFinder.Find(PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount)), width, height, _limits.MaxLinesPerPage);
+                lines = LineFinder.Find(PixelSpans.AsBytes(grayPixels.AsSpan(0, pixelCount)), width, height, _limits.LineCandidateCap);
             }
             else
             {
@@ -571,6 +822,11 @@ public sealed class OcrEngine
 
             try
             {
+                if (lines.Count > _limits.MaxLinesPerPage)
+                {
+                    throw new OcrLimitException(nameof(OcrLimits.MaxLinesPerPage), _limits.MaxLinesPerPage, lines.Count);
+                }
+
                 start(lines.Count);
                 if (lines.Count == 0)
                 {

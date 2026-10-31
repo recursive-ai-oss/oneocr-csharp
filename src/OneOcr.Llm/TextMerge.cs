@@ -537,7 +537,7 @@ internal static class TextMerge
         var tables = orig.Tables.Select(t => t with { Cells = [.. t.Cells.Select(c => c with { WordIndices = Map(c.WordIndices) })] }).ToList();
         var kvs = orig.KeyValues.Select(k => k with { KeyWordIndices = Map(k.KeyWordIndices), ValueWordIndices = Map(k.ValueWordIndices) })
             .Where(static k => k.KeyWordIndices.Count > 0 && k.ValueWordIndices.Count > 0).ToList();
-        return new OcrPage(orig.Index, orig.Width, orig.Height, orig.UnitsPerInch, blocks, orig.Regions, tables, kvs, [.. orig.Diagnostics, diagnostic], orig.ToPdf);
+        return new OcrPage(orig.Index, orig.Width, orig.Height, orig.UnitsPerInch, blocks, orig.Regions, tables, kvs, [.. orig.Diagnostics, new OcrDiagnostic(OcrDiagnosticCodes.LlmRead, OcrDiagnosticSeverity.Info, diagnostic)], orig.ToPdf);
     }
 
     private static float Weighted(List<OcrWord> words)

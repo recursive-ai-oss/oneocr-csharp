@@ -33,6 +33,7 @@ internal static class Program
             "pdf" => PdfTarget.Run,
             "image" => ImageTarget.Run,
             "image-real" => ImageRealTarget.Run,
+            "density" => DensityTarget.Run,
             "normalization" => NormalizationTarget.Run,
             "llm-anthropic" => LlmTarget.RunAnthropic,
             "llm-openai" => LlmTarget.RunOpenAi,
@@ -173,6 +174,12 @@ internal static class Program
         if (target == "image")
         {
             ImageTarget.WriteSeeds(dir);
+            return;
+        }
+
+        if (target == "density")
+        {
+            DensityTarget.WriteSeeds(dir);
             return;
         }
 

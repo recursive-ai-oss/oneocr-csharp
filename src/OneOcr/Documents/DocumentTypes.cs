@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace OneOcr.Documents;
 
 /// <summary>The kind of document the extraction model takes a page to be.</summary>
@@ -41,30 +43,102 @@ public enum FieldValueKind
 /// <summary>
 /// One value the extraction model read: a run of words of the page. The text is exactly the words' text; the normalized value is derived
 /// from it by the rules in <c>docs/spec/grounding.md</c>, the same ones the LLM layer uses to check values against the page.
+/// Records compare by value (the word indices element by element).
 /// </summary>
-/// <param name="Id">The field's class: an EN 16931 business term such as <c>BT-1</c> for invoices, <c>receipt.total</c> for receipts, or a name a custom model defines.</param>
-/// <param name="Text">The words joined by one space.</param>
-/// <param name="WordIndices">Indices into <see cref="OcrPage.Words"/>, in reading order.</param>
-/// <param name="Box">The union of the words' boxes, in page units.</param>
-/// <param name="Confidence">Mean probability of the words' chosen tags, 0 to 1. Not a calibrated probability of being right.</param>
-/// <param name="Kind">How <paramref name="Value"/> was derived.</param>
-/// <param name="Value">The normalized value: equal to <paramref name="Text"/> when the text could not be normalized or is plain text.</param>
-/// <param name="Number">The amount, quantity or rate when <paramref name="Kind"/> says so and the text parsed; otherwise null.</param>
-/// <param name="Date">The date when it parsed unambiguously and includes a year; otherwise null.</param>
-/// <param name="Currency">The ISO code of the currency written with the amount, when it names exactly one; otherwise null.</param>
-public sealed record ExtractedField(
-    string Id, string Text, IReadOnlyList<int> WordIndices, OcrBox Box, float Confidence, FieldValueKind Kind, string Value,
-    decimal? Number = null, DateOnly? Date = null, string? Currency = null);
-
-/// <summary>One repeated group of fields: a line item or a row of the tax breakdown. Each field class appears at most once.</summary>
-/// <param name="Anchor">Index into <see cref="OcrPage.Words"/> of the word the group's other words point to (its first word).</param>
-/// <param name="Fields">The fields, in reading order.</param>
-public sealed record ExtractedGroup(int Anchor, IReadOnlyList<ExtractedField> Fields)
+public sealed record ExtractedField
 {
+    /// <summary>Creates an empty field; set the required members.</summary>
+    public ExtractedField()
+    {
+    }
+
+    [SetsRequiredMembers]
+    internal ExtractedField(
+        string id, string text, IReadOnlyList<int> wordIndices, OcrBox box, float confidence, FieldValueKind kind, string value,
+        decimal? number = null, DateOnly? date = null, string? currency = null)
+    {
+        Id = id;
+        Text = text;
+        WordIndices = wordIndices;
+        Box = box;
+        Confidence = confidence;
+        Kind = kind;
+        Value = value;
+        Number = number;
+        Date = date;
+        Currency = currency;
+    }
+
+    /// <summary>The field's class: an EN 16931 business term such as <c>BT-1</c> for invoices, <c>receipt.total</c> for receipts, or a name a custom model defines.</summary>
+    public required string Id { get; init; }
+
+    /// <summary>The words joined by one space.</summary>
+    public required string Text { get; init; }
+
+    /// <summary>Indices into <see cref="OcrPage.Words"/>, in reading order.</summary>
+    public required IReadOnlyList<int> WordIndices { get; init; }
+
+    /// <summary>The union of the words' boxes, in page units.</summary>
+    public required OcrBox Box { get; init; }
+
+    /// <summary>Mean probability of the words' chosen tags, 0 to 1. Not a calibrated probability of being right.</summary>
+    public required float Confidence { get; init; }
+
+    /// <summary>How <see cref="Value"/> was derived.</summary>
+    public required FieldValueKind Kind { get; init; }
+
+    /// <summary>The normalized value: equal to <see cref="Text"/> when the text could not be normalized or is plain text.</summary>
+    public required string Value { get; init; }
+
+    /// <summary>The amount, quantity or rate when <see cref="Kind"/> says so and the text parsed; otherwise null.</summary>
+    public decimal? Number { get; init; }
+
+    /// <summary>The date when it parsed unambiguously and includes a year; otherwise null.</summary>
+    public DateOnly? Date { get; init; }
+
+    /// <summary>The ISO code of the currency written with the amount, when it names exactly one; otherwise null.</summary>
+    public string? Currency { get; init; }
+
+    /// <inheritdoc />
+    public bool Equals(ExtractedField? other) =>
+        other is not null && Id == other.Id && Text == other.Text && Box == other.Box && Confidence.Equals(other.Confidence) && Kind == other.Kind
+        && Value == other.Value && Number == other.Number && Date == other.Date && Currency == other.Currency && ModelEquality.Same(WordIndices, other.WordIndices);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => HashCode.Combine(Id, Text, Box, Confidence, Kind, Value, WordIndices.Count);
+}
+
+/// <summary>One repeated group of fields: a line item or a row of the tax breakdown. Each field class appears at most once. Records compare by value (the fields element by element).</summary>
+public sealed record ExtractedGroup
+{
+    /// <summary>Creates an empty group; set the required members.</summary>
+    public ExtractedGroup()
+    {
+    }
+
+    [SetsRequiredMembers]
+    internal ExtractedGroup(int anchor, IReadOnlyList<ExtractedField> fields)
+    {
+        Anchor = anchor;
+        Fields = fields;
+    }
+
+    /// <summary>Index into <see cref="OcrPage.Words"/> of the word the group's other words point to (its first word).</summary>
+    public required int Anchor { get; init; }
+
+    /// <summary>The fields, in reading order.</summary>
+    public required IReadOnlyList<ExtractedField> Fields { get; init; }
+
     /// <summary>The group's field of a class, or null when the group has none.</summary>
     /// <param name="id">The class, for example <c>BT-129</c>.</param>
     /// <returns>The field or null.</returns>
     public ExtractedField? Get(string id) => Fields.FirstOrDefault(f => f.Id == id);
+
+    /// <inheritdoc />
+    public bool Equals(ExtractedGroup? other) => other is not null && Anchor == other.Anchor && ModelEquality.Same(Fields, other.Fields);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => HashCode.Combine(Anchor, Fields.Count);
 }
 
 /// <summary>What the extraction model read from a page, before it is shaped into an invoice or a receipt.</summary>
@@ -72,7 +146,7 @@ public sealed class DocumentExtraction
 {
     internal DocumentExtraction(
         DocumentType documentType, float documentTypeConfidence, IReadOnlyList<ExtractedField> fields, IReadOnlyList<ExtractedGroup> lineItems,
-        IReadOnlyList<ExtractedGroup> taxRows, IReadOnlyList<OcrKeyValue> keyValues, IReadOnlyList<string> diagnostics)
+        IReadOnlyList<ExtractedGroup> taxRows, IReadOnlyList<OcrKeyValue> keyValues, IReadOnlyList<OcrDiagnostic> diagnostics)
     {
         DocumentType = documentType;
         DocumentTypeConfidence = documentTypeConfidence;
@@ -102,7 +176,7 @@ public sealed class DocumentExtraction
     public IReadOnlyList<OcrKeyValue> KeyValues { get; }
 
     /// <summary>Notes about the extraction, for example that the page has no words.</summary>
-    public IReadOnlyList<string> Diagnostics { get; }
+    public IReadOnlyList<OcrDiagnostic> Diagnostics { get; }
 
     /// <summary>The page-level field of a class.</summary>
     /// <param name="id">The class, for example <c>BT-1</c> or <c>receipt.total</c>.</param>

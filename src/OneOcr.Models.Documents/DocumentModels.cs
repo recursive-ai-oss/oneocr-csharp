@@ -35,40 +35,44 @@ public static class DocumentModels
     /// <exception cref="OcrModelException">The package carries no weights, or they do not match their pin.</exception>
     public static DocumentExtractor LoadExtractor(OcrLimits? limits = null)
     {
-        string? problem = TryReadExtractor(out byte[] data);
-        if (problem is not null)
+        if (!TryReadExtractor(out byte[] data, out string? problem))
         {
-            throw new OcrModelException(problem);
+            throw new OcrModelException(problem!);
         }
 
         return DocumentExtractor.Load(data, limits);
     }
 
-    /// <summary>Loads the bundled extraction model and sets it as <see cref="OneOcr.DefaultExtractor"/>. May be called once.</summary>
+    /// <summary>Loads the bundled extraction model and sets it as <see cref="DocumentExtractor.Default"/>. May be called once.</summary>
     /// <exception cref="OcrModelException">The package carries no weights, or they do not match their pin.</exception>
     /// <exception cref="InvalidOperationException">A default extractor was already configured.</exception>
-    public static void Configure() => OneOcr.ConfigureExtractor(LoadExtractor());
+    public static void Configure() => DocumentExtractor.ConfigureDefault(LoadExtractor());
 
     /// <summary>Reads the embedded extraction model and checks it against the pin.</summary>
-    /// <param name="data">The container bytes when the result is <see langword="null"/>.</param>
-    /// <returns><see langword="null"/> on success; otherwise a sentence saying why no model could be returned.</returns>
-    public static string? TryReadExtractor(out byte[] data)
+    /// <param name="data">The container bytes when the result is <see langword="true"/>.</param>
+    /// <param name="reason">A sentence saying why no model could be returned when the result is <see langword="false"/>; otherwise null.</param>
+    /// <returns>True when <paramref name="data"/> holds the model.</returns>
+    public static bool TryReadExtractor(out byte[] data, out string? reason)
     {
         data = [];
+        reason = null;
         if (Extractor is not { } pin)
         {
-            return "This release of RecursiveAI.OneOcr.Models.Documents pins no extraction model yet.";
+            reason = "This release of RecursiveAI.OneOcr.Models.Documents pins no extraction model yet.";
+            return false;
         }
 
         using Stream? stream = typeof(DocumentModels).Assembly.GetManifestResourceStream(pin.Asset);
         if (stream is null)
         {
-            return $"This build of the package does not contain the extraction model {pin.Asset}; it was built without the weights file.";
+            reason = $"This build of the package does not contain the extraction model {pin.Asset}; it was built without the weights file.";
+            return false;
         }
 
         if (stream.Length != pin.Bytes)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"The embedded model is {stream.Length} bytes; the pin says {pin.Bytes}.");
+            reason = string.Create(CultureInfo.InvariantCulture, $"The embedded model is {stream.Length} bytes; the pin says {pin.Bytes}.");
+            return false;
         }
 
         byte[] buffer = new byte[checked((int)pin.Bytes)];
@@ -76,11 +80,12 @@ public static class DocumentModels
         string actual = Convert.ToHexStringLower(SHA256.HashData(buffer));
         if (actual != pin.Sha256)
         {
-            return $"The embedded model hashes to {actual}, but the pin is {pin.Sha256}.";
+            reason = $"The embedded model hashes to {actual}, but the pin is {pin.Sha256}.";
+            return false;
         }
 
         data = buffer;
-        return null;
+        return true;
     }
 
     private static BundledDocumentModel? ReadPin(string role)

@@ -110,9 +110,9 @@ public static partial class OcrPageJson
         }
 
         w.WriteStartArray("diagnostics");
-        foreach (string d in p.Diagnostics)
+        foreach (OcrDiagnostic d in p.Diagnostics)
         {
-            w.WriteStringValue(Clean(d));
+            w.WriteStringValue(Clean(d.Message));
         }
 
         w.WriteEndArray();

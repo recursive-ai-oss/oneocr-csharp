@@ -48,6 +48,7 @@ public sealed class OcrTrainer
     private readonly LlmClient? _llm;
     private readonly OcrLimits _limits;
     private readonly WorkStore _store;
+    private readonly string _startModel;
     private readonly KernelPath _path;
     private readonly int _degree;
 
@@ -64,8 +65,32 @@ public sealed class OcrTrainer
         _llm = labeller;
         _limits = options.Limits ?? OcrLimits.Default;
         _store = new WorkStore(options.WorkDirectory, _limits);
+        _startModel = options.ModelPath ?? ExportBundledStart(options.WorkDirectory);
         _path = Dispatch.Require(options.KernelPath ?? Dispatch.Best);
         _degree = options.MaxDegreeOfParallelism > 0 ? options.MaxDegreeOfParallelism : Math.Min(4, Environment.ProcessorCount);
+    }
+
+    // The recognizer that ships with the models package, as a file in the work directory (the same bytes every time, so a resumed run matches its checkpoint).
+    private static string ExportBundledStart(string workDirectory)
+    {
+        byte[] data;
+        try
+        {
+            data = OneOcr.Models.BundledModels.ReadRecognizer();
+        }
+        catch (InvalidOperationException e)
+        {
+            throw new OcrModelException(e.Message + " Set OcrTrainerOptions.ModelPath to a recognizer file.", e);
+        }
+
+        Directory.CreateDirectory(workDirectory);
+        string path = Path.Combine(workDirectory, "start-model.onm");
+        if (!File.Exists(path) || !File.ReadAllBytes(path).AsSpan().SequenceEqual(data))
+        {
+            File.WriteAllBytes(path, data);
+        }
+
+        return path;
     }
 
     private string OutputPath => _options.OutputModelPath ?? Path.Combine(_options.WorkDirectory, "model.onm");
@@ -91,7 +116,7 @@ public sealed class OcrTrainer
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(documentsFolder);
         LlmClient llm = _llm ?? throw new InvalidOperationException("Labelling needs a labelling client; create the trainer with one.");
-        ModelContainer container = ModelContainer.Load(_options.ModelPath, _limits);
+        ModelContainer container = ModelContainer.Load(_startModel, _limits);
         OcrEngine engine = OcrEngine.Create(container, _limits, _path);
         int height = container.Input.Height;
 
@@ -239,7 +264,7 @@ public sealed class OcrTrainer
     /// <exception cref="OperationCanceledException">Cancelled; a checkpoint was saved.</exception>
     public TrainingReport Train(CancellationToken cancellationToken = default)
     {
-        byte[] modelBytes = File.ReadAllBytes(_options.ModelPath);
+        byte[] modelBytes = File.ReadAllBytes(_startModel);
         ModelContainer container = ModelContainer.Parse(modelBytes, _limits);
         CrnnModel model = CrnnModel.FromContainer(container, _limits);
         List<Candidate> all = LoadCandidates(container, out int documents, out Dictionary<string, string> reviewed);
@@ -417,7 +442,7 @@ public sealed class OcrTrainer
     /// <summary>The ids and labels of the lines <see cref="Train"/> would use, for tests.</summary>
     internal List<(string Id, string Label)> TrainingSetForTests()
     {
-        ModelContainer container = ModelContainer.Load(_options.ModelPath, _limits);
+        ModelContainer container = ModelContainer.Load(_startModel, _limits);
         var charset = new HashSet<string>(container.Charset.Skip(1), StringComparer.Ordinal);
         return [.. SelectTrainingLines(LoadCandidates(container, out _, out _), charset, out _).Select(static c => (c.Id, c.Reference!))];
     }

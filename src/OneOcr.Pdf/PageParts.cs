@@ -89,7 +89,11 @@ internal static class PageParts
         }
 
         float confidence = weight == 0 ? 0f : (float)(weighted / weight);
-        return new OcrLine(text.ToString(), words, cells, box, confidence, source, rtl, vertical, quad);
+        return new OcrLine
+        {
+            Text = text.ToString(), Words = words, Cells = cells, Box = box, Confidence = confidence, Source = source,
+            IsRightToLeft = rtl, IsVertical = vertical, Quad = quad,
+        };
     }
 
     /// <summary>A block from its lines; the box is their union and the confidence their mean weighted by word count.</summary>
@@ -105,7 +109,10 @@ internal static class PageParts
             weight += line.Words.Count;
         }
 
-        return new OcrBlock(role, isTable, box, lines, weight == 0 ? 0f : (float)(weighted / weight), source, quad);
+        return new OcrBlock
+        {
+            Role = role, IsTable = isTable, Box = box, Lines = lines, Confidence = weight == 0 ? 0f : (float)(weighted / weight), Source = source, Quad = quad,
+        };
     }
 
     /// <summary>

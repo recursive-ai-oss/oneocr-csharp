@@ -129,7 +129,7 @@ internal static class DetectorPostprocess
         // Lines, in network pixels first: regions snap to them before everything is scaled back to the page.
         List<(double X0, double Y0, double X1, double Y1, float Score, CellAxis? Axis)> lines = [];
         const double k = TextShrink / (1 - (2 * TextShrink));
-        List<Component> found = Label(prob, probWidth, probHeight, 1, 0, textThreshold, MinTextCells, limits.MaxLinesPerPage, nameof(OcrLimits.MaxLinesPerPage), withAxis: true);
+        List<Component> found = Label(prob, probWidth, probHeight, 1, 0, textThreshold, MinTextCells, limits.LineCandidateCap, nameof(OcrLimits.MaxLinesPerPage), withAxis: true);
         foreach (Component c in found)
         {
             double x0 = c.X0 * TextStride, y0 = c.Y0 * TextStride, x1 = (c.X1 + 1) * TextStride, y1 = (c.Y1 + 1) * TextStride;
@@ -167,7 +167,7 @@ internal static class DetectorPostprocess
         List<(double X0, double Y0, double X1, double Y1, float Score, CellAxis? Axis)> faintLines = [];
         if (o.Faint is { } faint && !ruleApplied && !gray.IsEmpty)
         {
-            FindFaint(faintLines, found, lines, prob, probWidth, probHeight, textThreshold, faint, o.TextExpand, gray, grayWidth, grayHeight, limits.MaxLinesPerPage - found.Count);
+            FindFaint(faintLines, found, lines, prob, probWidth, probHeight, textThreshold, faint, o.TextExpand, gray, grayWidth, grayHeight, limits.LineCandidateCap - found.Count);
         }
 
         var outLines = new List<DetectedLine>(lines.Count + faintLines.Count);

@@ -155,7 +155,7 @@ public class TiltedLineTests
     {
         var frame = new PageFrame(400, 300, 0, 40);
         var word = new OcrWord("a", new OcrBox(10, 10, 50, 30), 1f, 1f, OcrSource.Ocr, [], new OcrQuad(new OcrPoint(10, 12), new OcrPoint(50, 10), new OcrPoint(50, 30), new OcrPoint(10, 32)));
-        var line = new OcrLine("a", [word], [0], word.Box, 1f, OcrSource.Ocr, Quad: word.Quad);
+        var line = new OcrLine("a", [word], [0], word.Box, 1f, OcrSource.Ocr, quad: word.Quad);
         var page = new OcrPage(0, frame.DeskewedWidth, frame.DeskewedHeight, 72, [new OcrBlock(OcrBlockRole.Body, false, word.Box, [line], 1f, OcrSource.Ocr)]);
         OcrPage mapped = frame.MapPage(page, []);
         OcrQuad q = mapped.Blocks[0].Lines[0].Words[0].Quad!.Value;

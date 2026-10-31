@@ -17,6 +17,8 @@ namespace OneOcr.Documents;
 /// </remarks>
 public sealed partial class DocumentExtractor
 {
+    private static DocumentExtractor? s_default;
+
     private readonly DocExtractModel _model;
     private readonly OcrLimits _limits;
     private readonly KernelPath _path;
@@ -28,6 +30,25 @@ public sealed partial class DocumentExtractor
         _path = path;
         Version = container.Version;
         Name = container.Name;
+    }
+
+    /// <summary>The extractor set by <see cref="ConfigureDefault"/>, used by the extraction extension methods that take none.</summary>
+    /// <exception cref="InvalidOperationException">No default extractor has been configured.</exception>
+    public static DocumentExtractor Default =>
+        Volatile.Read(ref s_default) ?? throw new InvalidOperationException(
+            "No default document extractor is configured. Call DocumentExtractor.ConfigureDefault(DocumentExtractor.Load(modelPath)) once at startup (the RecursiveAI.OneOcr.Models.Documents package offers the bundled model), or pass an extractor explicitly.");
+
+    /// <summary>Sets <see cref="Default"/>. May be called once per process.</summary>
+    /// <param name="extractor">The extractor to use by default.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="extractor"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A default extractor was already configured.</exception>
+    public static void ConfigureDefault(DocumentExtractor extractor)
+    {
+        ArgumentNullException.ThrowIfNull(extractor);
+        if (Interlocked.CompareExchange(ref s_default, extractor, null) is not null)
+        {
+            throw new InvalidOperationException("DocumentExtractor.Default is already configured.");
+        }
     }
 
     /// <summary>The model's own version string.</summary>
@@ -101,59 +122,59 @@ public sealed partial class DocumentExtractor
 
     /// <summary>Reads a page with the schema the model predicts for it.</summary>
     /// <param name="page">The page; its words, in reading order, are what the model reads.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults (<see cref="DocumentExtractionOptions"/>).</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>Fields, line items, tax rows and key–value pairs. A page without words gives an empty result of type <see cref="DocumentType.Other"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="page"/> is null.</exception>
     /// <exception cref="OcrLimitException">The page has more words than <see cref="OcrLimits.MaxWordsPerPage"/>.</exception>
     /// <exception cref="OperationCanceledException">Cancelled.</exception>
-    public DocumentExtraction Extract(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        Run(page, null, maxDegreeOfParallelism, cancellationToken);
+    public DocumentExtraction Extract(OcrPage page, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default) =>
+        Run(page, null, options, cancellationToken);
 
     /// <summary>Reads a page as an invoice: only invoice fields are read, whatever type the model predicts (it is reported in <see cref="DocumentExtraction.DocumentType"/>).</summary>
     /// <param name="page">The page.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults (<see cref="DocumentExtractionOptions"/>).</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The invoice; fields not found are null.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="page"/> is null.</exception>
     /// <exception cref="OcrLimitException">The page has more words than <see cref="OcrLimits.MaxWordsPerPage"/>.</exception>
     /// <exception cref="OperationCanceledException">Cancelled.</exception>
-    public Invoice ExtractInvoice(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        new(Run(page, "invoice", maxDegreeOfParallelism, cancellationToken));
+    public Invoice ExtractInvoice(OcrPage page, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default) =>
+        new(Run(page, "invoice", options, cancellationToken));
 
     /// <summary>Reads a page as a receipt: only receipt fields are read, whatever type the model predicts.</summary>
     /// <param name="page">The page.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults (<see cref="DocumentExtractionOptions"/>).</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The receipt; fields not found are null.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="page"/> is null.</exception>
     /// <exception cref="OcrLimitException">The page has more words than <see cref="OcrLimits.MaxWordsPerPage"/>.</exception>
     /// <exception cref="OperationCanceledException">Cancelled.</exception>
-    public Receipt ExtractReceipt(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        new(Run(page, "receipt", maxDegreeOfParallelism, cancellationToken));
+    public Receipt ExtractReceipt(OcrPage page, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default) =>
+        new(Run(page, "receipt", options, cancellationToken));
 
     /// <summary>Finds generic key–value pairs on any page.</summary>
     /// <param name="page">The page.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults (<see cref="DocumentExtractionOptions"/>).</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The pairs, in the order of their values on the page.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="page"/> is null.</exception>
     /// <exception cref="OcrLimitException">The page has more words than <see cref="OcrLimits.MaxWordsPerPage"/>.</exception>
     /// <exception cref="OperationCanceledException">Cancelled.</exception>
-    public IReadOnlyList<OcrKeyValue> FindKeyValues(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        Run(page, null, maxDegreeOfParallelism, cancellationToken).KeyValues;
+    public IReadOnlyList<OcrKeyValue> FindKeyValues(OcrPage page, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default) =>
+        Run(page, null, options, cancellationToken).KeyValues;
 
     /// <summary>A copy of the page whose <see cref="OcrPage.KeyValues"/> are the pairs found by <see cref="FindKeyValues"/>; pairs already on the page are kept first.</summary>
     /// <param name="page">The page.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults (<see cref="DocumentExtractionOptions"/>).</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The new page; the original is unchanged.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="page"/> is null.</exception>
     /// <exception cref="OcrLimitException">The page has more words than <see cref="OcrLimits.MaxWordsPerPage"/>.</exception>
     /// <exception cref="OperationCanceledException">Cancelled.</exception>
-    public OcrPage WithKeyValues(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
+    public OcrPage WithKeyValues(OcrPage page, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default)
     {
-        IReadOnlyList<OcrKeyValue> found = FindKeyValues(page, maxDegreeOfParallelism, cancellationToken);
+        IReadOnlyList<OcrKeyValue> found = FindKeyValues(page, options, cancellationToken);
         return new OcrPage(
             page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, [.. page.KeyValues, .. found],
             page.Diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees);
@@ -161,31 +182,32 @@ public sealed partial class DocumentExtractor
 
     /// <summary>Asynchronous <see cref="ExtractInvoice"/>: runs the same local work on the thread pool.</summary>
     /// <param name="page">The page.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults (<see cref="DocumentExtractionOptions"/>).</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The invoice.</returns>
-    public Task<Invoice> ExtractInvoiceAsync(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        Task.Run(() => ExtractInvoice(page, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+    public Task<Invoice> ExtractInvoiceAsync(OcrPage page, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ExtractInvoice(page, options, cancellationToken), cancellationToken);
 
     /// <summary>Asynchronous <see cref="ExtractReceipt"/>: runs the same local work on the thread pool.</summary>
     /// <param name="page">The page.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults (<see cref="DocumentExtractionOptions"/>).</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The receipt.</returns>
-    public Task<Receipt> ExtractReceiptAsync(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        Task.Run(() => ExtractReceipt(page, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+    public Task<Receipt> ExtractReceiptAsync(OcrPage page, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => ExtractReceipt(page, options, cancellationToken), cancellationToken);
 
-    /// <summary>Asynchronous <see cref="Extract(OcrPage, int, CancellationToken)"/>: runs the same local work on the thread pool.</summary>
+    /// <summary>Asynchronous <see cref="Extract(OcrPage, DocumentExtractionOptions?, CancellationToken)"/>: runs the same local work on the thread pool.</summary>
     /// <param name="page">The page.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults (<see cref="DocumentExtractionOptions"/>).</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The extraction.</returns>
-    public Task<DocumentExtraction> ExtractAsync(OcrPage page, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        Task.Run(() => Extract(page, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+    public Task<DocumentExtraction> ExtractAsync(OcrPage page, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Extract(page, options, cancellationToken), cancellationToken);
 
-    internal DocumentExtraction Run(OcrPage page, string? forcedType, int maxDegreeOfParallelism, CancellationToken cancellationToken)
+    internal DocumentExtraction Run(OcrPage page, string? forcedType, DocumentExtractionOptions? options, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(page);
+        options?.Validate();
         cancellationToken.ThrowIfCancellationRequested();
         IReadOnlyList<OcrWord> words = page.Words;
         if (words.Count > _limits.MaxWordsPerPage)
@@ -212,10 +234,10 @@ public sealed partial class DocumentExtractor
 
         if (texts.Count == 0)
         {
-            return new DocumentExtraction(DocumentType.Other, 0f, [], [], [], [], ["The page has no words."]);
+            return new DocumentExtraction(DocumentType.Other, 0f, [], [], [], [], [Diag.Info(OcrDiagnosticCodes.PageHasNoWords, "The page has no words.")]);
         }
 
-        return RunWords(texts, boxes, index, sources, page.Width, page.Height, forcedType, maxDegreeOfParallelism, cancellationToken);
+        return RunWords(texts, boxes, index, sources, page.Width, page.Height, forcedType, options?.MaxDegreeOfParallelism ?? 0, cancellationToken);
     }
 
     /// <summary>The model and assembly on words already listed (non-empty texts, with their page indices and sources).</summary>

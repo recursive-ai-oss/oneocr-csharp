@@ -186,7 +186,7 @@ public class DetectorLoaderTests
         }
 
         var lines = Assert.Throws<OcrLimitException>(() => DetectorPostprocess.Decode(
-            prob, 40, 40, new float[5 * 5 * 16], 5, 5, 16, TestDetectorModels.AllClasses, new bool[8], new float[4], 1.0, 80, 80, new OcrLimits { MaxLinesPerPage = 3 }));
+            prob, 40, 40, new float[5 * 5 * 16], 5, 5, 16, TestDetectorModels.AllClasses, new bool[8], new float[4], 1.0, 80, 80, new OcrLimits { MaxLinesPerPage = 3, LineCandidateFloor = 0 }));
         Assert.Equal(nameof(OcrLimits.MaxLinesPerPage), lines.LimitName);
         var regions = Assert.Throws<OcrLimitException>(() => DetectorPostprocess.Decode(
             new float[4], 2, 2, Enumerable.Repeat(3f, 4 * 4 * 16).ToArray(), 4, 4, 16, TestDetectorModels.AllClasses, Enumerable.Repeat(true, 8).ToArray(), new float[4], 1.0, 8, 8,

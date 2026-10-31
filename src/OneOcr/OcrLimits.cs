@@ -104,8 +104,18 @@ public sealed class OcrLimits
     /// </summary>
     public long MaxBeamNodes { get; init; } = 1L << 22;
 
-    /// <summary>Most text lines recognized on one page. Default 4096.</summary>
+    /// <summary>
+    /// Most text lines recognized on one page. Default 4096. A page with more lines is refused before any line is read, with an
+    /// <see cref="OcrLimitException"/> whose <see cref="OcrLimitException.Limit"/> is this value. Finding the lines may look at more
+    /// candidates than this (up to 4096 even when the limit is lower); the candidates are not counted.
+    /// </summary>
     public int MaxLinesPerPage { get; init; } = 4096;
+
+    /// <summary>Smallest number of line candidates the finders consider, so that a low <see cref="MaxLinesPerPage"/> does not reject a page by its internal candidate count. Tests lower it.</summary>
+    internal int LineCandidateFloor { get; init; } = 4096;
+
+    /// <summary>Most line candidates the finders keep on one page: the line limit, but at least <see cref="LineCandidateFloor"/>.</summary>
+    internal int LineCandidateCap => Math.Max(MaxLinesPerPage, LineCandidateFloor);
 
     /// <summary>Most words in one window of the extraction model (<c>input.max_words</c>). The model's pair tables grow with the square of this.</summary>
     public int MaxWordsPerWindow { get; init; } = 1024;

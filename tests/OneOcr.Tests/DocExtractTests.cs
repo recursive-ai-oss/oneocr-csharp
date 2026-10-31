@@ -548,16 +548,16 @@ public class DocExtractTests
             {
                 (string[] texts, OcrBox[] boxes, double w, double h) = TestDocModels.Page(words, words);
                 OcrPage page = PageOf(texts, boxes, w, h);
-                DocumentExtraction reference = extractor.WithPath(KernelPath.Scalar).Extract(page, 1);
-                DocInvoice invoice = extractor.ExtractInvoice(page, 3);
-                DocReceipt receipt = extractor.ExtractReceipt(page, 2);
+                DocumentExtraction reference = extractor.WithPath(KernelPath.Scalar).Extract(page, Opt.Doc(1));
+                DocInvoice invoice = extractor.ExtractInvoice(page, Opt.Doc(3));
+                DocReceipt receipt = extractor.ExtractReceipt(page, Opt.Doc(2));
                 Assert.All(invoice.Extraction.Fields, f => Assert.StartsWith("BT-", f.Id, StringComparison.Ordinal));
                 Assert.All(receipt.Extraction.Fields, f => Assert.StartsWith("receipt.", f.Id, StringComparison.Ordinal));
                 foreach (KernelPath path in Dispatch.Available())
                 {
                     foreach (int degree in new[] { 1, 4 })
                     {
-                        DocumentExtraction got = extractor.WithPath(path).Extract(page, degree);
+                        DocumentExtraction got = extractor.WithPath(path).Extract(page, Opt.Doc(degree));
                         Assert.Equal(reference.DocumentType, got.DocumentType);
                         Assert.Equal(BitConverter.SingleToInt32Bits(reference.DocumentTypeConfidence), BitConverter.SingleToInt32Bits(got.DocumentTypeConfidence));
                         Assert.Equal(reference.Fields.Select(Describe), got.Fields.Select(Describe));
@@ -595,7 +595,7 @@ public class DocExtractTests
         Assert.Throws<OcrLimitException>(() => tight.Extract(PageOf(texts, boxes, w, h)));
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        Assert.Throws<OperationCanceledException>(() => extractor.Extract(PageOf(texts, boxes, w, h), 1, cts.Token));
+        Assert.Throws<OperationCanceledException>(() => extractor.Extract(PageOf(texts, boxes, w, h), Opt.Doc(1), cts.Token));
 
         // Non-finite boxes are read as zeros, not propagated.
         OcrBox[] bad = [.. boxes];
@@ -772,12 +772,13 @@ public class DocExtractTests
     {
         if (!DocModels.HasExtractor)
         {
-            Assert.NotNull(DocModels.TryReadExtractor(out _));
+            Assert.False(DocModels.TryReadExtractor(out _, out string? why));
+            Assert.NotNull(why);
             Assert.Throws<OcrModelException>(() => DocModels.LoadExtractor());
             return;
         }
 
-        Assert.Null(DocModels.TryReadExtractor(out byte[] data));
+        Assert.True(DocModels.TryReadExtractor(out byte[] data, out _));
         Assert.Equal(DocModels.Extractor!.Sha256, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(data)));
         // The shipped file's manifest names the model by its job; "docextract-v0" is its architecture and the pin's name.
         Assert.Equal("document-extraction", DocModels.LoadExtractor().Name);
@@ -789,7 +790,7 @@ public class DocExtractTests
         // Process-wide state: only the unconfigured failure is checked here, so other tests keep their own explicit extractors.
         if (!ExtractorConfigured())
         {
-            Assert.Throws<OcrModelException>(() => _ = OneOcr.DefaultExtractor);
+            Assert.Throws<InvalidOperationException>(() => _ = DocumentExtractor.Default);
         }
     }
 
@@ -797,10 +798,10 @@ public class DocExtractTests
     {
         try
         {
-            _ = OneOcr.DefaultExtractor;
+            _ = DocumentExtractor.Default;
             return true;
         }
-        catch (OcrModelException)
+        catch (InvalidOperationException)
         {
             return false;
         }

@@ -50,39 +50,65 @@ public static class BundledModels
     public static bool HasWordFrequencies => typeof(BundledModels).Assembly.GetManifestResourceInfo(WordFrequencies.Asset) is not null;
 
     /// <summary>Reads the embedded word frequency table and checks it against the pin.</summary>
-    /// <param name="data">The file bytes when the result is <see langword="null"/>.</param>
-    /// <returns><see langword="null"/> on success; otherwise a sentence saying why no table could be returned.</returns>
-    public static string? TryReadWordFrequencies(out byte[] data) => TryRead(WordFrequencies, out data);
+    /// <param name="data">The file bytes when the result is <see langword="true"/>.</param>
+    /// <param name="reason">A sentence saying why no table could be returned when the result is <see langword="false"/>; otherwise null.</param>
+    /// <returns>True when <paramref name="data"/> holds the table.</returns>
+    public static bool TryReadWordFrequencies(out byte[] data, out string? reason) => TryRead(WordFrequencies, out data, out reason);
 
     /// <summary>Reads the embedded language model and checks it against the pin.</summary>
-    /// <param name="data">The model bytes when the result is <see langword="null"/>.</param>
-    /// <returns><see langword="null"/> on success; otherwise a sentence saying why no model could be returned.</returns>
-    public static string? TryReadLanguageModel(out byte[] data) => TryRead(LanguageModel, out data);
+    /// <param name="data">The model bytes when the result is <see langword="true"/>.</param>
+    /// <param name="reason">A sentence saying why no model could be returned when the result is <see langword="false"/>; otherwise null.</param>
+    /// <returns>True when <paramref name="data"/> holds the model.</returns>
+    public static bool TryReadLanguageModel(out byte[] data, out string? reason) => TryRead(LanguageModel, out data, out reason);
 
     /// <summary>Reads the embedded recognizer and checks it against the pin.</summary>
-    /// <param name="data">The container bytes when the result is <see langword="null"/>.</param>
-    /// <returns><see langword="null"/> on success; otherwise a sentence saying why no model could be returned.</returns>
-    public static string? TryReadRecognizer(out byte[] data) => TryRead(Recognizer, out data);
+    /// <param name="data">The container bytes when the result is <see langword="true"/>.</param>
+    /// <param name="reason">A sentence saying why no model could be returned when the result is <see langword="false"/>; otherwise null.</param>
+    /// <returns>True when <paramref name="data"/> holds the model.</returns>
+    public static bool TryReadRecognizer(out byte[] data, out string? reason) => TryRead(Recognizer, out data, out reason);
 
     /// <summary>Reads the embedded page detector and checks it against the pin.</summary>
-    /// <param name="data">The container bytes when the result is <see langword="null"/>.</param>
-    /// <returns><see langword="null"/> on success; otherwise a sentence saying why no model could be returned.</returns>
-    public static string? TryReadDetector(out byte[] data) => TryRead(Detector, out data);
+    /// <param name="data">The container bytes when the result is <see langword="true"/>.</param>
+    /// <param name="reason">A sentence saying why no model could be returned when the result is <see langword="false"/>; otherwise null.</param>
+    /// <returns>True when <paramref name="data"/> holds the model.</returns>
+    public static bool TryReadDetector(out byte[] data, out string? reason) => TryRead(Detector, out data, out reason);
 
-    private static string? TryRead(BundledModel pin, out byte[] data)
+    /// <summary>Reads the embedded recognizer and checks it against the pin.</summary>
+    /// <returns>The model container bytes.</returns>
+    /// <exception cref="InvalidOperationException">This build of the package carries no recognizer file, or it does not match its pin.</exception>
+    public static byte[] ReadRecognizer() =>
+        TryRead(Recognizer, out byte[] data, out string? reason) ? data : throw new InvalidOperationException(reason);
+
+    /// <summary>
+    /// Writes the embedded recognizer to a file: the starting model for fine-tuning (<c>OcrTrainerOptions.ModelPath</c>), or a file to
+    /// inspect. The bytes are checked against the pin first.
+    /// </summary>
+    /// <param name="path">The file to create; an existing file is replaced.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="path"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">This build of the package carries no recognizer file, or it does not match its pin.</exception>
+    public static void ExportRecognizer(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        File.WriteAllBytes(path, ReadRecognizer());
+    }
+
+    private static bool TryRead(BundledModel pin, out byte[] data, out string? reason)
     {
         data = [];
+        reason = null;
         Assembly assembly = typeof(BundledModels).Assembly;
         using Stream? stream = assembly.GetManifestResourceStream(pin.Asset);
         if (stream is null)
         {
-            return $"This build of the models package carries no {pin.Role} weights; it was built without the pinned model file.";
+            reason = $"This build of the models package carries no {pin.Role} weights; it was built without the pinned model file.";
+            return false;
         }
 
         // The pin names the size, so a resource of another size is rejected before it is buffered.
         if (stream.Length != pin.Bytes)
         {
-            return string.Create(CultureInfo.InvariantCulture, $"The embedded model is {stream.Length} bytes; the pin says {pin.Bytes}.");
+            reason = string.Create(CultureInfo.InvariantCulture, $"The embedded model is {stream.Length} bytes; the pin says {pin.Bytes}.");
+            return false;
         }
 
         byte[] buffer = new byte[checked((int)pin.Bytes)];
@@ -90,11 +116,12 @@ public static class BundledModels
         string actual = Convert.ToHexStringLower(SHA256.HashData(buffer));
         if (actual != pin.Sha256)
         {
-            return $"The embedded model hashes to {actual}, but the pin is {pin.Sha256}.";
+            reason = $"The embedded model hashes to {actual}, but the pin is {pin.Sha256}.";
+            return false;
         }
 
         data = buffer;
-        return null;
+        return true;
     }
 
     private static BundledModel ReadPin(string role)

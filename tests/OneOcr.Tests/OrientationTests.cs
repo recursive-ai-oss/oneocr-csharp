@@ -171,7 +171,7 @@ public class OrientationTests
         Assert.Equal(0, page.Orientation);
         Assert.Equal(0, page.SkewDegrees);
         Assert.All(page.Words, w => Assert.Null(w.Quad));
-        Assert.DoesNotContain(page.Diagnostics, d => d.Contains("turned", StringComparison.Ordinal) || d.Contains("tilted", StringComparison.Ordinal));
+        Assert.DoesNotContain(page.Diagnostics, d => d.Message.Contains("turned", StringComparison.Ordinal) || d.Message.Contains("tilted", StringComparison.Ordinal));
         OcrPage plain = Engine().Ocr(image, new OcrOptions { DetectOrientation = false, Deskew = false });
         Assert.Equal(OcrPageJson.ToJson([plain]), OcrPageJson.ToJson([page]));
     }
@@ -196,7 +196,7 @@ public class OrientationTests
         // Lines run down to the right: the line's quad top edge descends.
         OcrQuad q = page.Blocks[0].Lines[0].Quad!.Value;
         Assert.True(q.P1.Y > q.P0.Y);
-        Assert.Contains(page.Diagnostics, d => d.Contains("straightened", StringComparison.Ordinal));
+        Assert.Contains(page.Diagnostics, d => d.Message.Contains("straightened", StringComparison.Ordinal));
         // Turned off, nothing is done.
         OcrPage off = Engine().Ocr(image, new OcrOptions { Deskew = false });
         Assert.Equal(0, off.SkewDegrees);
@@ -227,7 +227,7 @@ public class OrientationTests
         }
 
         Assert.True(tall > 3 * wide, "lines are vertical strips in the input");
-        Assert.Contains(page.Diagnostics, d => d.Contains("clockwise", StringComparison.Ordinal));
+        Assert.Contains(page.Diagnostics, d => d.Message.Contains("clockwise", StringComparison.Ordinal));
         OcrPage off = Engine().Ocr(image, new OcrOptions { DetectOrientation = false });
         Assert.Equal(0, off.Orientation);
     }
@@ -295,7 +295,7 @@ public class OrientationTests
         Assert.Single(stub.Calls);
         Assert.Equal(0, page.Orientation);
         Assert.Equal((H, W), (page.Width, page.Height));
-        Assert.DoesNotContain(page.Diagnostics, d => d.Contains("turned", StringComparison.Ordinal));
+        Assert.DoesNotContain(page.Diagnostics, d => d.Message.Contains("turned", StringComparison.Ordinal));
 
         // The same page without a detector goes through the classical decision.
         Assert.True(Engine().Ocr(image).Orientation is 90 or 270);
@@ -304,7 +304,7 @@ public class OrientationTests
         var sure = new HeadStub(_ => Head(1, 0.99f));
         OcrPage off = Engine().WithDetector(sure).Ocr(image, new OcrOptions { DetectOrientation = false, SearchAngle = false });
         Assert.Single(sure.Calls);
-        Assert.DoesNotContain(off.Diagnostics, d => d.Contains("turned", StringComparison.Ordinal));
+        Assert.DoesNotContain(off.Diagnostics, d => d.Message.Contains("turned", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -321,11 +321,11 @@ public class OrientationTests
         Assert.Equal(2, stub.Calls.Count);
         Assert.Equal((h, W), stub.Calls[0]);
         Assert.True(stub.Calls[1].Width > W && stub.Calls[1].Height >= h);
-        // The page model is in the turned (upright) frame, as without deskew; the tilt is reported, the quarter turn is not.
-        Assert.Equal((W, h), (page.Width, page.Height));
-        Assert.Equal(0, page.Orientation);
+        // The page model stays in the image as given; the quarter turn that makes it upright is reported as Orientation, and the tilt as skew.
+        Assert.Equal((h, W), (page.Width, page.Height));
+        Assert.Equal(270, page.Orientation);
         Assert.NotEqual(0, page.SkewDegrees);
-        Assert.Contains(page.Diagnostics, d => d.Contains("90 degrees clockwise", StringComparison.Ordinal) && d.Contains("0.97", StringComparison.Ordinal));
-        Assert.Contains(page.Diagnostics, d => d.Contains("straightened", StringComparison.Ordinal));
+        Assert.Contains(page.Diagnostics, d => d.Message.Contains("90 degrees clockwise", StringComparison.Ordinal) && d.Message.Contains("0.97", StringComparison.Ordinal));
+        Assert.Contains(page.Diagnostics, d => d.Message.Contains("straightened", StringComparison.Ordinal));
     }
 }

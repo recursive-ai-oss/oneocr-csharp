@@ -27,7 +27,7 @@ FUZZ_OUT="${FUZZ_OUT:-$PWD/fuzz-out}"
 FUZZ_SECONDS="${FUZZ_SECONDS:-600}"
 FUZZ_TIMEOUT="${FUZZ_TIMEOUT:-20}"
 FUZZ_HEAP_MB="${FUZZ_HEAP_MB:-2048}"
-ALL_TARGETS="container docextract charlm lexicon wordfreq pagejson review pdf image image-real normalization llm-anthropic llm-openai llm-gemini llm-schema llm-answer training-files"
+ALL_TARGETS="container docextract charlm lexicon wordfreq pagejson review pdf image image-real density normalization llm-anthropic llm-openai llm-gemini llm-schema llm-answer training-files"
 INSTRUMENTED="OneOcr.dll OneOcr.Llm.dll OneOcr.Training.dll OneOcr.Pdf.dll OnePdf.dll OneImage.dll OneImage.Pdf.dll"
 
 maxlen() {

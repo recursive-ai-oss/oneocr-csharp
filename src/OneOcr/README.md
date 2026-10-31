@@ -18,6 +18,8 @@ OcrPage page = image.Ocr(engine);               // blocks, lines, words, tables,
 string markdown = image.ToMarkdown(engine);
 ```
 
+`OcrEngine.ConfigureDefault()` sets a process-wide engine for the extension methods that take none. Every call takes an optional `OcrOptions` (an engine carries its own in `engine.Options`). `Ocr(Image)` reads one page; `OcrPages` reads every frame of a multi-page file, takes the resolution a PNG, JPEG or TIFF declares, and reports files it cannot read as `OcrFormatException` or `OcrLimitException`. Boxes are always in the image as you gave it, also for pages that came in rotated, and `page.Diagnostics` carry stable codes.
+
 The package holds the reader, the page model and its `oneocr.page` JSON, local Markdown, and inference for the invoice, receipt and custom extraction models. The weights come with `RecursiveAI.OneOcr.Models`, which this package depends on. LLM vision, training, PDF pages and the command-line tool are separate opt-in packages.
 
 Full documentation, benchmarks and the format specifications: https://github.com/recursive-ai-oss/oneocr-csharp

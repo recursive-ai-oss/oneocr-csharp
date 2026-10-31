@@ -29,7 +29,9 @@ Three things differ on purpose, and a converter must handle them:
 ## Coordinates
 
 Page units: pixels for images, points for PDF pages. `unitsPerInch` says how many units make an inch (the image's DPI, or an
-estimate, with a diagnostic, when the caller gave none; 72 for PDFs). `toPdf`, present only for pages that came from a PDF, is
+estimate, with a diagnostic, when the caller gave none; 72 for PDFs). When a path, stream or bytes are given to `OcrPages`, the file's own
+resolution is used: PNG `pHYs` (unit metre), JPEG JFIF density (units 1 = per inch, 2 = per centimetre) or the first TIFF directory's
+`XResolution` with `ResolutionUnit`; only the first 4 MiB are looked at and a value outside 10..10000 is ignored. `toPdf`, present only for pages that came from a PDF, is
 the matrix `[a, b, c, d, e, f]` taking a point `(x, y)` of this page to PDF user space: `x' = a x + c y + e`,
 `y' = b x + d y + f`.
 
@@ -48,7 +50,7 @@ Page = {
   "toPdf": [a, b, c, d, e, f],        optional
   "orientation": 90 | 180 | 270,      optional, written only when not 0
   "skew": <number>,                   optional, written only when not 0
-  "diagnostics": [ <string>, ... ],
+  "diagnostics": [ <string>, ... ],   the messages only; the API also has a stable code and a severity per diagnostic, which the JSON does not carry (a reader gives them code "OCR000")
   "text": <string>,                   blocks joined by "\n\n", lines by "\n", cells by "\t"; derived, ignored on read
   "blocks": [ Block, ... ],           reading order
   "regions": [ Region, ... ],

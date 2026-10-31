@@ -11,10 +11,13 @@ namespace OneOcr.Documents;
 public sealed class ExtractionResult<T>
 {
     private readonly OcrPage _page;
+    private readonly HashSet<string> _propertyNames;
 
     internal ExtractionResult(
-        T value, IReadOnlyDictionary<string, ExtractedField> fields, DocumentExtraction extraction, IReadOnlyList<string> diagnostics, OcrPage page)
+        T value, IReadOnlyDictionary<string, ExtractedField> fields, DocumentExtraction extraction, IReadOnlyList<OcrDiagnostic> diagnostics, OcrPage page,
+        HashSet<string> propertyNames)
     {
+        _propertyNames = propertyNames;
         Value = value;
         Fields = fields;
         Extraction = extraction;
@@ -32,14 +35,21 @@ public sealed class ExtractionResult<T>
     public DocumentExtraction Extraction { get; }
 
     /// <summary>Notes: properties without a class in the model, text that did not parse as the property's type, and the extraction's own notes.</summary>
-    public IReadOnlyList<string> Diagnostics { get; }
+    public IReadOnlyList<OcrDiagnostic> Diagnostics { get; }
 
     /// <summary>The boxes of the words a field was read from, one per word, in reading order.</summary>
     /// <param name="name">The property's JSON name.</param>
-    /// <returns>The boxes; empty when the field was not found.</returns>
+    /// <returns>The boxes; empty when the property exists but its field was not found on the page.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
+    /// <exception cref="KeyNotFoundException"><paramref name="name"/> is not the JSON name of a property of <typeparamref name="T"/> (a misspelt name, or the C# name of a renamed property).</exception>
     public IReadOnlyList<OcrBox> WordBoxes(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
+        if (!_propertyNames.Contains(name))
+        {
+            throw new KeyNotFoundException($"'{name}' is not the JSON name of a property of {typeof(T).Name}. Names are: {string.Join(", ", _propertyNames.Order(StringComparer.Ordinal))}.");
+        }
+
         if (!Fields.TryGetValue(name, out ExtractedField? f))
         {
             return [];
@@ -64,14 +74,15 @@ public sealed partial class DocumentExtractor
     /// <typeparam name="T">The caller's type; a class or struct with an object contract.</typeparam>
     /// <param name="page">The page; its words, in reading order, are what the model reads.</param>
     /// <param name="typeInfo">Type information from a <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults. <see cref="DocumentExtractionOptions.Strict"/> turns an unmapped property into an error.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The value, and per field its words, box and confidence.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="page"/> or <paramref name="typeInfo"/> is null.</exception>
-    /// <exception cref="ArgumentException">The type has no object contract, or the values cannot be put into it (for example a required member whose field was not found).</exception>
+    /// <exception cref="ArgumentException">The type has no object contract; none of its properties has a class of the same JSON name in the model (or, with <see cref="DocumentExtractionOptions.Strict"/>, one has not); or the values cannot be put into it (for example a required member whose field was not found). The message names the properties and the model's classes.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="options"/> holds a value out of range.</exception>
     /// <exception cref="OcrLimitException">The page has more words than <see cref="OcrLimits.MaxWordsPerPage"/>.</exception>
     /// <exception cref="OperationCanceledException">Cancelled.</exception>
-    public ExtractionResult<T> Extract<T>(OcrPage page, JsonTypeInfo<T> typeInfo, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default)
+    public ExtractionResult<T> Extract<T>(OcrPage page, JsonTypeInfo<T> typeInfo, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(page);
         ArgumentNullException.ThrowIfNull(typeInfo);
@@ -80,8 +91,28 @@ public sealed partial class DocumentExtractor
             throw new ArgumentException("The type needs an object contract (a class or struct with properties).", nameof(typeInfo));
         }
 
-        DocumentExtraction ex = Run(page, null, maxDegreeOfParallelism, cancellationToken);
-        var notes = new List<string>(ex.Diagnostics);
+        var unmapped = new List<string>();
+        var propertyNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (JsonPropertyInfo p in typeInfo.Properties)
+        {
+            propertyNames.Add(p.Name);
+            if (!_model.Schema.Classes.Contains(p.Name))
+            {
+                unmapped.Add(p.Name);
+            }
+        }
+
+        // A type none of whose properties the model can fill would return defaults that look like "nothing found"; that is a mismatch, not a result.
+        if (propertyNames.Count > 0 && unmapped.Count == propertyNames.Count || (options?.Strict == true && unmapped.Count > 0))
+        {
+            throw new ArgumentException(
+                $"{(unmapped.Count == propertyNames.Count ? "No property" : "Not every property")} of {typeof(T).Name} has a class of the same JSON name in the model. Unmapped: {string.Join(", ", unmapped)}. The model's classes: {string.Join(", ", _model.Schema.Classes)}. "
+                + "Name the properties after the classes, for example with [JsonPropertyName(\"BT-112\")].",
+                nameof(typeInfo));
+        }
+
+        DocumentExtraction ex = Run(page, null, options, cancellationToken);
+        var notes = new List<OcrDiagnostic>(ex.Diagnostics);
         var byName = new Dictionary<string, ExtractedField>(StringComparer.Ordinal);
         foreach (ExtractedField f in ex.Fields)
         {
@@ -105,7 +136,7 @@ public sealed partial class DocumentExtractor
             {
                 if (!_model.Schema.Classes.Contains(p.Name))
                 {
-                    notes.Add($"The model has no class '{p.Name}'; the property keeps its default.");
+                    notes.Add(Diag.Warn(OcrDiagnosticCodes.PropertyUnmapped, $"The model has no class '{p.Name}'; the property keeps its default."));
                     continue;
                 }
 
@@ -120,7 +151,7 @@ public sealed partial class DocumentExtractor
                 }
                 else
                 {
-                    notes.Add($"'{p.Name}': {problem}");
+                    notes.Add(Diag.Warn(OcrDiagnosticCodes.ValueNotConverted, $"'{p.Name}': {problem}"));
                 }
             }
 
@@ -137,18 +168,18 @@ public sealed partial class DocumentExtractor
             throw new ArgumentException("The values cannot be put into the type: " + e.Message, nameof(typeInfo), e);
         }
 
-        return new ExtractionResult<T>(value ?? throw new ArgumentException("The type reads an object as null.", nameof(typeInfo)), used, ex, notes, page);
+        return new ExtractionResult<T>(value ?? throw new ArgumentException("The type reads an object as null.", nameof(typeInfo)), used, ex, notes, page, propertyNames);
     }
 
-    /// <summary>Asynchronous <see cref="Extract{T}(OcrPage, JsonTypeInfo{T}, int, CancellationToken)"/>: runs the same local work on the thread pool.</summary>
+    /// <summary>Asynchronous <see cref="Extract{T}(OcrPage, JsonTypeInfo{T}, DocumentExtractionOptions?, CancellationToken)"/>: runs the same local work on the thread pool.</summary>
     /// <typeparam name="T">The caller's type.</typeparam>
     /// <param name="page">The page.</param>
     /// <param name="typeInfo">Type information from a <see cref="System.Text.Json.Serialization.JsonSerializerContext"/>.</param>
-    /// <param name="maxDegreeOfParallelism">Threads to use; 0 for min(4, cores).</param>
+    /// <param name="options">Options for this call; null for the defaults. <see cref="DocumentExtractionOptions.Strict"/> turns an unmapped property into an error.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The value, and per field its words, box and confidence.</returns>
-    public Task<ExtractionResult<T>> ExtractAsync<T>(OcrPage page, JsonTypeInfo<T> typeInfo, int maxDegreeOfParallelism = 0, CancellationToken cancellationToken = default) =>
-        Task.Run(() => Extract(page, typeInfo, maxDegreeOfParallelism, cancellationToken), cancellationToken);
+    public Task<ExtractionResult<T>> ExtractAsync<T>(OcrPage page, JsonTypeInfo<T> typeInfo, DocumentExtractionOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Extract(page, typeInfo, options, cancellationToken), cancellationToken);
 
     // Writes "name": value for one property when the field's text reads as the property's type; otherwise says why not.
     private static bool WriteValue(Utf8JsonWriter w, JsonPropertyInfo p, ExtractedField field, NumberStyle style, DateOrder order, out string? problem)

@@ -11,7 +11,7 @@ internal sealed class PreparedPage
     private readonly BufferPool<Gray8> _pool;
     private readonly List<Gray8[]> _owned;
 
-    public PreparedPage(Gray8[] pixels, int width, int height, PageFrame frame, List<string> notes, List<Gray8[]> owned, BufferPool<Gray8> pool)
+    public PreparedPage(Gray8[] pixels, int width, int height, PageFrame frame, List<OcrDiagnostic> notes, List<Gray8[]> owned, BufferPool<Gray8> pool)
     {
         Pixels = pixels;
         Width = width;
@@ -31,7 +31,7 @@ internal sealed class PreparedPage
 
     public PageFrame Frame { get; }
 
-    public List<string> Notes { get; }
+    public List<OcrDiagnostic> Notes { get; }
 
     /// <summary>The page detector's reading of <see cref="Pixels"/> when preparing the page already made it, so the reader need not detect again.</summary>
     public PageDetection? Detection { get; init; }
@@ -61,7 +61,7 @@ internal sealed class PreparedPage
             return page;
         }
 
-        var diagnostics = new List<string>(page.Diagnostics);
+        var diagnostics = new List<OcrDiagnostic>(page.Diagnostics);
         diagnostics.AddRange(Notes);
         return new OcrPage(
             page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, page.KeyValues, diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees);
@@ -80,11 +80,14 @@ internal sealed class PreparedPage
 }
 
 /// <summary>The pixels the angle search turns: the page before straightening, its size, the quarter turns the frame carries, and the notes so far.</summary>
-internal sealed record SearchSource(Gray8[] Pixels, int Width, int Height, int FrameWidth, int FrameHeight, int FrameQuarter, IReadOnlyList<string> Notes);
+internal sealed record SearchSource(Gray8[] Pixels, int Width, int Height, int FrameWidth, int FrameHeight, int FrameQuarter, IReadOnlyList<OcrDiagnostic> Notes);
 
 /// <summary>Orientation and deskew: the step between the page's pixels and line finding.</summary>
 internal static class PagePreparation
 {
+    private static OcrDiagnostic Straightened(PageFrame frame) =>
+        Diag.Info(OcrDiagnosticCodes.PageStraightened, string.Create(CultureInfo.InvariantCulture, $"The text lines were tilted by {frame.SkewDegrees:0.0} degrees and were straightened."));
+
     // Smaller tilts are left alone: they change nothing the recognizer can see, and an upright page then reads exactly as before.
     private const int MinSlope = 5;
 
@@ -125,7 +128,7 @@ internal static class PagePreparation
     // (the straightened page would exceed the pixel limit, or the head asks for a turn); nothing is left behind then.
     private static PreparedPage? TryStraightFirst(
         HeadOrientation head, Gray8[] gray, int width, int height, int slope, OcrLimits limits, BufferPool<Gray8> pool, int degree, List<Gray8[]> owned,
-        List<string> notes, CancellationToken cancellationToken)
+        List<OcrDiagnostic> notes, CancellationToken cancellationToken)
     {
         var frame = new PageFrame(width, height, 0, slope);
         long canvas = (long)frame.DeskewedWidth * frame.DeskewedHeight;
@@ -150,7 +153,7 @@ internal static class PagePreparation
 
             owned.Add(straight);
             kept = true;
-            notes.Add(string.Create(CultureInfo.InvariantCulture, $"The text lines were tilted by {frame.SkewDegrees:0.0} degrees and were straightened."));
+            notes.Add(Straightened(frame));
             return new PreparedPage(straight, frame.DeskewedWidth, frame.DeskewedHeight, frame, notes, owned, pool)
             {
                 Detection = detection,
@@ -168,10 +171,10 @@ internal static class PagePreparation
 
     public static PreparedPage Prepare(
         Gray8[] gray, int width, int height, bool orient, bool deskew, IOrientationDetector detector, OcrLimits limits,
-        BufferPool<Gray8> pool, int degree, OrientationEvidence evidence, bool quarterInInputFrame, CancellationToken cancellationToken)
+        BufferPool<Gray8> pool, int degree, OrientationEvidence evidence, CancellationToken cancellationToken)
     {
         var owned = new List<Gray8[]>();
-        var notes = new List<string>();
+        var notes = new List<OcrDiagnostic>();
         try
         {
             // Straightening first. On a tilted page whose lines run across it the orientation head would be read twice: once on the
@@ -204,10 +207,7 @@ internal static class PagePreparation
                 Gray8[] turned = PageOrientation.Rotate(gray.AsSpan(0, width * height), width, height, quarter, pool, out w, out h);
                 owned.Add(turned);
                 pixels = turned;
-                notes.Add(
-                    quarterInInputFrame
-                        ? string.Create(CultureInfo.InvariantCulture, $"The page was turned {quarter * 90} degrees clockwise to read upright.")
-                        : DetectorLines.TurnedNote(quarter, evidence.Detection?.OrientationConfidence ?? 1f));
+                notes.Add(DetectorLines.TurnedNote(quarter, evidence.Detection?.OrientationConfidence));
             }
 
             int slope = 0;
@@ -229,16 +229,15 @@ internal static class PagePreparation
                 }
             }
 
-            // With the quarter turn reported in the input frame the frame carries it back; otherwise the turned page is the page and
-            // the frame covers the deskew turn alone.
-            var source = new SearchSource(pixels, w, h, quarterInInputFrame ? width : w, quarterInInputFrame ? height : h, quarterInInputFrame ? quarter : 0, [.. notes]);
-            var frame = quarterInInputFrame ? new PageFrame(width, height, quarter, slope) : new PageFrame(w, h, 0, slope);
+            // The frame carries the quarter turn back, so every box ends up in the image as it was given.
+            var source = new SearchSource(pixels, w, h, width, height, quarter, [.. notes]);
+            var frame = new PageFrame(width, height, quarter, slope);
             if (slope != 0)
             {
                 long canvas = (long)frame.DeskewedWidth * frame.DeskewedHeight;
                 if (canvas > limits.MaxImagePixels)
                 {
-                    notes.Add("The text lines are tilted but the straightened page would exceed the pixel limit, so it was read as it is.");
+                    notes.Add(Diag.Warn(OcrDiagnosticCodes.StraightenSkipped, "The text lines are tilted but the straightened page would exceed the pixel limit, so it was read as it is."));
                     frame = new PageFrame(width, height, quarter, 0);
                 }
                 else
@@ -252,7 +251,7 @@ internal static class PagePreparation
                     pixels = straight;
                     level = null;
                     (w, h) = (frame.DeskewedWidth, frame.DeskewedHeight);
-                    notes.Add(string.Create(CultureInfo.InvariantCulture, $"The text lines were tilted by {frame.SkewDegrees:0.0} degrees and were straightened."));
+                    notes.Add(Straightened(frame));
                 }
             }
 

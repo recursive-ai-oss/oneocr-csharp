@@ -161,6 +161,6 @@ internal static class PageAngleSearch
         return (best, bestStep == 0 ? null : bestStep * 5);
     }
 
-    public static string Note(int degrees) =>
-        string.Create(CultureInfo.InvariantCulture, $"The first reading was weak, so the page was read at several angles; it was turned by {degrees} degrees to read it.");
+    public static OcrDiagnostic Note(int degrees) =>
+        Diag.Info(OcrDiagnosticCodes.AngleSearched, string.Create(CultureInfo.InvariantCulture, $"The first reading was weak, so the page was read at several angles; it was turned by {degrees} degrees to read it."));
 }

@@ -61,7 +61,7 @@ internal static partial class PageReader
                 }
 
                 (OcrBox cb, OcrQuad cq) = FrameRect(tilt, edgeLeft, top, edgeRight, bottom);
-                list.Add(new OcrChar(c.Text, cb, c.Probability, Quad: cq));
+                list.Add(new OcrChar(c.Text, cb, c.Probability, quad: cq));
                 edgeLeft = edgeRight;
             }
         }

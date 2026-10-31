@@ -62,7 +62,7 @@ internal static class DocAssembly
     {
         int n = o.N;
         DocSchema schema = m.Schema;
-        var notes = new List<string>();
+        var notes = new List<OcrDiagnostic>();
 
         // Document type: the largest logit (lowest index on a tie), its probability from the softmax.
         int docIndex = DocForward.ArgMax(o.Doc);
@@ -71,7 +71,7 @@ internal static class DocAssembly
         string docType = forcedDocType ?? predicted;
         if (forcedDocType is not null && forcedDocType != predicted)
         {
-            notes.Add($"The model reads this page as '{predicted}'; its fields were read with the '{forcedDocType}' schema as asked.");
+            notes.Add(Diag.Info(OcrDiagnosticCodes.DocumentTypeDiffers, $"The model reads this page as '{predicted}'; its fields were read with the '{forcedDocType}' schema as asked."));
         }
 
         // Tags: restricted to the classes the document type allows.

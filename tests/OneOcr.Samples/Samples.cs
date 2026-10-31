@@ -45,7 +45,7 @@ internal static class Samples
     public static void DefaultEngine()
     {
         #region DefaultEngine
-        OneOcr.OneOcr.Configure();                       // once; the bundled models become OneOcr.OneOcr.Default
+        OcrEngine.ConfigureDefault();                    // once; the bundled models become OcrEngine.Default
 
         string text = Image.Load("page.png").ToText();   // the extension methods without an engine use the default
         OcrPage page = Image.Load("page.png").Ocr();
@@ -286,7 +286,7 @@ internal static class Samples
         #region AsyncOcr
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         OcrPage page = await image.OcrAsync(engine, new OcrOptions { Deskew = false }, cts.Token);
-        string text = await image.ToTextAsync(engine, cts.Token);
+        string text = await image.ToTextAsync(engine, null, cts.Token);
         IReadOnlyList<OcrPage> frames = await engine.OcrAsync([image, image], cancellationToken: cts.Token);
         #endregion
     }

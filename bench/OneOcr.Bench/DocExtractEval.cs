@@ -30,7 +30,7 @@ internal static class DocExtractEval
         {
             string id = Path.GetFileName(file)[..^".page.json".Length];
             OcrPage page = OcrPageJson.Read(File.ReadAllBytes(file))[0];
-            DocumentExtraction ex = extractor.Extract(page, degree);
+            DocumentExtraction ex = extractor.Extract(page, new DocumentExtractionOptions { MaxDegreeOfParallelism = degree });
             using var ms = new MemoryStream();
             using (var w = new Utf8JsonWriter(ms))
             {

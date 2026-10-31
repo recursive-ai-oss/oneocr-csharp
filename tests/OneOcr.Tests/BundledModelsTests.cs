@@ -47,7 +47,7 @@ public sealed class BundledModelsTests
             return;
         }
 
-        Assert.Null(BundledModels.TryReadLanguageModel(out byte[] data));
+        Assert.True(BundledModels.TryReadLanguageModel(out byte[] data, out _));
         Assert.Equal(BundledModels.LanguageModel.Sha256, Convert.ToHexStringLower(SHA256.HashData(data)));
         Assert.Equal(3, CharLanguageModel.Parse(data).Scripts.Count);
         Assert.True(OcrEngine.LoadBundled().HasWordModel);
@@ -72,7 +72,7 @@ public sealed class BundledModelsTests
             return;
         }
 
-        Assert.Null(BundledModels.TryReadWordFrequencies(out byte[] data));
+        Assert.True(BundledModels.TryReadWordFrequencies(out byte[] data, out _));
         Assert.Equal(BundledModels.WordFrequencies.Sha256, Convert.ToHexStringLower(SHA256.HashData(data)));
         Assert.True(WordFrequencyModel.Parse(data).WordCount > 100_000);
         Assert.True(OcrEngine.LoadBundled().HasWordFrequencies);
@@ -87,7 +87,7 @@ public sealed class BundledModelsTests
             return;
         }
 
-        Assert.Null(BundledModels.TryReadDetector(out byte[] data));
+        Assert.True(BundledModels.TryReadDetector(out byte[] data, out _));
         Assert.Equal(BundledModels.Detector.Sha256, Convert.ToHexStringLower(SHA256.HashData(data)));
         Assert.True(OcrEngine.LoadBundled().HasDetector);
     }
@@ -102,7 +102,7 @@ public sealed class BundledModelsTests
             return;
         }
 
-        Assert.Null(BundledModels.TryReadRecognizer(out byte[] data));
+        Assert.True(BundledModels.TryReadRecognizer(out byte[] data, out _));
         Assert.Equal(BundledModels.Recognizer.Sha256, Convert.ToHexStringLower(SHA256.HashData(data)));
         ModelContainer container = ModelContainer.Parse(data);
         Assert.Equal("crnn-v0", container.Architecture);

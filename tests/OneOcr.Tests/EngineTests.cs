@@ -159,15 +159,15 @@ public class EngineTests
         var (file, page) = Setup(out _);
         var container = ModelContainer.Parse(file);
         var scalar = OcrEngine.Create(container, null, KernelPath.Scalar);
-        string baseline = scalar.ToText(page, 1);
+        string baseline = scalar.ToText(page, Opt.Degree(1));
         Assert.Equal(3, baseline.Count(c => c == '\n'));
-        Assert.Equal(baseline, scalar.ToText(page, 4));
+        Assert.Equal(baseline, scalar.ToText(page, Opt.Degree(4)));
         Assert.Equal(baseline, scalar.ToText(page));
         foreach (KernelPath path in Dispatch.Available())
         {
             var engine = OcrEngine.Create(container, null, path);
-            Assert.Equal(baseline, engine.ToText(page, 1));
-            Assert.Equal(baseline, engine.ToText(page, 8));
+            Assert.Equal(baseline, engine.ToText(page, Opt.Degree(1)));
+            Assert.Equal(baseline, engine.ToText(page, Opt.Degree(8)));
         }
 
         Assert.Equal(baseline, page.ToText(scalar));
@@ -177,13 +177,13 @@ public class EngineTests
     public void DefaultEngineMustBeConfiguredAndOnlyOnce()
     {
         var (file, page) = Setup(out _);
-        Assert.Throws<OcrModelException>(() => page.ToText());
+        Assert.Throws<InvalidOperationException>(() => page.ToText());
         using var stream = new MemoryStream(file);
         var engine = OcrEngine.Load(stream);
-        OneOcr.Configure(engine);
-        Assert.Same(engine, OneOcr.Default);
-        Assert.Equal(engine.ToText(page, 1), page.ToText());
-        Assert.Throws<InvalidOperationException>(() => OneOcr.Configure(engine));
+        OcrEngine.ConfigureDefault(engine);
+        Assert.Same(engine, OcrEngine.Default);
+        Assert.Equal(engine.ToText(page, Opt.Degree(1)), page.ToText());
+        Assert.Throws<InvalidOperationException>(() => OcrEngine.ConfigureDefault(engine));
     }
 
     [Fact]

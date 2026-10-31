@@ -26,13 +26,13 @@ Every code block in this guide compiles; the samples live in `tests/OneOcr.Sampl
 | Languages: `-l eng+deu`, `-l ell`, `-l rus` | One recognizer reads Latin (English, German, French, Turkish, Vietnamese and the other European languages), Greek and Cyrillic together, so mixed text needs no language list. CJK, Arabic and Indic scripts are not supported yet |
 | Page segmentation modes `--psm 0`–`13` | No modes. The page detector finds text lines and the layout code orders them into columns, tables and blocks. See "Page segmentation modes" below |
 | `--oem` | Not applicable: there is one engine |
-| `--dpi N` | `OcrOptions.Dpi`. It only sets the page's `UnitsPerInch`; recognition does not depend on it. When it is absent the DPI is estimated and a diagnostic says so |
+| `--dpi N` | `OcrOptions.Dpi`. It only sets the page's `UnitsPerInch`; recognition does not depend on it. When it is absent the DPI comes from the file (`OcrPages(path)`, PNG, JPEG, TIFF headers) or is estimated, and a diagnostic says so |
 | `OMP_THREAD_LIMIT` | `OcrOptions.MaxDegreeOfParallelism` (0 means min(4, cores)). The result is bit-identical at every setting |
 | `--psm 0` (orientation and script detection) | `OcrOptions.DetectOrientation` (on by default; 0, 90, 180 and 270 degrees) and `OcrOptions.Deskew` (on by default). The result is in `OcrPage.Orientation` and `OcrPage.SkewDegrees` |
 | `-c tessedit_char_whitelist=...` | No whitelist. Filter the words you get back |
 | Dictionaries, `load_system_dawg`, user words | No dictionary by default, so identifiers and codes are never "corrected". Beam search with a character language model and a lexicon is opt-in (`DecodeOptions`) |
 | `preserve_interword_spaces` | Not applicable. Word breaks are decided per line from the pixels, and a line's text is its words joined by one space; cells of a table row are joined by a tab |
-| Output `txt` | `image.ToText()`, or `OcrPage.Text` with blank lines between blocks |
+| Output `txt` | `image.ToText()` (every frame of a multi-page TIFF), or `OcrPage.Text` with blank lines between blocks |
 | Output `tsv` | Walk `page.Blocks[i].Lines[j].Words`, see the recipe below |
 | Output `hocr` | `OcrPage` → `OcrBlock` → `OcrLine` → `OcrWord`, serialized as `oneocr.page` JSON |
 | Output `pdf` (searchable PDF) | Not yet |
@@ -80,7 +80,7 @@ foreach (OcrWord word in image.Ocr(engine).Words.Where(w => w.Confidence < 0.8f)
 ### Plain text
 
 `image.ToText(engine)` returns the page in reading order: lines are separated by a newline and table cells by a tab; `page.Text` also puts a blank
-line between blocks. Reading order is worked out from the layout, so two-column pages come out column by column.
+line between blocks (`page.ToText(OcrTextLayout.Paragraphs)` is the same thing). Reading order is worked out from the layout, so two-column pages come out column by column.
 
 ### TSV
 

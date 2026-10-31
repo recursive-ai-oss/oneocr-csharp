@@ -94,12 +94,13 @@ string markdown = image.ToMarkdown(engine);      // headings, lists and pipe tab
 ```
 
 An `OcrEngine` is immutable and thread-safe; load it once and share it. If you would rather not
-pass it around, set a process-wide default once and use the extension methods without an engine.
-(The static class is `OneOcr.OneOcr`, because the namespace is `OneOcr` too.)
+pass it around, set a process-wide default once (`OcrEngine.ConfigureDefault`) and use the
+extension methods without an engine. Until you do, `OcrEngine.Default` throws
+`InvalidOperationException`.
 
 <!-- sample: DefaultEngine -->
 ```csharp
-OneOcr.OneOcr.Configure();                       // once; the bundled models become OneOcr.OneOcr.Default
+OcrEngine.ConfigureDefault();                    // once; the bundled models become OcrEngine.Default
 
 string text = Image.Load("page.png").ToText();   // the extension methods without an engine use the default
 OcrPage page = Image.Load("page.png").Ocr();
@@ -118,11 +119,16 @@ the threads (the text does not depend on it). The same tool trains models, see
 
 ## Reading a page: `OcrEngine` and options
 
-`ToText` reads a clean, upright, single-column page fast and returns the text. `Ocr` does the
-whole job: finds the text lines with the page detector, turns the page upright if it came in
+`ToText` and `Ocr` run the same pipeline; `ToText` returns the page's text and `Ocr` returns the
+whole page model. The pipeline finds the text lines with the page detector, turns the page upright if it came in
 rotated by 90, 180 or 270 degrees, straightens tilted lines, reads every line, decides word
 breaks from the line's pixels as well as from the network, drops specks that were read as text,
 works out reading order across columns and sidebars, and finds tables.
+
+An engine carries its options (`engine.Options`; `engine.WithOptions(...)` returns a copy with
+other ones). Every call also takes an `OcrOptions?`; `null` means the engine's, and a value
+replaces the engine's options as a whole (nothing is merged). An option out of range throws
+`ArgumentOutOfRangeException` naming `options`.
 
 <!-- sample: Options -->
 ```csharp
@@ -164,14 +170,27 @@ default and documented on the type.
   `ExtractAsync<T>`, and the same on PDF pages and documents). A twin runs the very same code on a
   thread-pool thread, so its result is byte-identical to the sync call, and a cancelled token ends
   the task as cancelled. Keep the `Image` alive until the task completes. `engine.Ocr(images)` and
-  `engine.OcrAsync(images)` read several images (for example the frames of a TIFF) in order, with
-  consecutive `OcrPage.Index` values. The LLM package is async only.
+  `engine.OcrAsync(images)` read several images in order, with consecutive `OcrPage.Index` values.
+  The LLM package is async only.
+- **Multi-page files.** `Ocr(Image)` reads one page and throws `ArgumentException` for an image
+  with more than one frame, because silently reading the first frame of a TIFF loses pages.
+  `OcrPages` reads every frame (`engine.OcrPages(path | stream | bytes | image)`, also as an
+  extension on `Image`), and `ToText` and `ToMarkdown` on an image read all frames and join them
+  with a blank line. The number of frames counts against `OcrLimits.MaxPagesPerCall`.
+- **Untrusted images.** A file OneImage refuses surfaces as `OcrFormatException`, and a file over
+  `OcrLimits.MaxImagePixels` (or too many frames) as `OcrLimitException`; the original exception
+  is the inner one. The pixel and frame limits are applied before the pixels are decoded when you
+  pass a path, a stream or bytes to `OcrPages`.
+- **Resolution.** `OcrPages(path | stream | bytes)` takes the resolution a PNG (`pHYs`), JPEG
+  (JFIF) or TIFF (`XResolution`) declares as `UnitsPerInch`. On an `Image` you loaded yourself the
+  resolution is estimated from the size of the text, and a diagnostic says so; set
+  `OcrOptions.Dpi` when you know it.
 
 <!-- sample: AsyncOcr -->
 ```csharp
 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 OcrPage page = await image.OcrAsync(engine, new OcrOptions { Deskew = false }, cts.Token);
-string text = await image.ToTextAsync(engine, cts.Token);
+string text = await image.ToTextAsync(engine, null, cts.Token);
 IReadOnlyList<OcrPage> frames = await engine.OcrAsync([image, image], cancellationToken: cts.Token);
 ```
 - **Decoding.** Page reading (`Ocr`, `ToMarkdown`) is always greedy CTC, because the word boxes come
@@ -207,7 +226,8 @@ point at words), `KeyValues` and `Diagnostics`.
 | `Source` | `Ocr`, `TextLayer` or `Llm`, on every element. |
 | `Confidence` | Calibrated probability that the word is exactly right. `RawConfidence` is the uncalibrated mean of the characters' best softmax probabilities. Lines and blocks average their words'. |
 | Boxes and quads | Axis-aligned `OcrBox` everywhere; an `OcrQuad` where text was rotated or straightened. Character boxes from OCR are approximate (they come from the network's alignment) and say so. |
-| `Orientation`, `SkewDegrees` | How far the page was turned and straightened before reading. All coordinates stay in the image as you gave it. |
+| `Orientation`, `SkewDegrees` | How far the page content was turned clockwise from upright (0, 90, 180 or 270) and how far it was straightened before reading. All coordinates stay in the image as you gave it, also on a page that came in rotated: boxes cover the words where they are in your image, and rotated text carries a quad that follows the text. |
+| `Diagnostics` | What the reader decided on its own, as `OcrDiagnostic(Code, Severity, Message)`. Codes are stable (`OCR101` resolution estimated, `OCR102` resolution defaulted, `OCR103` page turned, `OCR104` page straightened, `OCR105` straightening skipped, `OCR106` angle searched, `OCR107` noise dropped, `OCR108` stray accents fixed, `OCR109` line skipped, `OCR110` no calibration, `OCR2xx` extraction, `OCR301` PDF, `OCR401` LLM). The JSON keeps the message only. |
 
 <!-- sample: PageJson -->
 ```csharp
@@ -220,10 +240,15 @@ The JSON is deterministic (the same pages give the same bytes), versioned (`"for
 [docs/spec/oneocr-page-v1.md](docs/spec/oneocr-page-v1.md), including how it differs from
 `onepdf.extraction` (y runs down here, boxes are `[left, top, right, bottom]`).
 
+Every element is a sealed record that compares by value. You can build a page yourself with
+object initializers (`new OcrWord { Text = ..., Box = ..., Confidence = ..., Source = ... }`);
+required members are enforced by the compiler.
+
 `page.ToMarkdown()` turns a page into Markdown without any model call: headings from text size,
 lists, pipe tables from detected tables, headers, footers and page numbers dropped (see
-`MarkdownOptions`). `page.ToText()` joins blocks with a blank line, lines with a newline and
-table cells with a tab.
+`MarkdownOptions`). `page.ToText()` joins lines with a newline and table cells with a tab; it is what
+`image.ToText()` returns. `page.Text` (and the JSON `text` member) puts a blank line between blocks;
+`page.ToText(OcrTextLayout.Paragraphs)` is the same thing as a method.
 
 ## Invoices, receipts and your own document types
 
@@ -256,8 +281,16 @@ Console.WriteLine($"{receipt.Merchant?.Text}  {receipt.Total?.Value}");
 - `page.FindKeyValues()` pairs keys with values on any page and `page.WithKeyValues()` returns the
   page with the pairs filled in.
 
+Extraction takes a `DocumentExtractionOptions` (`MaxDegreeOfParallelism`, `Strict`) and
+`DocumentExtractor.Default` is the process-wide extractor (`DocumentExtractor.ConfigureDefault()`).
+
 For your own type, give `Extract<T>` a source-generated `JsonTypeInfo<T>` (no reflection, so it
-works under NativeAOT) and a model you trained for it (see [Training](#training)):
+works under NativeAOT) and a model you trained for it (see [Training](#training)). A property is
+filled from the model class with the same JSON name, so name properties after the classes
+(`[JsonPropertyName("BT-112")]` for the invoice total). A property with no class keeps its
+default and a diagnostic says so (`OcrDiagnosticCodes.PropertyUnmapped`); with
+`DocumentExtractionOptions.Strict` it throws, and it always throws when no property maps.
+`result.WordBoxes(name)` throws `KeyNotFoundException` for a name that is not a property:
 
 <!-- sample: CustomType -->
 ```csharp

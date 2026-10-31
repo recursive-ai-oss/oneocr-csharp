@@ -520,7 +520,11 @@ internal static class PdfPageReader
             throw new OcrLimitException(nameof(OcrLimits.MaxWordsPerPage), limits.MaxWordsPerPage, wordCount);
         }
 
-        return new OcrPage(pageIndex, width, height, 72, finalBlocks, regionsOut, tables, keyValues, diagnostics, toPdf);
+        return new OcrPage
+        {
+            Index = pageIndex, Width = width, Height = height, UnitsPerInch = 72, Blocks = finalBlocks, Regions = regionsOut, Tables = tables, KeyValues = keyValues,
+            Diagnostics = [.. diagnostics.Select(static m => new OcrDiagnostic(OcrDiagnosticCodes.Pdf, OcrDiagnosticSeverity.Info, m))], ToPdf = toPdf,
+        };
     }
 
     private static OcrWord MakeWord(TextWord w, PdfPageText? text, double pageHeight, bool includeChars)
@@ -546,13 +550,13 @@ internal static class PdfPageReader
                 var cb = new OcrBox(b.Left, pageHeight - b.Top, b.Right, pageHeight - b.Bottom);
                 if (double.IsFinite(cb.Left + cb.Top + cb.Right + cb.Bottom))
                 {
-                    chars.Add(new OcrChar(g.Text, cb, 1f, OcrSource.TextLayer, false));
+                    chars.Add(new OcrChar { Text = g.Text, Box = cb, Confidence = 1f, Source = OcrSource.TextLayer, BoxIsApproximate = false });
                 }
             }
         }
 
         // Text layer words are exactly what the file says: confidence 1 means "not guessed", not a calibrated probability.
-        return new OcrWord(w.Source.Text, w.Box, 1f, 1f, OcrSource.TextLayer, chars);
+        return new OcrWord { Text = w.Source.Text, Box = w.Box, Confidence = 1f, RawConfidence = 1f, Source = OcrSource.TextLayer, Chars = chars };
     }
 
     private static List<TextBlock> Collect(PdfPageText text, double height, OcrLimits limits)

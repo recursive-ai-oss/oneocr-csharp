@@ -167,7 +167,7 @@ internal sealed class ClassicalOrientation : IOrientationDetector
         }
 
         List<StripLine> strips = StripFinder.Find(
-            page.Pixels, page.Width, page.Height, _limits.MaxLinesPerPage, _masks, page.Degree, out _, out int threshold, out bool inkIsBright);
+            page.Pixels, page.Width, page.Height, _limits.LineCandidateCap, _masks, page.Degree, out _, out int threshold, out bool inkIsBright);
         if (page.Evidence is { } evidence)
         {
             evidence.Strips = new FoundStrips(strips, threshold, inkIsBright) { Grids = grids };
@@ -289,7 +289,7 @@ internal sealed class ClassicalOrientation : IOrientationDetector
         int count = width * height;
         // The page finder's own strips: ruling lines and columns are handled as they are when the page is read, so a table does not
         // turn into a few long junk lines.
-        List<StripLine> strips = StripFinder.Find(pixels, width, height, _limits.MaxLinesPerPage, _masks, degree, out _, out _, out _, eraseRules: false);
+        List<StripLine> strips = StripFinder.Find(pixels, width, height, _limits.LineCandidateCap, _masks, degree, out _, out _, out _, eraseRules: false);
         var lines = new List<LineBox>(strips.Count);
         foreach (StripLine strip in strips)
         {

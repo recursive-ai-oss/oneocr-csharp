@@ -606,7 +606,7 @@ internal static class Program
                     clock.Restart();
                     text = noOrient
                         ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, SearchAngle = false, IncludeChars = false }).ToText()
-                        : o.ContainsKey("junk") || o.ContainsKey("accent") || angleOff || !respace || controlsOff || digitsOff || o.ContainsKey("sepoff") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, degree);
+                        : o.ContainsKey("junk") || o.ContainsKey("accent") || angleOff || !respace || controlsOff || digitsOff || o.ContainsKey("sepoff") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, new OcrOptions { MaxDegreeOfParallelism = degree });
                     times.Add(clock.Elapsed.TotalMilliseconds);
                 }
 
@@ -633,7 +633,7 @@ internal static class Program
                 {
                     OcrPage f = engine.Ocr(image, Page());
                     PageAngleSearch.IsWeak(f, out double share);
-                    bool searched = f.Diagnostics.Any(d => d.StartsWith("The first reading was weak", StringComparison.Ordinal));
+                    bool searched = f.Diagnostics.Any(d => d.Code == OcrDiagnosticCodes.AngleSearched);
                     File.WriteAllText(Path.Combine(outDir, id + ".feat"), string.Create(CultureInfo.InvariantCulture, $"{share:0.####}\t{f.SkewDegrees:0.###}\t{f.Words.Count}\t{PageAngleSearch.Score(f):0.##}\t{(searched ? 1 : 0)}\n"));
                 }
 
