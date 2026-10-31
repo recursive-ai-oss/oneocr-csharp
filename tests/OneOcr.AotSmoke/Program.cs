@@ -317,11 +317,21 @@ var docLines = docWords.Select(w => new OcrLine(w.Text, [w], [0], w.Box, 0.9f, O
 var docPage = new OcrPage(0, docWidth, docHeight, 72, [new OcrBlock(OcrBlockRole.Body, false, new OcrBox(0, 0, docWidth, docHeight), docLines, 0.9f)]);
 OneOcr.Documents.Invoice invoice1 = extractor.ExtractInvoice(docPage, 1), invoice4 = extractor.ExtractInvoice(docPage, 4);
 string Describe(OneOcr.Documents.Invoice v) => string.Join(";", v.Extraction.Fields.Select(f => f.Id + "=" + f.Text + "@" + f.Confidence.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
-if (Describe(invoice1) != Describe(invoice4) || extractor.WithKeyValues(docPage).KeyValues.Count != extractor.FindKeyValues(docPage).Count
-    || OneOcr.Models.Documents.DocumentModels.HasExtractor)
+if (Describe(invoice1) != Describe(invoice4) || extractor.WithKeyValues(docPage).KeyValues.Count != extractor.FindKeyValues(docPage).Count)
 {
     Console.Error.WriteLine("document extraction disagrees across degrees");
     return 1;
+}
+
+// When the document weights are embedded (a packed build), the pinned model loads and reads the page the same at every degree.
+if (OneOcr.Models.Documents.DocumentModels.HasExtractor)
+{
+    OneOcr.Documents.DocumentExtractor bundled = OneOcr.Models.Documents.DocumentModels.LoadExtractor();
+    if (Describe(bundled.ExtractInvoice(docPage, 1)) != Describe(bundled.ExtractInvoice(docPage, 4)))
+    {
+        Console.Error.WriteLine("bundled document extraction disagrees across degrees");
+        return 1;
+    }
 }
 
 // Fine-tuning a custom document type from hand-made labels: schema from source-generated type info, a few steps, a tuned model that fills the type.

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A program that uses the packages the way a consumer does. tools/ci/consumer-smoke.sh copies this folder out of the repository,
+       points NuGet at the freshly packed packages and runs it, first on the JIT and then as a NativeAOT binary. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RecursiveAI.OneOcr" Version="$(OneOcrVersion)" />
+    <None Include="hello.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

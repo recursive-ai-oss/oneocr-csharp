@@ -11,8 +11,26 @@
     <IsTrimmable>true</IsTrimmable>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageId>$(PackagePrefix)$(MSBuildProjectName)</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <RootNamespace>$(MSBuildProjectName)</RootNamespace>
   </PropertyGroup>
+
+  <PropertyGroup Label="Reproducible packages">
+    <!-- Paths in the binaries and symbols are normalized when a CI runner builds; local builds are left alone. -->
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Each package has its own short README.md beside its project file. -->
+    <None Include="$(MSBuildProjectDirectory)/README.md" Pack="true" PackagePath="/" />
+    <None Include="$(MSBuildThisFileDirectory)../LICENSE-MIT" Pack="true" PackagePath="licenses/" />
+    <None Include="$(MSBuildThisFileDirectory)../LICENSE-APACHE" Pack="true" PackagePath="licenses/" />
+    <None Include="$(MSBuildThisFileDirectory)../THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
   <ItemGroup>
     <Using Include="System" />

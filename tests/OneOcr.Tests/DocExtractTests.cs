@@ -779,7 +779,8 @@ public class DocExtractTests
 
         Assert.Null(DocModels.TryReadExtractor(out byte[] data));
         Assert.Equal(DocModels.Extractor!.Sha256, Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(data)));
-        Assert.Equal("docextract-v0", DocModels.LoadExtractor().Name);
+        // The shipped file's manifest names the model by its job; "docextract-v0" is its architecture and the pin's name.
+        Assert.Equal("document-extraction", DocModels.LoadExtractor().Name);
     }
 
     [Fact]
