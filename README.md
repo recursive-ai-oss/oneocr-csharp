@@ -660,40 +660,75 @@ committed to the repository.
 
 ## Benchmarks
 
-**Status: the tables below are placeholders (`TBD`) until the release gate has run.** Nothing here
-is estimated; each number will come from one run of the gate on one machine, with the CPU, core
-count and load, .NET SDK and runtime, and each engine's version and settings printed beside it.
+**Accuracy result for 1.0, stated as measured: OneOcr is the best engine we measured on five of the ten
+gated categories and behind the best on five.** It beats Tesseract on every category except
+clean real PDFs, where Tesseract is ahead by about 0.1 point. It is ahead on clean print, degraded scans, phone photos and real
+scan-degraded and layout PDFs; it trails the best engine (PaddleOCR or Apple Vision) on synthetic
+screenshots and complex layout (CER and WER; it wins their reading order), real web screenshots,
+clean real PDFs (narrowly) and generated photos of US receipts.
 
-*Accuracy, error rate %, CER / WER / reading order. Lower is better; the best engine per row is
-marked in bold.*
+One run of the release gate on a held-out (sealed) test set that no tuning step saw, scorer v3.1,
+engine at the 1.0 commit with the bundled models; AMD Ryzen 9 7950X3D, 32 threads, load 5–8 before
+and after; competitor outputs measured once on the same pages. The clean real-PDF row uses a fresh
+cut of 27 pages: the first cut was opened up as a development set during development, so it was
+replaced before this run.
 
-| Category | OneOcr | Tesseract (best) | Tesseract (fast) | PaddleOCR | docTR | Apple Vision |
-|---|---|---|---|---|---|---|
-| Clean 300 DPI print | TBD | TBD | TBD | TBD | TBD | TBD |
-| Degraded scans | TBD | TBD | TBD | TBD | TBD | TBD |
-| Screenshots and UI | TBD | TBD | TBD | TBD | TBD | TBD |
-| Complex layout | TBD | TBD | TBD | TBD | TBD | TBD |
-| Phone photos | TBD | TBD | TBD | TBD | TBD | TBD |
-| Receipts (recall-CER / recall-WER) | TBD | TBD | TBD | TBD | TBD | TBD |
-| Real web screenshots | TBD | TBD | TBD | TBD | TBD | TBD |
-| Real born-digital PDFs: clean | TBD | TBD | TBD | TBD | TBD | TBD |
-| Real born-digital PDFs: layout | TBD | TBD | TBD | TBD | TBD | TBD |
-| Real PDF pages, scan-degraded | TBD | TBD | TBD | TBD | TBD | TBD |
+*Accuracy, error rate %, CER / WER / reading order (lower is better). For PaddleOCR, docTR and
+Apple Vision each cell is the best of their published configurations (PaddleOCR PP-OCRv6 and v5
+mobile/server, docTR default/mobile, Vision accurate with and without language correction);
+Tesseract 5.3.4 uses its best page-segmentation mode per metric.*
 
-The last four rows use real pages (rendered web pages and PDFs with a verified text layer); they
-are reported apart from the synthetic rows because their truth and their difficulty differ.
+| Category | OneOcr | Tesseract (best) | Tesseract (fast) | PaddleOCR | docTR | Apple Vision | OneOcr vs best |
+|---|---|---|---|---|---|---|---|
+| Clean 300 DPI print | 0.05 / 0.10 / 0.10 | 0.16 / 0.62 / 0.62 | 0.24 / 0.83 / 0.83 | 0.07 / 0.11 / 0.11 | 0.94 / 2.57 / 2.61 | 0.37 / 0.76 / 0.78 | win / win / win |
+| Degraded scans | 0.16 / 0.45 / 0.48 | 0.93 / 2.67 / 2.77 | 1.22 / 3.30 / 3.44 | 0.39 / 1.17 / 1.18 | 1.64 / 4.51 / 13.23 | 0.21 / 0.65 / 0.66 | win / win / win |
+| Screenshots and UI | 0.35 / 0.67 / 0.73 | 6.33 / 9.90 / 25.14 | 5.86 / 9.29 / 24.50 | 0.12 / 0.40 / 17.14 | 1.88 / 6.51 / 22.69 | 0.33 / 1.50 / 25.35 | loss / loss / win |
+| Complex layout | 0.14 / 0.27 / 0.70 | 13.57 / 11.69 / 13.62 | 13.58 / 11.94 / 13.96 | 0.08 / 0.12 / 62.32 | 1.14 / 3.20 / 63.33 | 0.60 / 1.23 / 22.82 | loss / loss / win |
+| Phone photos | 0.21 / 0.67 / 0.81 | 9.34 / 16.48 / 17.87 | 9.40 / 16.21 / 17.48 | 0.39 / 0.83 / 0.83 | 3.41 / 10.54 / 38.07 | 1.16 / 1.90 / 2.45 | win / win / win |
+| Receipt photos, US (generated images; recall-CER / recall-WER) | 8.14 / 14.24 | 29.37 / 47.43 | 27.41 / 44.77 | 3.74 / 8.72 | 4.59 / 8.63 | 3.93 / 8.03 | loss / loss |
+| Real web screenshots (CER / WER) | 1.98 / 3.14 | 8.62 / 10.93 | 8.76 / 11.66 | 0.88 / 1.63 | 2.89 / 5.16 | 0.81 / 1.63 | loss / loss |
+| Real born-digital PDFs: clean | 0.57 / 0.97 / 1.63 | 0.47 / 0.94 / 1.48 | 0.45 / 0.94 / 1.49 | 0.47 / 0.91 / 1.42 | 0.99 / 2.00 / 2.64 | 0.95 / 1.59 / 2.23 | loss / loss / loss |
+| Real born-digital PDFs: layout | 0.52 / 1.63 / 3.63 | 1.42 / 4.68 / 6.60 | 1.34 / 4.79 / 6.72 | 0.99 / 4.20 / 84.23 | 1.34 / 5.20 / 84.37 | 2.25 / 5.27 / 8.11 | win / win / win |
+| Real PDF pages, scan-degraded | 1.64 / 3.76 / 10.15 | 4.31 / 9.26 / 11.97 | 4.73 / 9.92 / 12.65 | 2.22 / 6.39 / 64.78 | 2.86 / 8.84 / 70.44 | 6.98 / 11.28 / 19.53 | win / win / win |
+| Rendered receipts (recall-CER / recall-WER; information) | 0.14 / 0.44 | 5.62 / 10.24 | 5.93 / 10.97 | 1.13 / 1.80 | 3.11 / 10.22 | 0.38 / 1.03 | ahead / ahead |
+
+The four "Real" rows use real pages (rendered public web pages and PDFs with a verified text layer); they
+are reported apart from the synthetic rows because their truth and their difficulty differ. Receipt
+photos are judged on recall over the annotated words, and reading order is shown only where it is gated.
 
 *Calibration and detection.*
 
-| Category | ECE (target ≤ 0.05) | Word-box F1 at IoU 0.5 |
-|---|---|---|
-| each category above | TBD | TBD |
+| Category | ECE (target ≤ 0.05) | Word-box F1 at IoU 0.5: OneOcr | Tesseract (best) |
+|---|---|---|---|
+| Clean 300 DPI print | 0.009 | 0.999 | 0.999 |
+| Degraded scans | 0.011 | 0.998 | 0.989 |
+| Screenshots and UI | 0.012 | 0.991 | 0.797 |
+| Complex layout | 0.012 | 0.997 | 0.935 |
+| Phone photos | 0.014 | 0.968 | 0.816 |
+| Receipt photos, US (generated) | 0.041 (ECE-m; partial truth) | - | - |
+| Real web screenshots | 0.012 | 0.980 | 0.904 |
+| Real born-digital PDFs: clean | 0.007 | 0.994 | 0.996 |
+| Real born-digital PDFs: layout | 0.014 | 0.872 | 0.927 |
+| Real PDF pages, scan-degraded | 0.006 | 0.867 | 0.912 |
+| Rendered receipts | 0.012 | 0.984 | 0.945 |
 
-*Speed and memory, whole process per page (start-up and model load included), NativeAOT build.*
+*Speed and memory, milliseconds per page for the whole process (start-up and model load included),
+NativeAOT build of the `oneocr` tool for x86-64-v4, median of 3 runs. Tesseract 5.3.4 runs one
+process per page with one thread and its best page-segmentation mode. Development pages of the same
+six kinds (30–100 per set); AMD Ryzen 9 7950X3D, 32 threads, nothing else running (load 3.8 before,
+at most 3.4 during, 1.5 after).*
 
-| Category | OneOcr, 1 thread | OneOcr, 4 threads | Tesseract fast | Tesseract best | OneOcr peak RSS (target ≤ 300 MB) |
+| Category | OneOcr, 1 thread | OneOcr, 4 threads | Tesseract fast | Tesseract best | OneOcr peak RSS, MB (target ≤ 300) |
 |---|---|---|---|---|---|
-| each category above | TBD | TBD | TBD | TBD | TBD |
+| Clean 300 DPI print | 528 | 210 | 677 | 1384 | 118 |
+| Degraded scans | 536 | 209 | 540 | 1120 | 140 |
+| Complex layout | 698 | 259 | 898 | 1704 | 197 |
+| Phone photos | 577 | 232 | 661 | 1162 | 152 |
+| Screenshots and UI | 196 | 78 | 226 | 389 | 127 |
+| Receipts | 222 | 101 | 289 | 425 | 130 |
+
+On one thread OneOcr is faster than Tesseract with its fast models in every category (degraded
+scans only just), and about twice as fast as Tesseract with its best models.
 
 **Method.**
 
