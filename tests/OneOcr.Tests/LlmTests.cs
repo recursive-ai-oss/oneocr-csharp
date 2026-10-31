@@ -600,7 +600,7 @@ public class LlmTests
     public async Task A_bound_with_an_unpriced_model_is_refused_not_ignored()
     {
         var h = Always(LlmFixtures.OpenAiOk);
-        var p = new OpenAiCompatibleProvider(new Uri("http://localhost:1/v1"), "mystery-model", http: new HttpClient(h));
+        var p = new OpenAiCompatibleProvider(new Uri("http://models.example/v1"), "mystery-model", http: new HttpClient(h));
         var (img, page) = Sample();
         using var client = new LlmClient(p, new LlmOptions { SpendCapUsd = 1m });
         var e = await Assert.ThrowsAsync<OcrBudgetException>(() => client.ExtractAsync(img, page, "x", LlmFixtures.ObjectSchema));
@@ -611,6 +611,32 @@ public class LlmTests
         using var open = new LlmClient(p);
         LlmExtraction r = await open.ExtractAsync(img, page, "x", LlmFixtures.ObjectSchema);
         Assert.Null(r.CostUsd);
+    }
+
+    [Fact]
+    public async Task A_server_on_this_machine_costs_nothing_so_cost_caps_work()
+    {
+        var h = Always(LlmFixtures.OpenAiOk);
+        var (img, page) = Sample();
+        foreach (string host in new[] { "localhost", "127.0.0.1", "[::1]" })
+        {
+            var p = new OpenAiCompatibleProvider(new Uri("http://" + host + ":11434/v1"), "local-vision", http: new HttpClient(h));
+            using var client = new LlmClient(p, new LlmOptions { MaxCostPerCallUsd = 0.25m, SpendCapUsd = 5m });
+            LlmEstimate est = client.Estimate([new LlmPageInput(img, page)], "x", LlmFixtures.ObjectSchema);
+            Assert.Equal(0m, est.WorstCaseCostUsd);
+            LlmExtraction r = await client.ExtractAsync(img, page, "x", LlmFixtures.ObjectSchema);
+            Assert.Equal(0m, r.CostUsd);
+        }
+
+        // A price table entry still wins, and a remote server's unknown price is a warning on the estimate.
+        var priced = new OpenAiCompatibleProvider(new Uri("http://localhost:1/v1"), "paid", http: new HttpClient(h));
+        using var c2 = new LlmClient(priced, new LlmOptions { PriceTable = LlmPriceTable.Default.With(new LlmModelPrice("openai-compatible", "paid", 1m, 1m)) });
+        Assert.True(c2.Estimate([new LlmPageInput(img, page)], "x", LlmFixtures.ObjectSchema).WorstCaseCostUsd > 0m);
+        var remote = new OpenAiCompatibleProvider(new Uri("https://models.example/v1"), "mystery", http: new HttpClient(h));
+        using var c3 = new LlmClient(remote);
+        LlmEstimate e3 = c3.Estimate([new LlmPageInput(img, page)], "x", LlmFixtures.ObjectSchema);
+        Assert.Null(e3.WorstCaseCostUsd);
+        Assert.Contains(e3.Warnings, w => w.Contains("no entry", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -717,26 +743,6 @@ public class LlmTests
         string json = SchemaTools.ForGemini(union).ToJsonString();
         Assert.Contains("anyOf", json);
         Assert.Contains("\"nullable\":true", json);
-    }
-
-    [Fact]
-    public async Task A_typed_extraction_reads_the_answer_into_the_callers_type()
-    {
-        var h = Always(LlmFixtures.OpenAiOk);
-        using var client = Client(Make("openai", h));
-        var (img, page) = Sample();
-        LlmExtraction<Invoice> r = await client.ExtractAsync(img, page, "Read it.", InvoiceContext.Default.Invoice);
-        Assert.Equal(new Invoice("Acme", "12.50"), r.Value);
-        Assert.Equal(1200, r.Details.Usage.InputTokens);
-        using JsonDocument body = h.Calls[0].Json();
-        var props = body.RootElement.GetProperty("response_format").GetProperty("json_schema").GetProperty("schema").GetProperty("properties");
-        Assert.True(props.TryGetProperty("vendor", out _));
-
-        // An answer that does not fit the type is a typed provider error.
-        string wrong = LlmFixtures.OpenAiOk.Replace("{\\\"vendor\\\":\\\"Acme\\\",\\\"total\\\":\\\"12.50\\\"}", "{\\\"vendor\\\":[1]}", StringComparison.Ordinal);
-        using var bad = Client(Make("openai", Always(wrong)));
-        var e = await Assert.ThrowsAsync<OcrProviderException>(() => bad.ExtractAsync(img, page, "x", InvoiceContext.Default.Invoice));
-        Assert.Equal(LlmFailure.Malformed, e.Failure);
     }
 
     [Fact]

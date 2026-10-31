@@ -8,4 +8,6 @@ dotnet add package RecursiveAI.OneOcr.Llm
 
 Every value a model returns is checked against the words the local reader found on the page and comes back as `Grounded`, `GroundedNormalized`, `Derived` or `Ungrounded`, with boxes where it has them. The package also provides cost estimates and caps, routing between the local models and the LLM, an `Offline` switch, a redaction hook and structured output from `System.Text.Json` source-generated types. API keys are passed explicitly; nothing is read from the environment unless you ask.
 
+`ExtractAsync<T>` takes a source-generated `JsonTypeInfo<T>`, derives the schema from it and is grounded like the schema route: it returns `LlmReadResult<T>` with the `Value` and the grounded `Fields`. Cost caps work with a local OpenAI-compatible server (`localhost`, `127.x.x.x` or `[::1]`), which is priced at 0; a server on another host needs an entry in the price table (`LlmPriceTable.With`). The provider classes are a closed set; to test code that uses `LlmClient`, give a provider an `HttpClient` with a fake `HttpMessageHandler`.
+
 https://github.com/recursive-ai-oss/oneocr-csharp

@@ -105,20 +105,3 @@ public sealed class LlmExtraction
     /// <summary>Notes about the call, such as a stale price table.</summary>
     public IReadOnlyList<string> Warnings { get; }
 }
-
-/// <summary>The model's answer read into a caller's type.</summary>
-/// <typeparam name="T">The type described by the schema.</typeparam>
-public sealed class LlmExtraction<T>
-{
-    internal LlmExtraction(T value, LlmExtraction details)
-    {
-        Value = value;
-        Details = details;
-    }
-
-    /// <summary>The answer, deserialized with the caller's source-generated type information.</summary>
-    public T Value { get; }
-
-    /// <summary>The raw JSON, usage, cost and listed words.</summary>
-    public LlmExtraction Details { get; }
-}

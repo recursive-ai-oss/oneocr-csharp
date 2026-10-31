@@ -387,7 +387,10 @@ local reading word by word: the local word wins where it is confident, the model
 reader is unsure, and each disagreement is listed), `Markdown` (the model's Markdown with the spans
 where it disagrees with the local reader marked), `Json` (values for your schema, grounded) and
 `PageModel` (the merged page, every word with its `Source`). `ExtractAsync<T>` takes a
-source-generated `JsonTypeInfo<T>` instead of a schema string.
+source-generated `JsonTypeInfo<T>` instead of a schema string, derives the schema from it and is grounded the
+same way: it returns `LlmReadResult<T>` with the `Value` and the grounded `Fields`.
+Cost caps work with a local OpenAI-compatible server (host `localhost`, `127.x.x.x` or `[::1]`), which is priced at 0;
+a server on another host needs an entry in the price table (`LlmPriceTable.With`).
 
 **Grounding.** For every scalar the model returns it must cite the words it read. We check the
 cited words against the value after normalizing dates, amounts, currency, whitespace and case; a

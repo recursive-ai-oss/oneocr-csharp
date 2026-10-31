@@ -214,7 +214,9 @@ public sealed class OpenAiProvider : LlmProvider
 /// Structured output is sent as <c>response_format: json_schema</c>, which these servers turn into constrained decoding.
 /// No <c>store</c> flag is sent because servers that are not OpenAI may reject unknown fields. The key is optional.
 /// The default image bound (1536 pixels on the long side) is a guess that suits common vision encoders; pass
-/// image options to the constructor for the model in use.
+/// image options to the constructor for the model in use. Cost caps: a server on this machine (host <c>localhost</c>, a 127.x.x.x
+/// address or <c>[::1]</c>) is priced at 0 unless <see cref="LlmPriceTable"/> has an entry for the model, so <c>MaxCostPerCallUsd</c> and
+/// <c>SpendCapUsd</c> work with it. A server on another host has no price until you add one with <see cref="LlmPriceTable.With"/>.
 /// </summary>
 [System.Diagnostics.DebuggerDisplay("{Name} ({Model})")]
 public sealed class OpenAiCompatibleProvider : LlmProvider
@@ -249,6 +251,8 @@ public sealed class OpenAiCompatibleProvider : LlmProvider
         new(baseAddress, model, Environment.GetEnvironmentVariable(variable), http);
 
     internal override Uri RequestUri => _uri;
+
+    internal override bool IsFreeByDefault => _uri.IsLoopback;
 
     internal override void AddHeaders(HttpRequestMessage request)
     {

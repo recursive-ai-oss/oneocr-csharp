@@ -1,3 +1,4 @@
+using OneImage;
 using System.Globalization;
 using OneOcr.Llm;
 using OneOcr.Training;
@@ -8,9 +9,10 @@ namespace OneOcr.Tool;
 internal static class Program
 {
     private const string Usage = """
-        oneocr - fine-tune the OneOcr line recognizer on your own documents
+        oneocr - read text from images, and fine-tune the OneOcr line recognizer on your own documents
 
         usage:
+          oneocr --version
           oneocr ocr    --in <image or folder> [--out <dir>] [--model <file> --detector <file> [--wordlm <file>] [--wordfreq <file>]] [--degree N] [--json] [--stats <file>]
           oneocr train  --model <file> --work <dir> [--docs <dir>] [labelling options] [training options]
           oneocr train  --extract <schema.json> --model <docextract file> --work <dir> [--docs <dir>] [labelling options] [extraction options]
@@ -72,6 +74,9 @@ internal static class Program
 
             switch (args[0])
             {
+                case "--version" or "-v" or "version":
+                    Console.Out.WriteLine(VersionText());
+                    return 0;
                 case "ocr":
                     return OcrCommand.Run(new Flags(args.AsSpan(1)));
                 case "train":
@@ -97,11 +102,25 @@ internal static class Program
             Console.Error.WriteLine("oneocr: cancelled; a checkpoint was saved, run the same command again to continue.");
             return 130;
         }
-        catch (Exception ex) when (ex is OcrException or ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is OcrException or ImageException or ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
             Console.Error.WriteLine("oneocr: " + ex.Message);
             return 1;
         }
+        catch (Exception ex)
+        {
+            // A bug, not bad input: say so in one line and exit non-zero instead of dumping a stack trace and a core file.
+            Console.Error.WriteLine("oneocr: unexpected " + ex.GetType().Name + ": " + ex.Message);
+            return 70;
+        }
+    }
+
+    private static string VersionText()
+    {
+        string? v = typeof(Program).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            is [System.Reflection.AssemblyInformationalVersionAttribute attr, ..] ? attr.InformationalVersion : null;
+        int plus = v?.IndexOf('+', StringComparison.Ordinal) ?? -1;
+        return "oneocr " + (v is null ? "(unknown version)" : plus >= 0 ? v[..plus] : v);
     }
 
     private static async Task<int> TrainAsync(Flags f, CancellationToken ct)

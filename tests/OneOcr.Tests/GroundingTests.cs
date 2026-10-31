@@ -2,11 +2,18 @@ using System.Threading.Tasks;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using OneImage;
 using OneOcr.Documents;
 using OneOcr.Llm;
 
 namespace OneOcr.Tests;
+
+public sealed record TypedInvoice(string? Number, string? Date);
+
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+[JsonSerializable(typeof(TypedInvoice))]
+internal sealed partial class TypedContext : JsonSerializerContext;
 
 public class GroundingTests
 {
@@ -45,6 +52,28 @@ public class GroundingTests
         LlmReadOptions opts = o ?? new LlmReadOptions { Outputs = LlmOutputs.Json, JsonSchema = Schema };
         LlmReadResult r = await client.ReadAsync(GroundingSupport.Blank(Page), Page, opts);
         return (r, h);
+    }
+
+    [Fact]
+    public async Task The_typed_route_asks_for_citations_and_returns_grounded_fields()
+    {
+        string answer = Data(("number", GroundingSupport.V("\"INV-1001\"", [Id("INV-1001")])), ("date", GroundingSupport.V("\"2099-01-01\"", [])));
+        var h = new ScriptedHandler().Then(Wrap("openai", answer)).Then(Wrap("openai", Data(("date", GroundingSupport.V("\"2099-01-01\"", [])))));
+        using var http = new HttpClient(h);
+        using var client = new LlmClient(GroundingSupport.Provider("openai", http), GroundingSupport.Options());
+        LlmReadResult<TypedInvoice> r = await client.ExtractAsync(GroundingSupport.Blank(Page), Page, "Read it.", TypedContext.Default.TypedInvoice);
+        Assert.Equal("INV-1001", r.Value!.Number);
+        Assert.Contains(r.Fields, f => f.Path == "/number" && f.State is GroundingState.Grounded or GroundingState.GroundedNormalized);
+        Assert.Contains(r.Fields, f => f.Path == "/date" && f.State == GroundingState.Ungrounded);
+        Assert.Contains("\"derived\"", h.Requests[0]);
+
+        // Values that do not fit the type are a typed provider error.
+        var bad = new ScriptedHandler().Then(Wrap("openai", Data(("number", GroundingSupport.V("[1]", [])))));
+        using var http2 = new HttpClient(bad);
+        using var client2 = new LlmClient(GroundingSupport.Provider("openai", http2), GroundingSupport.Options());
+        var e = await Assert.ThrowsAsync<OcrProviderException>(() =>
+            client2.ExtractAsync(GroundingSupport.Blank(Page), Page, "x", TypedContext.Default.TypedInvoice));
+        Assert.Equal(LlmFailure.Malformed, e.Failure);
     }
 
     [Theory]

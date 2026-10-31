@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 using OneImage;
 
 namespace OneOcr.Llm;
@@ -9,6 +10,50 @@ namespace OneOcr.Llm;
 public sealed partial class LlmClient
 {
     private const int MaxCorrectionLines = 64;
+
+    /// <summary>
+    /// Reads one or more pages and returns the values as <typeparamref name="T"/> with their grounding. The schema is derived from <paramref name="typeInfo"/>
+    /// with the BCL's <c>JsonSchemaExporter</c> (no reflection); <see cref="LlmReadOptions.JsonSchema"/> is ignored and <see cref="LlmReadOptions.Outputs"/> gets
+    /// <see cref="LlmOutputs.Json"/> added. Everything else in <paramref name="options"/> works as for <see cref="ReadAsync(IReadOnlyList{LlmPageInput}, LlmReadOptions, CancellationToken)"/>.
+    /// </summary>
+    /// <typeparam name="T">The answer type.</typeparam>
+    /// <param name="pages">The pages, between one and <see cref="OcrLimits.MaxPagesPerCall"/>.</param>
+    /// <param name="typeInfo">Type information from a <c>JsonSerializerContext</c>.</param>
+    /// <param name="options">What to read and how.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>The value (null only when the answer is JSON null) and the read.</returns>
+    /// <exception cref="OcrProviderException">As for the schema route; <see cref="LlmFailure.Malformed"/> when the values do not fit <typeparamref name="T"/>.</exception>
+    public async Task<LlmReadResult<T>> ReadAsync<T>(
+        IReadOnlyList<LlmPageInput> pages, JsonTypeInfo<T> typeInfo, LlmReadOptions options, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(typeInfo);
+        ArgumentNullException.ThrowIfNull(options);
+        var typed = new LlmReadOptions
+        {
+            Outputs = options.Outputs | LlmOutputs.Json,
+            JsonSchema = SchemaTools.Export(typeInfo),
+            SchemaName = options.SchemaName,
+            Instruction = options.Instruction,
+            Routing = options.Routing,
+            ConfidenceThreshold = options.ConfidenceThreshold,
+            LocalExtractor = options.LocalExtractor,
+            RoleCheck = options.RoleCheck,
+            UngroundedPolicy = options.UngroundedPolicy,
+            Reask = options.Reask,
+            NumberStyle = options.NumberStyle,
+            DateOrder = options.DateOrder,
+            KeepLlmOnlyWords = options.KeepLlmOnlyWords,
+        };
+        LlmReadResult read = await ReadAsync(pages, typed, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return new LlmReadResult<T>(read.GetValue(typeInfo), read);
+        }
+        catch (JsonException e)
+        {
+            throw new OcrProviderException(_provider.Name, LlmFailure.Malformed, _provider.Scrub("the values do not fit the requested type: " + e.Message));
+        }
+    }
 
     /// <summary>Reads one page; see <see cref="ReadAsync(IReadOnlyList{LlmPageInput}, LlmReadOptions, CancellationToken)"/>.</summary>
     /// <param name="image">The page image.</param>

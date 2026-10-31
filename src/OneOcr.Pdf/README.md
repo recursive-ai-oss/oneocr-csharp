@@ -8,4 +8,6 @@ dotnet add package RecursiveAI.OneOcr.Pdf
 
 Invisible text layers from earlier OCR runs are re-read by default, and garbled text layers are replaced by a fresh reading of the page.
 
+A file that opens but has no readable page tree throws `OcrFormatException` with `PdfOcrOptions.Strict`; otherwise `PdfOcr.Read` returns one empty 0 by 0 page whose diagnostics say so, never an empty list.
+
 https://github.com/recursive-ai-oss/oneocr-csharp

@@ -113,45 +113,38 @@ public sealed partial class LlmClient : IDisposable
         return await SendAsync(prepared, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Asks the model about one page and reads the answer into <typeparamref name="T"/>. The schema comes from the source-generated type information, so no reflection is used.</summary>
-    /// <typeparam name="T">The answer type. Use nullable members for values that may be missing: strict providers make every member required.</typeparam>
+    /// <summary>
+    /// Asks the model about one page and reads the values into <typeparamref name="T"/>, grounded like <see cref="ReadAsync(Image, OcrPage, LlmReadOptions, CancellationToken)"/>:
+    /// the model cites the words it read, each value is checked against the page, and <see cref="LlmReadResult.Fields"/> says which are grounded and where.
+    /// The schema comes from the source-generated type information, so no reflection is used and no hand-written schema can drift from the type.
+    /// </summary>
+    /// <typeparam name="T">The answer type: an object whose scalar members are the values. Use nullable members for values that may be missing: strict providers make every member required.</typeparam>
     /// <param name="image">The page image.</param>
     /// <param name="page">The page model read from it.</param>
     /// <param name="instruction">What to extract. Trusted text.</param>
     /// <param name="typeInfo">Type information from a <c>JsonSerializerContext</c>.</param>
     /// <param name="schemaName">Name for the schema. Default <c>extraction</c>.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
-    /// <returns>The value, the raw JSON and what the call cost.</returns>
-    /// <exception cref="OcrProviderException">As the raw overload; also <see cref="LlmFailure.Malformed"/> when the answer does not deserialize.</exception>
-    public Task<LlmExtraction<T>> ExtractAsync<T>(
+    /// <returns>The value, the grounded fields and the rest of the read (usage, cost, diagnostics). Defaults of <see cref="LlmReadOptions"/> apply; use <see cref="ReadAsync{T}(IReadOnlyList{LlmPageInput}, JsonTypeInfo{T}, LlmReadOptions, CancellationToken)"/> to change them.</returns>
+    /// <exception cref="OcrProviderException">As the raw overload; also <see cref="LlmFailure.Malformed"/> when the values do not fit the type.</exception>
+    public Task<LlmReadResult<T>> ExtractAsync<T>(
         Image image, OcrPage page, string instruction, JsonTypeInfo<T> typeInfo, string schemaName = "extraction", CancellationToken cancellationToken = default) =>
         ExtractAsync([new LlmPageInput(image, page)], instruction, typeInfo, schemaName, cancellationToken);
 
-    /// <summary>Asks the model about several pages and reads the answer into <typeparamref name="T"/>.</summary>
+    /// <summary>Asks the model about several pages and reads the grounded values into <typeparamref name="T"/>.</summary>
     /// <typeparam name="T">The answer type.</typeparam>
     /// <param name="pages">The pages.</param>
     /// <param name="instruction">What to extract. Trusted text.</param>
     /// <param name="typeInfo">Type information from a <c>JsonSerializerContext</c>.</param>
     /// <param name="schemaName">Name for the schema. Default <c>extraction</c>.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
-    /// <returns>The value, the raw JSON and what the call cost.</returns>
+    /// <returns>The value and the grounded read.</returns>
     /// <exception cref="OcrProviderException">See the single-page overload.</exception>
-    public async Task<LlmExtraction<T>> ExtractAsync<T>(
+    public Task<LlmReadResult<T>> ExtractAsync<T>(
         IReadOnlyList<LlmPageInput> pages, string instruction, JsonTypeInfo<T> typeInfo, string schemaName = "extraction", CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(typeInfo);
-        LlmExtraction raw = await ExtractAsync(pages, instruction, SchemaTools.Export(typeInfo), schemaName, cancellationToken).ConfigureAwait(false);
-        try
-        {
-            T? value = JsonSerializer.Deserialize(raw.Json, typeInfo);
-            return value is null
-                ? throw new OcrProviderException(_provider.Name, LlmFailure.Malformed, "the answer is null.")
-                : new LlmExtraction<T>(value, raw);
-        }
-        catch (JsonException e)
-        {
-            throw new OcrProviderException(_provider.Name, LlmFailure.Malformed, _provider.Scrub("the answer does not fit the requested type: " + e.Message));
-        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(instruction);
+        return ReadAsync(pages, typeInfo, new LlmReadOptions { Outputs = LlmOutputs.Json, Instruction = instruction, SchemaName = schemaName }, cancellationToken);
     }
 
     private void ThrowIfOffline()
@@ -237,6 +230,16 @@ public sealed partial class LlmClient : IDisposable
         }
 
         LlmModelPrice? price = _options.PriceTable.TryFind(_provider.PriceKey, _provider.Model, out LlmModelPrice found) ? found : null;
+        if (price is null && _provider.IsFreeByDefault)
+        {
+            price = new LlmModelPrice(_provider.PriceKey, _provider.Model, 0m, 0m);
+        }
+        else if (price is null)
+        {
+            warnings.Add(string.Create(CultureInfo.InvariantCulture,
+                $"The price table has no entry for {_provider.PriceKey} model '{_provider.Model}', so the cost is unknown and a cost bound would refuse the call. Add one with LlmPriceTable.With."));
+        }
+
         decimal? worst = price?.Cost(inputTokens, call.MaxOutputTokens);
         var estimate = new LlmEstimate(inputTokens, call.MaxOutputTokens, worst, warnings);
         return new Prepared(call, words, masked, estimate, price, CacheKey(call), warnings);

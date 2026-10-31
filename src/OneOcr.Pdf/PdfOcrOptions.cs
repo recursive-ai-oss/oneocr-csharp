@@ -52,7 +52,7 @@ public sealed class PdfOcrOptions
 
     /// <summary>
     /// When false (the default) a page that cannot be fully read (its content is damaged, an image is too large to render, a region
-    /// exceeds an OCR limit) gives what could be read plus a diagnostic. When true that situation throws instead.
+    /// exceeds an OCR limit) gives what could be read plus a diagnostic. When true that situation throws instead, and so does a document whose page tree yields no pages at all (lenient gives one empty page with a diagnostic).
     /// </summary>
     public bool Strict { get; init; }
 

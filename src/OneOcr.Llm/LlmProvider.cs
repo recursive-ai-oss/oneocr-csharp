@@ -17,7 +17,7 @@ internal readonly record struct ProviderReply(string Json, long InputTokens, lon
 /// A language-model API. One subclass per API: <see cref="AnthropicProvider"/>, <see cref="OpenAiProvider"/>,
 /// <see cref="OpenAiCompatibleProvider"/>, <see cref="GeminiProvider"/> and <see cref="AzureOpenAiProvider"/>. A provider
 /// holds its model string, its key and its <see cref="HttpClient"/>; policy (budgets, retries, privacy, caching) lives in
-/// <see cref="LlmClient"/>. Providers cannot be subclassed outside this assembly.
+/// <see cref="LlmClient"/>. The hierarchy is closed on purpose: the constructor is not accessible outside this assembly, so these five are the only providers, and the wire format of each is internal. To test code that uses <see cref="LlmClient"/>, give a provider an <see cref="HttpClient"/> with a fake <see cref="HttpMessageHandler"/>.
 /// </summary>
 [System.Diagnostics.DebuggerDisplay("{Name} ({Model})")]
 public abstract class LlmProvider
@@ -71,6 +71,9 @@ public abstract class LlmProvider
     /// <summary>Shows the provider and model, never the key.</summary>
     /// <returns>For example <c>anthropic (model-name)</c>.</returns>
     public override string ToString() => $"{Name} ({Model})";
+
+    /// <summary>True when calls cost nothing unless the price table says otherwise (a server on this machine).</summary>
+    internal virtual bool IsFreeByDefault => false;
 
     /// <summary>The key, for building request headers only.</summary>
     private protected string? ApiKey => _secret?.Value;

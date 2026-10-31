@@ -56,14 +56,14 @@ public class LlmLiveTests
             SpendCapUsd = 0m,
         });
 
-        LlmExtraction<LiveAnswer> r = await client.ExtractAsync(
+        LlmReadResult<LiveAnswer> r = await client.ExtractAsync(
             image, page, "Copy the text written on the page into 'text' and the number into 'amount'.", LiveContext.Default.LiveAnswer);
 
-        Assert.False(string.IsNullOrWhiteSpace(r.Value.Text));
-        Assert.NotNull(r.Value.Amount);
-        Assert.Equal(0m, r.Details.CostUsd);
-        Assert.Equal(2, r.Details.Words.Count);
-        string report = $"model={model} json={r.Details.Json} usage={r.Details.Usage} text_match={r.Value.Text.Contains("427", StringComparison.Ordinal)}";
+        Assert.False(string.IsNullOrWhiteSpace(r.Value!.Text));
+        Assert.NotNull(r.Value!.Amount);
+        Assert.Equal(0m, r.Read.CostUsd);
+        Assert.Equal(2, r.Read.Pages.Count);
+        string report = $"model={model} json={r.Read.Json} usage={r.Read.Usage} text_match={r.Value!.Text.Contains("427", StringComparison.Ordinal)}";
         if (Environment.GetEnvironmentVariable("ONEOCR_LLM_LIVE_OUT") is { } outPath)
         {
             await File.WriteAllTextAsync(outPath, report + "\n");

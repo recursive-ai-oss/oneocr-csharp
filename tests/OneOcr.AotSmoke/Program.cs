@@ -194,8 +194,7 @@ var anthropic = new OneOcr.Llm.AnthropicProvider("smoke-key", "smoke-model", htt
 using (var llm = new OneOcr.Llm.LlmClient(anthropic, new OneOcr.Llm.LlmOptions { Cache = new OneOcr.Llm.LlmResultCache() }))
 {
     var typed = llm.ExtractAsync(page, llmPage, "Read the total.", SmokeContext.Default.SmokeAnswer).GetAwaiter().GetResult();
-    var again = llm.ExtractAsync(page, llmPage, "Read the total.", SmokeContext.Default.SmokeAnswer).GetAwaiter().GetResult();
-    if (typed.Value.Total != "12.50" || !again.Details.FromCache || llmHandler.Calls != 1)
+    if (typed.Value?.Total != "12.50" || typed.Fields.Count != 1 || llmHandler.Calls != 1)
     {
         Console.Error.WriteLine("LLM extraction failed");
         return 1;
@@ -411,7 +410,7 @@ internal sealed class SmokeHandler : System.Net.Http.HttpMessageHandler
     protected override System.Threading.Tasks.Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, System.Threading.CancellationToken cancellationToken)
     {
         Calls++;
-        const string Body = "{\"type\":\"message\",\"content\":[{\"type\":\"tool_use\",\"name\":\"extraction\",\"input\":{\"total\":\"12.50\"}}],\"stop_reason\":\"tool_use\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10}}";
+        const string Body = "{\"type\":\"message\",\"content\":[{\"type\":\"tool_use\",\"name\":\"extraction\",\"input\":{\"data\":{\"total\":{\"value\":\"12.50\",\"words\":[],\"derived\":true}}}}],\"stop_reason\":\"tool_use\",\"usage\":{\"input_tokens\":100,\"output_tokens\":10}}";
         return System.Threading.Tasks.Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
         {
             Content = new System.Net.Http.StringContent(Body, System.Text.Encoding.UTF8, "application/json"),

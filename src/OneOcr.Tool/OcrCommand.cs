@@ -22,7 +22,7 @@ internal static class OcrCommand
         f.Done();
 
         string[] pages = Directory.Exists(input)
-            ? [.. Directory.GetFiles(input).Where(IsImage).Order(StringComparer.Ordinal)]
+            ? [.. Directory.GetFiles(input).Where(static f => IsImage(f) || IsPdfName(f)).Order(StringComparer.Ordinal)]
             : File.Exists(input) ? [input] : throw new UsageException("--in '" + input + "' is neither a file nor a directory.");
         if (outDir is null && (pages.Length != 1 || json))
         {
@@ -70,6 +70,11 @@ internal static class OcrCommand
             clock.Restart();
             try
             {
+                if (IsPdfName(path) || LooksLikePdf(path))
+                {
+                    throw new UsageException("PDF files are not read by this tool. Render the pages to PNG or JPEG, or call RecursiveAI.OneOcr.Pdf from code.");
+                }
+
                 Image image = Image.Load(path);
                 string text;
                 string? pageJson = null;
@@ -97,11 +102,11 @@ internal static class OcrCommand
                     File.WriteAllText(Path.Combine(outDir, id + ".page.json"), pageJson, new UTF8Encoding(false));
                 }
             }
-            catch (Exception ex) when (ex is OcrException or ArgumentException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            catch (Exception ex) when (ex is UsageException or OcrException or ImageException or ArgumentException or IOException or UnauthorizedAccessException or InvalidOperationException)
             {
                 // One unreadable page is reported and the rest are still read; the exit code says there were failures.
                 failed++;
-                Console.Error.WriteLine("oneocr: " + id + ": " + ex.Message);
+                Console.Error.WriteLine("oneocr: " + Path.GetFileName(path) + ": " + ex.Message);
             }
         }
 
@@ -111,6 +116,15 @@ internal static class OcrCommand
         }
 
         return failed > 0 ? 3 : 0;
+    }
+
+    private static bool IsPdfName(string file) => file.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase);
+
+    private static bool LooksLikePdf(string file)
+    {
+        Span<byte> head = stackalloc byte[5];
+        using FileStream s = File.OpenRead(file);
+        return s.Read(head) == 5 && head.SequenceEqual("%PDF-"u8);
     }
 
     private static bool IsImage(string file) =>

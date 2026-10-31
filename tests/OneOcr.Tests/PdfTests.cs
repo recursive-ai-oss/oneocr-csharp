@@ -44,6 +44,17 @@ public class PdfTests
     }
 
     [Fact]
+    public void A_pdf_with_no_page_tree_is_a_diagnostic_when_lenient_and_a_format_error_when_strict()
+    {
+        byte[] pdf = Encoding.Latin1.GetBytes("%PDF-1.7\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n");
+        IReadOnlyList<OcrPage> pages = PdfOcr.Read(pdf, RandomEngine(), NoRender);
+        OcrPage only = Assert.Single(pages);
+        Assert.Contains(only.Diagnostics, d => d.Message.Contains("no readable pages", StringComparison.Ordinal));
+        Assert.Empty(only.Words);
+        Assert.Throws<OcrFormatException>(() => PdfOcr.Read(pdf, RandomEngine(), new PdfOcrOptions { ReadImages = false, CrossCheckLines = 0, Strict = true }));
+    }
+
+    [Fact]
     public void ExtensionMethodsMatchTheStaticEntryPoint()
     {
         (byte[] pdf, _, _) = PdfFixtures.Sample();

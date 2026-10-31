@@ -7,7 +7,7 @@ oneocr ocr --in page.png                      # text to stdout
 oneocr ocr --in scans/ --out text/ --json     # one .txt and one .page.json (the page model) per image
 ```
 
-`ocr` reads PNG and JPEG with the bundled models and never touches the network. `--degree N` caps the threads (default min(4, cores)); the text does not depend on it.
+`ocr` reads PNG and JPEG with the bundled models and never touches the network. A file that cannot be read (damaged, not an image, a PDF) is reported as `oneocr: <name>: <message>` on stderr, the other files are still read, and the exit code is 3; the tool does not read PDFs, so render them first or use `RecursiveAI.OneOcr.Pdf` from code. `oneocr --version` prints the version. `--degree N` caps the threads (default min(4, cores)); the text does not depend on it.
 
 ### Starting fast: publish it NativeAOT
 

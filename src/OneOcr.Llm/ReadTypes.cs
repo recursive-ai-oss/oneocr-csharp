@@ -277,3 +277,23 @@ public sealed class LlmReadResult
         return sb.ToString();
     }
 }
+
+/// <summary>The grounded values of a read in a caller's type, with the read itself.</summary>
+/// <typeparam name="T">The type described by the schema.</typeparam>
+public sealed class LlmReadResult<T>
+{
+    internal LlmReadResult(T? value, LlmReadResult read)
+    {
+        Value = value;
+        Read = read;
+    }
+
+    /// <summary>The values, deserialized with the caller's source-generated type information, with <see cref="UngroundedPolicy"/> applied (a nulled value is null here). Null only when the JSON is null.</summary>
+    public T? Value { get; }
+
+    /// <summary>Every non-null value with its grounding (the same list as <see cref="LlmReadResult.Fields"/>).</summary>
+    public IReadOnlyList<GroundedField> Fields => Read.Fields;
+
+    /// <summary>The whole read: JSON, usage, cost, number of calls and diagnostics.</summary>
+    public LlmReadResult Read { get; }
+}

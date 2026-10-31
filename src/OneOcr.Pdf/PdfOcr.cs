@@ -18,10 +18,10 @@ public static class PdfOcr
     /// <param name="engine">The recognizer; <see cref="OcrEngine.Default"/> when null.</param>
     /// <param name="options">Per-call options; null for the defaults.</param>
     /// <param name="cancellationToken">Cancels between pages and regions.</param>
-    /// <returns>One page per PDF page in the selected range (<see cref="PdfOcrOptions.FirstPage"/>, <see cref="PdfOcrOptions.PageCount"/>).</returns>
+    /// <returns>One page per PDF page in the selected range (<see cref="PdfOcrOptions.FirstPage"/>, <see cref="PdfOcrOptions.PageCount"/>). When the file opens but no pages can be found (a damaged page tree), a lenient read returns one empty 0 by 0 page whose diagnostics say so, never an empty list; <see cref="PdfOcrOptions.Strict"/> throws.</returns>
     /// <exception cref="ArgumentException">An option is out of range.</exception>
     /// <exception cref="OcrModelException">No engine was given and none is configured.</exception>
-    /// <exception cref="OcrFormatException">The bytes are not a PDF that OnePDF can open (or the password is wrong).</exception>
+    /// <exception cref="OcrFormatException">The bytes are not a PDF that OnePDF can open (or the password is wrong); with <see cref="PdfOcrOptions.Strict"/>, also a file whose page tree yields no pages.</exception>
     /// <exception cref="OcrLimitException">The file or the page count exceeds a limit; with <see cref="PdfOcrOptions.Strict"/>, so can a page.</exception>
     public static IReadOnlyList<OcrPage> Read(
         ReadOnlyMemory<byte> pdf, OcrEngine? engine = null, PdfOcrOptions? options = null, CancellationToken cancellationToken = default)
@@ -145,6 +145,18 @@ public static class PdfOcr
             // The page tree is read lazily, so a damaged file can fail here and not in Open.
             throw PdfErrors.Wrap(e);
         }
+        if (total == 0)
+        {
+            // A PDF always has a page; none found means the catalog or page tree is damaged. Never return an empty list silently.
+            const string Why = "The PDF has no readable pages: its page tree is missing or damaged.";
+            if (options.Strict)
+            {
+                throw new OcrFormatException(Why);
+            }
+
+            return [new OcrPage { Index = 0, Width = 0, Height = 0, UnitsPerInch = 72, Blocks = [], Diagnostics = [new OcrDiagnostic(OcrDiagnosticCodes.Pdf, OcrDiagnosticSeverity.Warning, Why)] }];
+        }
+
         int first = options.FirstPage;
         int count = first >= total ? 0 : (int)Math.Min((long)options.PageCount, (long)total - first);
         if (count > engine.Limits.MaxPagesPerCall)
