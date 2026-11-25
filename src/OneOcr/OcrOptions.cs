@@ -15,6 +15,16 @@ public sealed class OcrOptions
     /// </summary>
     public double? Dpi { get; init; }
 
+    /// <summary>
+    /// Resolution down the page in pixels per inch, for an image whose pixels are not square (a standard-mode fax is 200 by 100 dots per
+    /// inch). Null (the default) means the same as <see cref="Dpi"/>. When <see cref="Dpi"/> is null too, both come from the file's declared
+    /// resolution (PNG, JPEG and TIFF, as for <see cref="Dpi"/>). When the two differ by more than 5%, the page is stretched to square
+    /// pixels before it is read, along its sparser axis, and every box and quad is mapped back, so coordinates stay in the pixels of the
+    /// image you passed in; <see cref="OcrPage.VerticalUnitsPerInch"/> then differs from <see cref="OcrPage.UnitsPerInch"/>. A ratio beyond 4:1
+    /// is taken as a bad header and ignored, with a diagnostic. Must be positive and finite.
+    /// </summary>
+    public double? VerticalDpi { get; init; }
+
     /// <summary>Most threads to use; 0 (the default) means min(4, cores). The result does not depend on it.</summary>
     public int MaxDegreeOfParallelism { get; init; }
 
@@ -108,13 +118,13 @@ public sealed class OcrOptions
     /// <summary>Replaces the noise filter's thresholds; used to tune them. Null uses the defaults.</summary>
     internal global::OneOcr.Layout.JunkParameters? JunkTuning { get; init; }
 
-    /// <summary>These options with <see cref="Dpi"/> set to the resolution a file declares, unless the caller set one.</summary>
-    internal OcrOptions WithDeclaredDpi(double? declared) =>
+    /// <summary>These options with <see cref="Dpi"/> and <see cref="VerticalDpi"/> set to the resolution a file declares, unless the caller set one.</summary>
+    internal OcrOptions WithDeclaredDpi((double X, double Y)? declared) =>
         Dpi is not null || declared is null
             ? this
             : new OcrOptions
             {
-                Dpi = declared, MaxDegreeOfParallelism = MaxDegreeOfParallelism, IncludeChars = IncludeChars, PageIndex = PageIndex, DetectOrientation = DetectOrientation,
+                Dpi = declared.Value.X, VerticalDpi = VerticalDpi ?? (declared.Value.Y == declared.Value.X ? null : declared.Value.Y), MaxDegreeOfParallelism = MaxDegreeOfParallelism, IncludeChars = IncludeChars, PageIndex = PageIndex, DetectOrientation = DetectOrientation,
                 Deskew = Deskew, SearchAngle = SearchAngle, DropNoise = DropNoise, FixWordSpacing = FixWordSpacing, FixDigitLookalikes = FixDigitLookalikes,
                 FixSeparators = FixSeparators, FixStrayAccents = FixStrayAccents, MarkHeadersAndFooters = MarkHeadersAndFooters, JunkTuning = JunkTuning,
             };
@@ -124,6 +134,11 @@ public sealed class OcrOptions
         if (Dpi is double d && (!double.IsFinite(d) || d <= 0))
         {
             throw new ArgumentOutOfRangeException("options", d, "Dpi must be positive and finite.");
+        }
+
+        if (VerticalDpi is double v && (!double.IsFinite(v) || v <= 0))
+        {
+            throw new ArgumentOutOfRangeException("options", v, "VerticalDpi must be positive and finite.");
         }
 
         if (MaxDegreeOfParallelism < 0)

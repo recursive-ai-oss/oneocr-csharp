@@ -12,6 +12,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - **Paragraph splitting.** A block is split at an inter-paragraph gap, a first-line indent, or a short line before a full one; list items never start a split.
 - **Hanging-indent labels** (`(a)`, `1.`, clause numbers in a left column) are read together with their clause, not as a separate column.
 - **Word and line offsets into text**: `OcrLine.GetWordSpans()`, `OcrPage.GetWordSpans()` and `GetLineSpans()` return `OcrTextSpan` values for the text the page joins.
+- **Non-square pixels** (standard-mode fax, 200 by 100 dots per inch). The reader now takes the resolution down the page as well as across it (PNG `pHYs`, JFIF density, TIFF `XResolution` and `YResolution`, or the new `OcrOptions.VerticalDpi`). A page whose two resolutions differ by more than 5% is stretched to square pixels before it is read, a stretched 1-bit page is lightly smoothed, and every box and quad is mapped back, so coordinates stay in the pixels of the image you passed in. `OcrPage.VerticalUnitsPerInch` and the page JSON member `unitsPerInchY` (written only when it differs from `unitsPerInch`) carry the second resolution, and searchable PDFs use both, so a fax page has the shape of the paper. On generated standard-mode fax pages the share of amounts misread fell from 40–50% to 11–16%. New notes `OCR112` (stretched) and `OCR113` (declared resolutions not used). Pages with square pixels take no extra step.
 
 ### Changed
 
@@ -20,6 +21,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - **Amounts have one canonical form (behaviour change).** Money values always carry at least two decimals: `126` becomes `126.00` and `36.5` becomes `36.50` in extracted fields, in `GroundedField.NormalizedValue` and in local-versus-LLM comparisons. Quantities and percentages keep the shortest exact decimal (`2` stays `2`, `7.50` is `7.5`). Code that compared these strings to whole-number text should compare decimal values.
 - **Due date versus delivery date.** On an invoice that prints only a due date, the local model could tag it as the delivery date (`BT-72`). The label printed to the left of the value now decides between `BT-9` and `BT-72`.
 - **Columns of text next to a shorter column, or under a title.** A page of two or three columns of running text was read in slices when a title stood over the first column only, or when the first column went on below the end of the second (the short column landed in the middle of the long one). Columns of paragraphs are now read column by column, and a one- or two-line title over them is read first, on upright and tilted pages alike. Cards, grids and screens keep their reading.
+- `oneocr ocr` reads files from their path, so the resolution a file declares reaches the page (it used to read the pixels only, and estimate the resolution from the text size).
 - Indented `oneocr.page` JSON keeps bounds, quads and number lists on one line. The compact form is unchanged byte for byte.
 - `RecursiveAI.OneOcr.Pdf` builds on `RecursiveAI.OnePdf` 1.25.0 (was 1.10.1).
 

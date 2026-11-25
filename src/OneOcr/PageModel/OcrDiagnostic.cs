@@ -91,6 +91,12 @@ public static class OcrDiagnosticCodes
     /// <summary>The image has several frames and only some were read, or a frame was ignored.</summary>
     public const string FramesIgnored = "OCR111";
 
+    /// <summary>The image declares different resolutions across and down the page, so it was stretched to square pixels before reading.</summary>
+    public const string PixelsStretched = "OCR112";
+
+    /// <summary>The image declares different resolutions across and down the page but was read as it is (the ratio is implausible or the stretched page would exceed the pixel limit).</summary>
+    public const string PixelsNotStretched = "OCR113";
+
     /// <summary>The extraction model reads the page as another document type than the one asked for.</summary>
     public const string DocumentTypeDiffers = "OCR201";
 

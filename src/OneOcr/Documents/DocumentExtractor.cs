@@ -177,7 +177,7 @@ public sealed partial class DocumentExtractor
         IReadOnlyList<OcrKeyValue> found = FindKeyValues(page, options, cancellationToken);
         return new OcrPage(
             page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, [.. page.KeyValues, .. found],
-            page.Diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees);
+            page.Diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees, page.VerticalUnitsPerInch);
     }
 
     /// <summary>Asynchronous <see cref="ExtractInvoice"/>: runs the same local work on the thread pool.</summary>

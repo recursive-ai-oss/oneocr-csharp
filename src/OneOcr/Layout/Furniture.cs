@@ -330,6 +330,6 @@ internal static class Furniture
         }
 
         return new OcrPage(
-            page.Index, page.Width, page.Height, page.UnitsPerInch, blocks, page.Regions, page.Tables, page.KeyValues, page.Diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees);
+            page.Index, page.Width, page.Height, page.UnitsPerInch, blocks, page.Regions, page.Tables, page.KeyValues, page.Diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees, page.VerticalUnitsPerInch);
     }
 }

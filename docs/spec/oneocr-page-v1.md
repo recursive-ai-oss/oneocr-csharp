@@ -31,7 +31,9 @@ Three things differ on purpose, and a converter must handle them:
 Page units: pixels for images, points for PDF pages. `unitsPerInch` says how many units make an inch (the image's DPI, or an
 estimate, with a diagnostic, when the caller gave none; 72 for PDFs). When a path, stream or bytes are given to `OcrPages`, the file's own
 resolution is used: PNG `pHYs` (unit metre), JPEG JFIF density (units 1 = per inch, 2 = per centimetre) or the first TIFF directory's
-`XResolution` with `ResolutionUnit`; only the first 4 MiB are looked at and a value outside 10..10000 is ignored. `toPdf`, present only for pages that came from a PDF, is
+`XResolution` with `ResolutionUnit`; only the first 4 MiB are looked at and a value outside 10..10000 is ignored. The same headers
+also give the resolution down the page (PNG `pHYs` second value, JFIF second density, TIFF `YResolution`; a TIFF without one is square), which
+becomes `unitsPerInchY` when it differs (see "Non-square pixels"). `toPdf`, present only for pages that came from a PDF, is
 the matrix `[a, b, c, d, e, f]` taking a point `(x, y)` of this page to PDF user space: `x' = a x + c y + e`,
 `y' = b x + d y + f`.
 
@@ -47,6 +49,7 @@ the matrix `[a, b, c, d, e, f]` taking a point `(x, y)` of this page to PDF user
 Page = {
   "index": <int>, "width": <number>, "height": <number>,
   "unitsPerInch": <number>,
+  "unitsPerInchY": <number>,          optional, written only when it differs from unitsPerInch
   "toPdf": [a, b, c, d, e, f],        optional
   "orientation": 90 | 180 | 270,      optional, written only when not 0
   "skew": <number>,                   optional, written only when not 0
@@ -602,6 +605,38 @@ page gets one diagnostic with the number of words changed. The decomposition com
 0.97, `AccentMargin` = 12, `AccentPageShare` = 0.12. They were fixed in advance and kept after trying margin 8, a bound of
 0.99 and no page gate on three held-out degraded scan sets, where the choice moved the word error by under 0.02 points. The
 page gate never fires on the degraded sets used, so its value is a precaution for accented languages and was not tuned.
+
+## Non-square pixels
+
+A capture can declare different resolutions across and down the page: a standard-mode fax is 200 by 100 dots per inch, so every pixel is twice
+as tall as it is wide. The detector and the recognizer were trained on square pixels, and a page read as it is arrives squashed to half its
+height: on standard-mode fax pages about half of the amounts were misread, against about 1% on fine-mode (200 by 200) pages of the same documents.
+
+The resolutions come from the file (`OcrPages` with a path, stream or bytes) or from `OcrOptions.Dpi` and `OcrOptions.VerticalDpi`. Let
+`k = dpi / verticalDpi` (`VerticalDpi` null means the same as `Dpi`; without `Dpi` nothing is known and nothing is done):
+
+1. `|k - 1| <= 0.05`: read as it is (scanners declare 300 by 298). `k` beyond 4 or below 1/4 is a bad header: read as it is, with note
+   `OCR113`. A stretched page above `MaxImagePixels` is also read as it is, with `OCR113`.
+2. `k > 1`: the page is resampled to `width` by `round(height * k)` pixels (ties to even); `k < 1`: to `round(width / k)` by `height`. The
+   filter is OneImage's `Auto` (Catmull-Rom on the axis that grows), in gamma space like the detector's own resize. Note `OCR112` says so.
+3. A stretched page whose pixels are at least 99% pure (below 8 or above 247) in the *source* is a 1-bit capture. The cubic overshoots at
+   its hard edges, so the stretched page is smoothed: two passes of the binomial filter `[1 2 1] / 4`, each pass across the rows and then
+   down the columns, in integers, each division rounding half up (`(a + 2b + c + 2) >> 2`), the outermost pixels repeating. No other page is
+   smoothed, and 1-bit pages with square pixels are not touched.
+4. The stretched page is read like any page (turn, deskew, detector, recognizer, angle search). Every box and quad is then scaled back by
+   `width / stretchedWidth` and `height / stretchedHeight`, so coordinates are in the pixels of the image given. `skew` is mapped by
+   `atan(tan(skew) * fy / fx)`, computed with fixed-order series (`tan`, and `atan` through `2 atan(t / (1 + sqrt(1 + t^2)))`), not the
+   platform's math library.
+5. `width` and `height` stay those of the image; `unitsPerInch` is the horizontal resolution and `unitsPerInchY` the vertical one. The
+   searchable-PDF writer sizes the PDF page with both, so the page has the right shape on paper.
+
+A page with square pixels takes none of these steps and costs nothing.
+
+Measured on generated financial pages the reader had not been tuned on (80 fax, 80 scan and 80 table pages), money, date and account values
+not read exactly, standard-mode fax: 49.8% as read before, 15.5% after the stretch, 10.9% after the stretch with two smoothing passes (one
+pass 12.2%, three 10.6%). Fine-mode fax is not smoothed because it is not stretched: smoothing every 1-bit page raised its misses from 1.3% to
+1.5%. Resolution alone is not the cause of the low-DPI misses: stretching every page below 270 dpi to 300 dpi changed scans by under 0.1
+point (200-dpi scans stay at 9.5%), so there is no scale step.
 
 ## Indented JSON
 

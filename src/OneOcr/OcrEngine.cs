@@ -370,7 +370,7 @@ public sealed class OcrEngine
         {
             // Only the text is wanted, so words are built without their characters.
             return BuildPage(
-                image, 0, null, options.MaxDegreeOfParallelism, includeChars: false, options.DetectOrientation, options.Deskew, JunkFor(options), options.FixWordSpacing,
+                image, 0, options.Dpi, options.VerticalDpi, options.MaxDegreeOfParallelism, includeChars: false, options.DetectOrientation, options.Deskew, JunkFor(options), options.FixWordSpacing,
                 options.FixDigitLookalikes, options.FixSeparators, options.SearchAngle, cancellationToken).ToText();
         }
 
@@ -492,11 +492,11 @@ public sealed class OcrEngine
         ArgumentNullException.ThrowIfNull(path);
         options ??= _options;
         options.Validate();
-        double? declared = null;
+        (double, double)? declared = null;
         if (options.Dpi is null)
         {
             using FileStream file = File.OpenRead(path);
-            declared = ImageDensity.TryRead(ReadPrefix(file));
+            declared = ImageDensity.TryReadPair(ReadPrefix(file));
         }
 
         return OcrPages(ImageGuard.Run(() => Image.Load(path, ImageGuard.LoadOptionsFor(_limits), cancellationToken)), options.WithDeclaredDpi(declared), cancellationToken);
@@ -516,11 +516,11 @@ public sealed class OcrEngine
         ArgumentNullException.ThrowIfNull(stream);
         options ??= _options;
         options.Validate();
-        double? declared = null;
+        (double, double)? declared = null;
         if (options.Dpi is null && stream.CanSeek)
         {
             long start = stream.Position;
-            declared = ImageDensity.TryRead(ReadPrefix(stream));
+            declared = ImageDensity.TryReadPair(ReadPrefix(stream));
             stream.Position = start;
         }
 
@@ -539,7 +539,7 @@ public sealed class OcrEngine
     {
         options ??= _options;
         options.Validate();
-        double? declared = options.Dpi is null ? ImageDensity.TryRead(data.Span) : null;
+        (double, double)? declared = options.Dpi is null ? ImageDensity.TryReadPair(data.Span) : null;
         return OcrPages(ImageGuard.Run(() => Image.Load(data, ImageGuard.LoadOptionsFor(_limits), cancellationToken)), options.WithDeclaredDpi(declared), cancellationToken);
     }
 
@@ -612,7 +612,7 @@ public sealed class OcrEngine
     private OcrPage PageOf(Image image, int pageIndex, OcrOptions o, CancellationToken cancellationToken)
     {
         OcrPage page = BuildPage(
-            image, pageIndex, o.Dpi, o.MaxDegreeOfParallelism, o.IncludeChars, o.DetectOrientation, o.Deskew, JunkFor(o), o.FixWordSpacing, o.FixDigitLookalikes, o.FixSeparators,
+            image, pageIndex, o.Dpi, o.VerticalDpi, o.MaxDegreeOfParallelism, o.IncludeChars, o.DetectOrientation, o.Deskew, JunkFor(o), o.FixWordSpacing, o.FixDigitLookalikes, o.FixSeparators,
             o.SearchAngle, cancellationToken);
         return o.MarkHeadersAndFooters ? Furniture.MarkWithinPage(page) : page;
     }
@@ -629,11 +629,11 @@ public sealed class OcrEngine
         return options.FixStrayAccents ? tuning : tuning with { AccentConfidence = 0 };
     }
 
-    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
+    private OcrPage BuildPage(Image image, int pageIndex, double? dpi, double? verticalDpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
     {
         try
         {
-            return BuildPageCore(image, pageIndex, dpi, maxDegreeOfParallelism, includeChars, orient, deskew, junk, respace, digits, separators, searchAngle, cancellationToken);
+            return BuildPageCore(image, pageIndex, dpi, verticalDpi, maxDegreeOfParallelism, includeChars, orient, deskew, junk, respace, digits, separators, searchAngle, cancellationToken);
         }
         catch (OcrLimitException e) when (e.LimitName == nameof(OcrLimits.MaxLinesPerPage) && e.Limit != _limits.MaxLinesPerPage)
         {
@@ -642,7 +642,7 @@ public sealed class OcrEngine
         }
     }
 
-    private OcrPage BuildPageCore(Image image, int pageIndex, double? dpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
+    private OcrPage BuildPageCore(Image image, int pageIndex, double? dpi, double? verticalDpi, int maxDegreeOfParallelism, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
     {
         long pixels = (long)image.Width * image.Height;
         if (pixels > _limits.MaxImagePixels)
@@ -659,7 +659,32 @@ public sealed class OcrEngine
             long t = StageClock.Start();
             ImageGuard.Run(() => image.CopyPixelsTo<Gray8>(gray.AsSpan(0, pixelCount), new ImageRect(0, 0, width, height), useRegionCache: false, degree, cancellationToken));
             StageClock.Stop("1 decode+gray copy", t);
-            return ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, junk, respace, digits, separators, searchAngle, cancellationToken);
+            var stretchNotes = new List<OcrDiagnostic>();
+            if (!PageStretch.Plan(dpi, verticalDpi, width, height, _limits.MaxImagePixels, stretchNotes, out int stretchedWidth, out int stretchedHeight))
+            {
+                OcrPage plain = ReadPrepared(gray, width, height, pageIndex, dpi, degree, includeChars, orient, deskew, junk, respace, digits, separators, searchAngle, cancellationToken);
+                return stretchNotes.Count == 0 ? plain : WithNotes(plain, stretchNotes);
+            }
+
+            // Non-square pixels: read the page stretched to square ones, then map every box back to the pixels given.
+            Gray8[] square = _pixels.Rent((long)stretchedWidth * stretchedHeight);
+            try
+            {
+                long stretchClock = StageClock.Start();
+                PageStretch.Resize(gray.AsSpan(0, pixelCount), width, height, square.AsSpan(0, stretchedWidth * stretchedHeight), stretchedWidth, stretchedHeight, _resizers, cancellationToken);
+                if (PageStretch.IsBilevel(PixelSpans.AsBytes(gray.AsSpan(0, pixelCount))))
+                {
+                    PageStretch.Smooth(PixelSpans.AsWritableBytes(square.AsSpan(0, stretchedWidth * stretchedHeight)), stretchedWidth, stretchedHeight);
+                }
+
+                StageClock.Stop("2 stretch", stretchClock);
+                OcrPage read = ReadPrepared(square, stretchedWidth, stretchedHeight, pageIndex, dpi, degree, includeChars, orient, deskew, junk, respace, digits, separators, searchAngle, cancellationToken);
+                return PageStretch.MapBack(read, width, height, stretchedWidth, stretchedHeight, dpi!.Value, verticalDpi ?? dpi.Value, stretchNotes);
+            }
+            finally
+            {
+                _pixels.Return(square);
+            }
         }
         finally
         {
@@ -667,6 +692,10 @@ public sealed class OcrEngine
             GarbageBound.AfterPage();
         }
     }
+
+    // The page with notes added to its diagnostics.
+    private static OcrPage WithNotes(OcrPage page, IReadOnlyList<OcrDiagnostic> notes) =>
+        new(page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, page.KeyValues, [.. page.Diagnostics, .. notes], page.ToPdf, page.Orientation, page.SkewDegrees, page.VerticalUnitsPerInch);
 
     // The orientation decision in use: the detector's head when a detector is loaded, the classical one otherwise.
     private IOrientationDetector Seam => _detector is null ? _orientation : new HeadOrientation(_detector, _pixels, _resizers, _confirmTurns ? _orientation : null);
@@ -743,7 +772,7 @@ public sealed class OcrEngine
         {
             var diagnostics = new List<OcrDiagnostic>(page.Diagnostics) { PageAngleSearch.Note(a) };
             return new OcrPage(
-                page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, page.KeyValues, diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees);
+                page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, page.KeyValues, diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees, page.VerticalUnitsPerInch);
         }
 
         return page;

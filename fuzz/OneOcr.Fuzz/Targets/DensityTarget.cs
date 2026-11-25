@@ -13,23 +13,23 @@ internal static class DensityTarget
 
     public static void Run(ReadOnlySpan<byte> data)
     {
-        double? dpi = ImageDensity.TryRead(data);
-        if (dpi is double d)
+        (double X, double Y)? dpi = ImageDensity.TryReadPair(data);
+        if (dpi is (double x, double y))
         {
             Declared++;
-            if (!double.IsFinite(d) || d < 10 || d > 10_000)
+            if (!double.IsFinite(x) || x < 10 || x > 10_000 || !double.IsFinite(y) || y < 10 || y > 10_000)
             {
                 throw new InvalidOperationException("declared resolution outside the accepted range");
             }
         }
 
-        if (dpi != ImageDensity.TryRead(data))
+        if (dpi != ImageDensity.TryReadPair(data) || ImageDensity.TryRead(data) != dpi?.X)
         {
             throw new InvalidOperationException("the same bytes gave two answers");
         }
 
         // A truncated file must be handled as well as a whole one.
-        _ = ImageDensity.TryRead(data[..(data.Length / 2)]);
+        _ = ImageDensity.TryReadPair(data[..(data.Length / 2)]);
     }
 
     /// <summary>Writes small header-only files that declare a resolution in each supported format, and a few that declare none.</summary>
@@ -42,6 +42,9 @@ internal static class DensityTarget
         File.WriteAllBytes(Path.Combine(dir, "jpeg-jfif-aspect.seed"), Jpeg(0, 1, 1));
         File.WriteAllBytes(Path.Combine(dir, "tiff-le-300.seed"), Tiff(true, 2, 300));
         File.WriteAllBytes(Path.Combine(dir, "tiff-be-cm.seed"), Tiff(false, 3, 118));
+        File.WriteAllBytes(Path.Combine(dir, "png-fax-std.seed"), Png(7874, 3937));
+        File.WriteAllBytes(Path.Combine(dir, "jpeg-jfif-fax-std.seed"), Jpeg(1, 200, 100));
+        File.WriteAllBytes(Path.Combine(dir, "tiff-le-fax-std.seed"), Tiff(true, 2, 200, 100));
         File.WriteAllBytes(Path.Combine(dir, "truncated.seed"), Png(11811, 11811)[..30]);
     }
 
@@ -80,7 +83,7 @@ internal static class DensityTarget
         return [0xFF, 0xD8, .. app0, 0xFF, 0xD9];
     }
 
-    private static byte[] Tiff(bool little, ushort unit, uint dpi)
+    private static byte[] Tiff(bool little, ushort unit, uint dpi, uint? dpiY = null)
     {
         var ms = new MemoryStream();
         void U16(int v) { Span<byte> b = stackalloc byte[2]; if (little) { BinaryPrimitives.WriteUInt16LittleEndian(b, (ushort)v); } else { BinaryPrimitives.WriteUInt16BigEndian(b, (ushort)v); } ms.Write(b); }
@@ -88,11 +91,22 @@ internal static class DensityTarget
         ms.Write(little ? "II"u8 : "MM"u8);
         U16(42);
         U32(8);
-        U16(2); // entries: XResolution (282, rational) and ResolutionUnit (296)
-        U16(282); U16(5); U32(1); U32(8 + 2 + 24 + 4);
+        U16(dpiY is null ? 2 : 3); // entries: XResolution (282, rational), YResolution (283) when given, and ResolutionUnit (296)
+        uint data = 8 + 2 + (uint)(dpiY is null ? 24 : 36) + 4;
+        U16(282); U16(5); U32(1); U32(data);
+        if (dpiY is not null)
+        {
+            U16(283); U16(5); U32(1); U32(data + 8);
+        }
+
         U16(296); U16(3); U32(1); U16(unit); U16(0);
         U32(0);
         U32(dpi); U32(1);
+        if (dpiY is uint yy)
+        {
+            U32(yy); U32(1);
+        }
+
         return ms.ToArray();
     }
 }

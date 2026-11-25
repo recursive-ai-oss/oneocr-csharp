@@ -75,20 +75,10 @@ internal static class OcrCommand
                     throw new UsageException("PDF files are not read by this command. Use 'oneocr pdf' to make a searchable PDF, or render the pages to PNG or JPEG.");
                 }
 
-                Image image = Image.Load(path);
-                string text;
-                string? pageJson = null;
-                if (json)
-                {
-                    OcrPage page = engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree });
-                    text = page.ToText();
-                    pageJson = OcrPageJson.ToJson([page]);
-                }
-                else
-                {
-                    text = engine.ToText(image, new OcrOptions { MaxDegreeOfParallelism = degree });
-                }
-
+                // Reading from the path lets the engine use the resolution the file declares (a standard-mode fax is 200 by 100 dots per inch).
+                IReadOnlyList<OcrPage> read = engine.OcrPages(path, new OcrOptions { MaxDegreeOfParallelism = degree, IncludeChars = json });
+                string text = string.Join("\n\n", read.Select(static p => p.ToText()));
+                string? pageJson = json ? OcrPageJson.ToJson(read) : null;
                 times.Add((id, clock.Elapsed.TotalMilliseconds));
                 if (outDir is null)
                 {

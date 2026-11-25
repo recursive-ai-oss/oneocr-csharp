@@ -31,9 +31,11 @@ PDF user space (below).
 ### User space
 
 `OcrPage.ToPdf` (`x' = A x + C y + E`, `y' = B x + D y + F`) maps page units to user space for a page that came from a PDF. For a page made from
-an image there is none, and the map is `(s, 0, 0, −s, 0, H·s)` with `s = 72 / UnitsPerInch` and `H = OcrPage.Height`: one unit is 1/`UnitsPerInch`
-inch, the page is `Width·s` by `Height·s` points, `y` is flipped. `UnitsPerInch` is the image's declared resolution, the resolution given in
-`OcrOptions.Dpi`, or the estimate the page model carries (a diagnostic says it was estimated).
+an image there is none, and the map is `(s, 0, 0, −t, 0, H·t)` with `s = 72 / UnitsPerInch`, `t = 72 / VerticalUnitsPerInch` and `H = OcrPage.Height`:
+one unit is 1/`UnitsPerInch` inch across and 1/`VerticalUnitsPerInch` inch down, the page is `Width·s` by `Height·t` points, `y` is flipped. The two
+are equal except for a capture with non-square pixels (a standard-mode fax, 200 by 100 dots per inch), whose page is then the right shape.
+`UnitsPerInch` is the image's declared resolution, the resolution given in `OcrOptions.Dpi`, or the estimate the page model carries (a diagnostic
+says it was estimated).
 
 ### Text matrix
 
@@ -212,7 +214,7 @@ The converter and the save are OnePDF's; OnePDF is not a validator and neither i
 The same input bytes, the same options and the same engine give the same output bytes: at every degree of parallelism and on every kernel path (page models
 are bit-identical, see `numerics.md`), with no clock and no random values in the file. Numbers in content streams are rounded to four decimals by the builder.
 For a PDF made from images the file identifier is the first 16 bytes of the SHA-256 over, for each page, the image bytes that were embedded (the original file, or the PNG written for
-decoded pixels) and `|<width>x<height>@<unitsPerInch>|` and the page text; `SearchablePdfOptions.DocumentId` overrides it. A PDF given to `MakeSearchable` keeps its identifier.
+decoded pixels) and `|<width>x<height>@<unitsPerInch>|` (`@<unitsPerInch>:<unitsPerInchY>` when the two differ) and the page text; `SearchablePdfOptions.DocumentId` overrides it. A PDF given to `MakeSearchable` keeps its identifier.
 
 ## Limits
 

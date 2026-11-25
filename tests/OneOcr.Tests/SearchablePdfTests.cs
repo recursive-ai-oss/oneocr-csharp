@@ -184,7 +184,7 @@ public class SearchablePdfTests
         throw new InvalidOperationException("no image on the page");
     }
 
-    internal static byte[] Tiff1(IReadOnlyList<(byte[] Gray, int W, int H)> frames, int dpi)
+    internal static byte[] Tiff1(IReadOnlyList<(byte[] Gray, int W, int H)> frames, int dpi, int? dpiY = null)
     {
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms);
@@ -213,6 +213,9 @@ public class SearchablePdfTests
             long rationalAt = ms.Position;
             w.Write((uint)dpi);
             w.Write(1u);
+            long rationalYAt = ms.Position;
+            w.Write((uint)(dpiY ?? dpi));
+            w.Write(1u);
             long ifdAt = ms.Position;
             long back = ms.Position;
             ms.Position = patch;
@@ -221,7 +224,7 @@ public class SearchablePdfTests
             (ushort, ushort, uint, uint)[] entries =
             [
                 (256, 4, 1, (uint)width), (257, 4, 1, (uint)height), (258, 3, 1, 1), (259, 3, 1, 1), (262, 3, 1, 1), (273, 4, 1, (uint)dataAt),
-                (277, 3, 1, 1), (278, 4, 1, (uint)height), (279, 4, 1, (uint)packed.Length), (282, 5, 1, (uint)rationalAt), (283, 5, 1, (uint)rationalAt), (296, 3, 1, 2),
+                (277, 3, 1, 1), (278, 4, 1, (uint)height), (279, 4, 1, (uint)packed.Length), (282, 5, 1, (uint)rationalAt), (283, 5, 1, (uint)rationalYAt), (296, 3, 1, 2),
             ];
             w.Write((ushort)entries.Length);
             foreach ((ushort tag, ushort type, uint count, uint value) in entries)
@@ -237,6 +240,33 @@ public class SearchablePdfTests
         }
 
         return ms.ToArray();
+    }
+
+    [Fact]
+    public void AStandardModeFaxPageIsTheShapeOfThePaper()
+    {
+        OcrEngine engine = Need();
+        // A letter page sampled every second row, as a standard-mode fax does: 2550 x 1650 pixels at 300 x 150 dots per inch.
+        (byte[] gray, int w, int h) = PdfFixtures.RenderLines(PdfFixtures.BodyA, 612, 792, 72, 12, 22, 92);
+        byte[] half = new byte[w * (h / 2)];
+        for (int y = 0; y < h / 2; y++)
+        {
+            Array.Copy(gray, 2 * y * w, half, y * w, w);
+        }
+
+        byte[] tiff = Tiff1([(half.Select(static b => b >= 128 ? (byte)255 : (byte)0).ToArray(), w, h / 2)], 300, 150);
+        using var ms = new MemoryStream();
+        SearchablePdfResult r = SearchablePdf.FromData([tiff], ms, engine);
+        OcrPage page = r.Pages[0];
+        Assert.Equal(300, page.UnitsPerInch);
+        Assert.Equal(150, page.VerticalUnitsPerInch);
+        Assert.Equal(h / 2, page.Height);
+        using var doc = PdfDocument.Open(ms.ToArray());
+        PdfPageSize size = doc.Pages[0].GetDisplaySize();
+        Assert.Equal(612, size.Width, 0.5);
+        Assert.Equal(792, size.Height, 0.5);
+        Assert.Equal(Words(page.ToText()), Words(PageText(ms.ToArray(), 0)));
+        Assert.True(SearchablePdfWriterTests.MaxEdgeErrorOn(page, ms.ToArray(), 0) <= 1.0);
     }
 
     [Fact]
