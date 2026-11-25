@@ -170,7 +170,14 @@ internal static class DetectorPostprocess
             FindFaint(faintLines, found, lines, prob, probWidth, probHeight, textThreshold, faint, o.TextExpand, gray, grayWidth, grayHeight, limits.LineCandidateCap - found.Count);
         }
 
-        var outLines = new List<DetectedLine>(lines.Count + faintLines.Count);
+        // Weak isolated marks in text rows (lone digits of a table) come after the faint lines and, like them, take no part in the regions' snapping.
+        List<(double X0, double Y0, double X1, double Y1, float Score, CellAxis? Axis)> loneLines = [];
+        if (LoneThreshold > 0 && found.Count >= LoneMinLines)
+        {
+            FindLone(loneLines, found, lines, faintLines, prob, probWidth, probHeight, textThreshold, o.TextExpand, Math.Min(LoneMaxCandidates, limits.MaxLinesPerPage - found.Count - faintLines.Count));
+        }
+
+        var outLines = new List<DetectedLine>(lines.Count + faintLines.Count + loneLines.Count);
         foreach (var l in lines)
         {
             if (Clip(l.X0 / scale, l.Y0 / scale, l.X1 / scale, l.Y1 / scale, pageWidth, pageHeight) is { } b)
@@ -184,6 +191,14 @@ internal static class DetectorPostprocess
             if (Clip(l.X0 / scale, l.Y0 / scale, l.X1 / scale, l.Y1 / scale, pageWidth, pageHeight) is { } b)
             {
                 outLines.Add(new DetectedLine(b.L, b.T, b.R, b.B, l.Score, l.Axis is { } ax ? ToPage(ax, scale) : null, (float)o.Faint!.Value.MinConfidence));
+            }
+        }
+
+        foreach (var l in loneLines)
+        {
+            if (Clip(l.X0 / scale, l.Y0 / scale, l.X1 / scale, l.Y1 / scale, pageWidth, pageHeight) is { } b)
+            {
+                outLines.Add(new DetectedLine(b.L, b.T, b.R, b.B, l.Score, null, (float)LoneMinConfidence, LoneDigits: true));
             }
         }
 
@@ -276,6 +291,126 @@ internal static class DetectorPostprocess
                 }
 
                 into.Add((box.X0, box.Y0, box.X1, box.Y1, c.Score, c.Axis is { } a ? GrowAxis(a, k * expand) : null));
+            }
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<float>.Shared.Return(masked);
+        }
+    }
+
+    /// <summary>The text probability a cell needs, far below the page's text threshold, to belong to a weak isolated mark (see <see cref="FindLone"/>). 0 turns the recovery off.</summary>
+    internal static double LoneThreshold = 0.10;
+
+    /// <summary>Fewest ordinary lines a page needs before weak marks are looked for: there is no row of text to align with otherwise.</summary>
+    internal static int LoneMinLines = 3;
+
+    /// <summary>Fewest cells of a weak mark.</summary>
+    internal static int LoneMinCells = 2;
+
+    /// <summary>A weak mark is as tall as this fraction of the page's median line height at least ...</summary>
+    internal static double LoneHeightMin = 0.6;
+
+    /// <summary>... and as this multiple of it at most.</summary>
+    internal static double LoneHeightMax = 1.6;
+
+    /// <summary>A weak mark is at most this many times as wide as tall (a number of up to three or four digits).</summary>
+    internal static double LoneMaxAspect = 3;
+
+    /// <summary>A weak mark shares this fraction of its height with an ordinary line's rows.</summary>
+    internal static double LoneRowShare = 0.6;
+
+    /// <summary>Most weak components looked at on a page (the rest are not examined, never an error), and most marks kept.</summary>
+    internal const int LoneMaxRaw = 16384;
+
+    /// <summary>Most weak marks kept on a page.</summary>
+    internal static int LoneMaxCandidates = 600;
+
+    /// <summary>The calibrated confidence a word read from a weak mark needs to be kept.</summary>
+    internal static double LoneMinConfidence = 0.9;
+
+    // Isolated marks the text map holds only weakly, in the rows of ordinary text: a lone digit (a quantity, a line number, a one-digit
+    // cell) is too small and too unlike running text for the map to cross the page's threshold, yet it forms a compact component of
+    // its own at a much lower one. Cells of ordinary components and their neighbours are masked first, so a line's own halo is never a
+    // candidate. A candidate is kept when it is as tall as the page's text, no wider than a few digits, and shares its rows with an
+    // ordinary line; the page reader then keeps only what it reads as digits with high confidence.
+    private static void FindLone(
+        List<(double X0, double Y0, double X1, double Y1, float Score, CellAxis? Axis)> into, List<Component> main,
+        List<(double X0, double Y0, double X1, double Y1, float Score, CellAxis? Axis)> mainLines,
+        List<(double X0, double Y0, double X1, double Y1, float Score, CellAxis? Axis)> faintLines, float[] prob, int width, int height, float mainThreshold, double expand, int room)
+    {
+        int cells = width * height;
+        if (room <= 0 || cells == 0)
+        {
+            return;
+        }
+
+        var heights = new List<int>(main.Count);
+        foreach (Component m in main)
+        {
+            heights.Add(m.Y1 - m.Y0 + 1);
+        }
+
+        heights.Sort();
+        double reference = heights[heights.Count / 2];
+        // ln(0.1 / 0.9) as an exact constant for the default, so no platform math library reaches the output; other values are for tuning only.
+        float lowThreshold = LoneThreshold == 0.10 ? -2.1972246f : (float)Math.Log(LoneThreshold / (1 - LoneThreshold));
+        float[] masked = System.Buffers.ArrayPool<float>.Shared.Rent(cells);
+        try
+        {
+            Array.Copy(prob, masked, cells);
+            foreach (Component c in main)
+            {
+                for (int y = Math.Max(0, c.Y0 - 1); y <= Math.Min(height - 1, c.Y1 + 1); y++)
+                {
+                    for (int x = Math.Max(0, c.X0 - 1); x <= Math.Min(width - 1, c.X1 + 1); x++)
+                    {
+                        if (prob[(y * width) + x] > mainThreshold || NearOn(prob, width, height, x, y, mainThreshold))
+                        {
+                            masked[(y * width) + x] = float.NegativeInfinity;
+                        }
+                    }
+                }
+            }
+
+            const double k = TextShrink / (1 - (2 * TextShrink));
+            foreach (Component c in Label(masked, width, height, 1, 0, lowThreshold, Math.Max(MinTextCells, LoneMinCells), LoneMaxRaw, nameof(OcrLimits.MaxLinesPerPage), stopAtMax: true))
+            {
+                int w = c.X1 - c.X0 + 1, h = c.Y1 - c.Y0 + 1;
+                if (into.Count >= room)
+                {
+                    break;
+                }
+
+                if (h < LoneHeightMin * reference || h > LoneHeightMax * reference || w > LoneMaxAspect * h || OverlapsMain(main, c))
+                {
+                    continue;
+                }
+
+                bool sharesRow = false;
+                foreach (Component m in main)
+                {
+                    if (Math.Min(c.Y1, m.Y1) - Math.Max(c.Y0, m.Y0) + 1 >= LoneRowShare * h)
+                    {
+                        sharesRow = true;
+                        break;
+                    }
+                }
+
+                if (!sharesRow)
+                {
+                    continue;
+                }
+
+                double x0 = c.X0 * TextStride, y0 = c.Y0 * TextStride, x1 = (c.X1 + 1) * TextStride, y1 = (c.Y1 + 1) * TextStride;
+                double d = k * Math.Min(x1 - x0, y1 - y0) * expand;
+                (double X0, double Y0, double X1, double Y1) box = (x0 - d, y0 - d, x1 + d, y1 + d);
+                if (OverlapsLine(mainLines, box) || OverlapsLine(faintLines, box))
+                {
+                    continue;
+                }
+
+                into.Add((box.X0, box.Y0, box.X1, box.Y1, c.Score, null));
             }
         }
         finally
@@ -522,7 +657,7 @@ internal static class DetectorPostprocess
     // Iterative (an explicit stack), so no input makes the depth grow. Components with fewer than minCells cells are dropped; more than
     // maxCount kept components is a limit error, raised as soon as the count passes it.
     private static List<Component> Label(
-        float[] logits, int width, int height, int stride, int channel, float threshold, int minCells, int maxCount, string limitName, bool withAxis = false)
+        float[] logits, int width, int height, int stride, int channel, float threshold, int minCells, int maxCount, string limitName, bool withAxis = false, bool stopAtMax = false)
     {
         var result = new List<Component>();
         if (width < 1 || height < 1)
@@ -543,7 +678,7 @@ internal static class DetectorPostprocess
         try
         {
             Array.Clear(seen, 0, cells);
-            LabelInto(result, seen, stack, order, logits, width, height, stride, channel, threshold, minCells, maxCount, limitName);
+            LabelInto(result, seen, stack, order, logits, width, height, stride, channel, threshold, minCells, maxCount, limitName, stopAtMax);
         }
         finally
         {
@@ -561,7 +696,7 @@ internal static class DetectorPostprocess
 
     private static void LabelInto(
         List<Component> result, bool[] seen, int[] stack, int[]? order, float[] logits, int width, int height, int stride, int channel, float threshold,
-        int minCells, int maxCount, string limitName)
+        int minCells, int maxCount, string limitName, bool stopAtMax)
     {
         int cells = width * height;
         int ordered = 0;
@@ -623,6 +758,11 @@ internal static class DetectorPostprocess
             {
                 if (result.Count >= maxCount)
                 {
+                    if (stopAtMax)
+                    {
+                        return;
+                    }
+
                     throw new OcrLimitException(limitName, maxCount, (long)result.Count + 1);
                 }
 
