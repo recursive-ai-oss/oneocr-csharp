@@ -236,3 +236,16 @@ changes only where a recovered line survives.
 The script `training/export/add_faint_rule.py` writes the five members into a container's manifest and leaves the tensors untouched.
 Constants were chosen on held-out tune pages only (screenshots of real pages, synthetic screens, scans, layouts, phone pages and receipts): on every
 tune set except the real-screenshot one the output is byte-identical to the container without the members.
+
+## Lone digits (post-processing, any detector version)
+
+A quantity, a line number or a one-digit table cell is a small isolated mark. The text map stays under the page's text threshold on most of them, so the ordinary labelling never reports them. After the ordinary lines (and the faint lines) have been found, and only when the page has at least 3 ordinary lines, the text map is labelled again at probability 0.10 on a copy in which every cell of an ordinary component, and every cell next to one, is masked. A component of that labelling becomes a **lone-digit line** when all of these hold (cells are text-map cells; H is the median height of the ordinary components):
+
+- at least 2 cells;
+- its height is between 0.6 H and 1.6 H, and its width is at most 3 times its height;
+- it does not overlap an ordinary component (the faint-text overlap test: more than a third of the smaller box);
+- it shares at least 0.6 of its height with the rows of some ordinary component;
+- its grown box (the ordinary growth rule) does not overlap an ordinary or faint line by more than a quarter of the smaller box.
+
+At most 600 such lines are kept per page, and at most `MaxLinesPerPage` lines in all; examining more components is never an error. Lone-digit lines come after every other line, take no part in the snapping of regions, and carry a minimum confidence of 0.9. The page reader reads them like any line and keeps only words made of one to four digits `0`-`9` with calibrated confidence of at least 0.9; every other word read from them is dropped before the noise filter. A page with fewer than 3 ordinary lines, or whose model sets the labelling threshold to 0, behaves as before. The constants are fixed; they are not part of the model manifest.
+

@@ -481,6 +481,28 @@ internal static class Program
         string pages = Need(o, "pages"), outDir = Need(o, "out");
         int degree = Int(o, "degree", 0), repeat = Math.Max(1, Int(o, "repeat", 1));
         Directory.CreateDirectory(outDir);
+        if (o.TryGetValue("lone", out string? lone))
+        {
+            // --lone off | THRESHOLD[:HMIN:HMAX:ASPECT:ROW:CONFIDENCE:MAXDIGITS:CELLS]: the weak isolated mark recovery (see DetectorPostprocess.FindLone).
+            if (lone == "off")
+            {
+                OneOcr.Detection.DetectorPostprocess.LoneThreshold = 0;
+            }
+            else
+            {
+                string[] f = lone.Split(':');
+                double F(int i, double d) => i < f.Length && f[i].Length > 0 ? double.Parse(f[i], CultureInfo.InvariantCulture) : d;
+                OneOcr.Detection.DetectorPostprocess.LoneThreshold = F(0, OneOcr.Detection.DetectorPostprocess.LoneThreshold);
+                OneOcr.Detection.DetectorPostprocess.LoneHeightMin = F(1, OneOcr.Detection.DetectorPostprocess.LoneHeightMin);
+                OneOcr.Detection.DetectorPostprocess.LoneHeightMax = F(2, OneOcr.Detection.DetectorPostprocess.LoneHeightMax);
+                OneOcr.Detection.DetectorPostprocess.LoneMaxAspect = F(3, OneOcr.Detection.DetectorPostprocess.LoneMaxAspect);
+                OneOcr.Detection.DetectorPostprocess.LoneRowShare = F(4, OneOcr.Detection.DetectorPostprocess.LoneRowShare);
+                OneOcr.Detection.DetectorPostprocess.LoneMinConfidence = F(5, OneOcr.Detection.DetectorPostprocess.LoneMinConfidence);
+                OneOcr.Layout.PageReader.LoneMaxDigits = (int)F(6, OneOcr.Layout.PageReader.LoneMaxDigits);
+                OneOcr.Detection.DetectorPostprocess.LoneMinCells = (int)F(7, OneOcr.Detection.DetectorPostprocess.LoneMinCells);
+            }
+        }
+
         if (o.TryGetValue("tilt", out string? tilt))
         {
             // --tilt off | --tilt DEG:MAXDEG:CELLS:ELONGATION[:NOISE]: the thresholds for reading a line along its own axis (see TiltedLines).

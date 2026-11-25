@@ -12,8 +12,9 @@ namespace OneOcr.Detection;
 /// <param name="Bottom">Bottom edge.</param>
 /// <param name="Score">Mean probability over the component's cells.</param>
 /// <param name="Axis">The principal axis of the line's text-map component, when it has a reliable one; null otherwise.</param>
-/// <param name="MinConfidence">0 for an ordinary line; for a line recovered from faint text, the confidence a word read from it needs to be kept.</param>
-internal readonly record struct DetectedLine(double Left, double Top, double Right, double Bottom, float Score, LineAxis? Axis = null, float MinConfidence = 0);
+/// <param name="MinConfidence">0 for an ordinary line; for a line recovered from faint text or as a lone digit, the confidence a word read from it needs to be kept.</param>
+/// <param name="LoneDigits">True for a line recovered as a weak isolated mark in a text row (see <see cref="DetectorPostprocess"/>): only a word made of digits is kept from it.</param>
+internal readonly record struct DetectedLine(double Left, double Top, double Right, double Bottom, float Score, LineAxis? Axis = null, float MinConfidence = 0, bool LoneDigits = false);
 
 /// <summary>
 /// The direction and extent of a detected line along its principal axis (docs/spec/detector-v1.md, "Line axis"). The line frame has its

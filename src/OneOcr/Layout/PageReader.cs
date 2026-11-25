@@ -198,6 +198,27 @@ internal static partial class PageReader
         }
     }
 
+    // What a line recovered as a weak isolated mark may keep: a short run of digits (a quantity, a line number, a one-digit cell).
+    internal static int LoneMaxDigits = 4;
+
+    private static bool IsLoneNumber(string text)
+    {
+        if (text.Length is 0 || text.Length > LoneMaxDigits)
+        {
+            return false;
+        }
+
+        foreach (char c in text)
+        {
+            if (c is < '0' or > '9')
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static OcrPage ReadStrips(
         LineRecognizer recognizer, OcrLimits limits, BufferPool<Gray8> pixelPool, ResizerPool resizers, Gray8[] gray, int width, int height,
         List<StripLine> strips, int threshold, bool inkIsBright, List<DetectedRegion> regions, List<OcrDiagnostic> notes, List<RuleGrid> grids, int pageIndex, double? dpi, int degree,
@@ -409,7 +430,8 @@ internal static partial class PageReader
                     // A line recovered from faint text is kept only for the words the recognizer reads with confidence.
                     if (strips[index].MinConfidence > 0)
                     {
-                        words.RemoveAll(w => w.Confidence < strips[index].MinConfidence || w.Text.Length < 2);
+                        bool lone = strips[index].LoneDigits;
+                        words.RemoveAll(w => w.Confidence < strips[index].MinConfidence || (lone ? !IsLoneNumber(w.Text) : w.Text.Length < 2));
                         if (words.Count == 0)
                         {
                             continue;
@@ -485,7 +507,6 @@ internal static partial class PageReader
         }
 
         DropRecoveredDuplicates(read, strips);
-
         // Noise is removed before ordering, so lines, blocks, tables and text are built from what is left.
         int junkWords = 0, accentWords = 0;
         if (junk is not null)
