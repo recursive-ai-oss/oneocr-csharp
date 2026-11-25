@@ -31,6 +31,7 @@ internal static class Program
             "pagejson" => PageJsonTarget.Run,
             "review" => ReviewImportTarget.Run,
             "pdf" => PdfTarget.Run,
+            "invisible-text" => InvisibleTextTarget.Run,
             "image" => ImageTarget.Run,
             "image-real" => ImageRealTarget.Run,
             "density" => DensityTarget.Run,
@@ -268,6 +269,16 @@ internal static class Program
         if (target == "pdf")
         {
             foreach (var (name, bytes) in PdfFixtures.Seeds())
+            {
+                File.WriteAllBytes(Path.Combine(dir, name + ".seed"), bytes);
+            }
+
+            return;
+        }
+
+        if (target == "invisible-text")
+        {
+            foreach (var (name, bytes) in InvisibleTextTarget.Seeds())
             {
                 File.WriteAllBytes(Path.Combine(dir, name + ".seed"), bytes);
             }

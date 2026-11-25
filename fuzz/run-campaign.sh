@@ -27,13 +27,14 @@ FUZZ_OUT="${FUZZ_OUT:-$PWD/fuzz-out}"
 FUZZ_SECONDS="${FUZZ_SECONDS:-600}"
 FUZZ_TIMEOUT="${FUZZ_TIMEOUT:-20}"
 FUZZ_HEAP_MB="${FUZZ_HEAP_MB:-2048}"
-ALL_TARGETS="container docextract charlm lexicon wordfreq pagejson review pdf image image-real density normalization llm-anthropic llm-openai llm-gemini llm-schema llm-answer training-files"
+ALL_TARGETS="container docextract charlm lexicon wordfreq pagejson review pdf invisible-text image image-real density normalization llm-anthropic llm-openai llm-gemini llm-schema llm-answer training-files"
 INSTRUMENTED="OneOcr.dll OneOcr.Llm.dll OneOcr.Training.dll OneOcr.Pdf.dll OnePdf.dll OneImage.dll OneImage.Pdf.dll"
 
 maxlen() {
   case "$1" in
     container|docextract|charlm) echo 65536 ;;
     pdf) echo 262144 ;;
+    invisible-text) echo 16384 ;;
     image|image-real) echo 65536 ;;
     *) echo 32768 ;;
   esac
