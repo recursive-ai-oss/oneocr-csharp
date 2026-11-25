@@ -32,7 +32,9 @@ SearchablePdf.FromFiles(["p1.jpg"], "archive.pdf", options: new SearchablePdfOpt
 
 The result says how many pages got a layer, how many words were written and what could not be done. The same input, options and engine give the same bytes. `PdfTextLayerWriter` draws one `OcrPage` into any page you already have. Details, tolerances and what is left alone: `docs/spec/searchable-pdf.md`.
 
-Invisible text layers from earlier OCR runs are re-read by default, and garbled text layers are replaced by a fresh reading of the page.
+Invisible text layers from earlier OCR runs are re-read by default, and garbled text layers are replaced by a fresh reading of the page. Visible text whose character map cannot be trusted is not removed, since it is part of what the page paints; it is wrapped in marked content with an empty `/ActualText` (ISO 32000-1, 14.9.4), so text extraction and copy skip it and return the recognized words instead. Rendering is unchanged.
+
+From the command line, `oneocr pdf <images, folders or one PDF> --out file.pdf [--pdfa]` does the same (`dotnet tool install --global RecursiveAI.OneOcr.Tool`).
 
 A file that opens but has no readable page tree throws `OcrFormatException` with `PdfOcrOptions.Strict`; otherwise `PdfOcr.Read` returns one empty 0 by 0 page whose diagnostics say so, never an empty list.
 

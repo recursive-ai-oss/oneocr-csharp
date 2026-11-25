@@ -5,7 +5,7 @@ using OneOcr.Tests;
 namespace OneOcr.Fuzz;
 
 /// <summary>
-/// Page content streams through the invisible-text remover, alone and inside a one-page PDF that goes through MakeSearchable.
+/// Page content streams through the invisible-text remover and the /ActualText marker, alone and inside a one-page PDF that goes through MakeSearchable.
 /// The remover may return null, never throw; a result means at least one show was cut and the stream got no longer than the input
 /// plus a fixed allowance per cut. MakeSearchable may end only in the typed exceptions of the PDF path.
 /// </summary>
@@ -66,6 +66,13 @@ internal static class InvisibleTextTarget
         else if (cut.Length > content.Length + 64L * removed)
         {
             throw new InvalidOperationException("the rewrite grew beyond its allowance");
+        }
+
+        // The /ActualText marker reads the same untrusted stream: it may return null, never throw, and each wrapped show adds a fixed amount.
+        byte[]? marked = ActualTextMarker.Mark(content, [(-1e4, -1e4, 1e4, 1e4), (0, 0, 612, 792)], out int wrapped);
+        if (marked is null ? wrapped != 0 : wrapped <= 0 || marked.Length != content.Length + ((long)wrapped * ActualTextMarker.AddedBytesPerShow))
+        {
+            throw new InvalidOperationException("the marker's result and count disagree");
         }
 
         var pdf = new PdfBuilder();

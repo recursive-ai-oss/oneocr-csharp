@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>The oneocr command-line tool: fine-tune a recognition model from your own documents (train), measure it (eval) and work through the lines that need a human look (review).</Description>
+    <Description>The oneocr command-line tool: make searchable PDFs (pdf), read pages (ocr), fine-tune a recognition model from your own documents (train), measure it (eval) and work through the lines that need a human look (review).</Description>
     <OutputType>Exe</OutputType>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>oneocr</ToolCommandName>
@@ -10,6 +10,12 @@
 
   <ItemGroup>
     <ProjectReference Include="../OneOcr.Training/OneOcr.Training.csproj" />
+    <ProjectReference Include="../OneOcr.Pdf/OneOcr.Pdf.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="$(LibName).Tests" />
+    <InternalsVisibleTo Include="$(LibName).AotSmoke" />
   </ItemGroup>
 
   <!-- In this repository the core is a project reference, so the package's NativeAOT instruction-set default is imported by hand. -->

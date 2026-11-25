@@ -72,7 +72,7 @@ internal static class OcrCommand
             {
                 if (IsPdfName(path) || LooksLikePdf(path))
                 {
-                    throw new UsageException("PDF files are not read by this tool. Render the pages to PNG or JPEG, or call RecursiveAI.OneOcr.Pdf from code.");
+                    throw new UsageException("PDF files are not read by this command. Use 'oneocr pdf' to make a searchable PDF, or render the pages to PNG or JPEG.");
                 }
 
                 Image image = Image.Load(path);

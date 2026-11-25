@@ -1,6 +1,6 @@
 # oneocr
 
-The command-line tool: read pages with the local engine (`ocr`), and fine-tune a OneOcr recognizer on your own documents (`train`, `eval`, `review`).
+The command-line tool: make searchable PDFs (`pdf`), read pages with the local engine (`ocr`), and fine-tune a OneOcr recognizer on your own documents (`train`, `eval`, `review`).
 
 ```
 oneocr ocr --in page.png                      # text to stdout
@@ -8,6 +8,24 @@ oneocr ocr --in scans/ --out text/ --json     # one .txt and one .page.json (the
 ```
 
 `ocr` reads PNG and JPEG with the bundled models and never touches the network. A file that cannot be read (damaged, not an image, a PDF) is reported as `oneocr: <name>: <message>` on stderr, the other files are still read, and the exit code is 3; the tool does not read PDFs, so render them first or use `RecursiveAI.OneOcr.Pdf` from code. `oneocr --version` prints the version. `--degree N` caps the threads (default min(4, cores)); the text does not depend on it.
+
+### Searchable PDFs
+
+```
+oneocr pdf scan.jpg --out scan.pdf                      # one image, one page
+oneocr pdf pages/ fax.tif --out book.pdf --pdfa         # a folder (by file name), then a multi-frame TIFF; PDF/A-2b
+oneocr pdf scanned.pdf --out searchable.pdf             # a PDF: pages that need a text layer get one, every other page is untouched
+```
+
+Inputs come first, then the options. Images (PNG, JPEG, TIFF with any number of frames) become the pages of one PDF, each with an invisible text layer so
+selection, search and copy match the page; the image is embedded as it is (a JPEG as its own bytes, a 1-bit TIFF page as 1-bit). One PDF in gives a copy
+with a layer on the pages that need one (scans, pages with another OCR step's invisible layer, garbled or wrongly mapped text) and the other pages left
+alone; images and a PDF, or several PDFs, are not mixed. `--out` is required and is replaced only when the whole file was written (it may be the input
+PDF itself). `--pdfa` writes PDF/A-2b, `--title` sets the title of a PDF made from images, `--dpi N` sets the resolution of images that declare none
+(default: estimated from the text size), `--keep-ocr-layer` trusts an invisible OCR layer already in the PDF instead of replacing it, and `--model`,
+`--detector`, `--wordlm`, `--wordfreq` and `--degree` work as for `ocr`. Stdout gets one line (`book.pdf: 5 pages, 5 given a text layer, 412 words, 3.1 s`);
+notes about individual pages (an earlier layer replaced, unreliable text marked) go to stderr. A bad input is one `oneocr: ...` line and exit code 1
+(unreadable file) or 2 (wrong usage). Local only, never touches the network; the same input gives the same file.
 
 ### Starting fast: publish it NativeAOT
 
