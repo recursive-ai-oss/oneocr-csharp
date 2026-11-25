@@ -122,6 +122,12 @@ internal static class LayoutParameters
     /// <summary>... and stands clear of the rest by at least this many em.</summary>
     internal const double HeaderGapEm = 2.5;
 
+    /// <summary>A title is at most this many lines, each one fragment, and read first when columns of running text follow it ...</summary>
+    internal const int TitleMaxLines = 2;
+
+    /// <summary>... and stands clear of them by at least this many text heights.</summary>
+    internal const double TitleGapEm = 1;
+
     /// <summary>A column is inside another when the other has text above and below it, each at least this many em away.</summary>
     internal const double EmbedMarginEm = 2;
 

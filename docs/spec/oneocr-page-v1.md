@@ -194,12 +194,16 @@ of PDF fragments:
   region (a mark in the left or right margin), the speck is cut off on its own and the text is cut into columns in its turn,
   skipping the band reading that a group embedded in another would bring: with it, the paragraph gaps two columns share cut the
   page in slices (left slice, right slice, next left slice).
-- Screens and forms (`ReadingOrder.Sections.cs`). When a region has empty vertical stripes and is not a table, three rules
+- Screens and forms (`ReadingOrder.Sections.cs`). When a region has empty vertical stripes and is not a table, these rules
   decide whether the columns are the structure, in this order:
   1. *Header row*: the topmost band is read first, whole, when it is at most 2.5 em tall, has at least two fragments, spans at
      least 60% of the region's width and is separated from the rest by at least 2.5 em (a menu bar whose last item lines up with
      the body's right column). The label row of a field grid has a smaller gap and is not taken.
-  1b. *Sidebar*: the first column is read before the rest when it has at least three single-fragment lines at an even pitch (each
+  1b. *Title over columns*: the topmost band is read first, whole, when it is one or two lines of one fragment each, is separated
+     from the rest by at least 1 em, and the rest cuts at a full gutter into columns that are all running text (below). A title
+     that spans the columns reaches into the cut of the middle one, and a title over the first column is part of that column;
+     without this rule either one is read after the first column.
+  1c. *Sidebar*: the first column is read before the rest when it has at least three single-fragment lines at an even pitch (each
      gap within 30% of the median), is at most 35% of the region's width, the body starts within 25% of the width after it, and
      at most half of its lines (and half of the body's lines) share a line with the other side. A label column with its values
      has partners on both sides, or far off, and is not a sidebar. The menu bar, the sidebar and the cells of a row of fields
@@ -211,7 +215,10 @@ of PDF fragments:
      first column (a sidebar) is read before the body instead.
   3. *Embedded column*: if one column lies wholly between two parts of another (text at least 2 em above and below it), the
      columns are not the structure and the bands of rule 2 (or, without them, of half an em) are used (cards between a title
-     and a list).
+     and a list). Columns that are all *running text* are exempt: a column of at least 5 lines whose widest quarter of fragments
+     are at least 12 em wide, with no gap between its lines of 3 em or more, is a column of paragraphs, and a first column that
+     goes on below the end of the second, or has a title above it, is not a card between two parts of it. Cards, field groups
+     and the sections of a screen have wide gaps between them, so they keep the rule.
 - Fields. A label above its value is a cell; the cells of a row of fields (equal numbers of fragments in a label line and the
   line under it, each value starting within 2 em of its label) are read one cell at a time, left to right, not all labels and
   then all values. This is applied to the last two lines of a region (under at most one single-fragment heading) and to pairs

@@ -506,6 +506,74 @@ public class ReadingOrderTests
         Assert.Equal(3, blocks.Count);
     }
 
+    // Running text of one column: `count` lines of about 35 characters, 14 apart, from y0; the words carry the column letter and line number.
+    // Every five lines are a paragraph (12 apart from the next) and one leaf region of the page, as the detector finds them.
+    private static List<OrderStrip> Text(char column, double x, double y0, int count, int firstLine = 1, double pitch = 14)
+    {
+        var lines = new List<OrderStrip>();
+        for (int i = 0; i < count; i++)
+        {
+            string n = (firstLine + i).ToString("00");
+            lines.Add(Line(x, y0 + (i * pitch) + (i / 5 * 12), $"{column}{n} aaaa bbbbb cccc ddd eeeee fff gggg", 10, 100000 + (column * 100) + (i / 5)));
+        }
+
+        return lines;
+    }
+
+    private static string Expected(char column, int count, int firstLine = 1)
+    {
+        var parts = new List<string>();
+        for (int i = 0; i < count; i++)
+        {
+            parts.Add($"{column}{(firstLine + i):00} aaaa bbbbb cccc ddd eeeee fff gggg");
+        }
+
+        return string.Join(' ', parts);
+    }
+
+    [Fact]
+    public void ATitleOverTheFirstColumnDoesNotPutTheShortSecondColumnInTheMiddleOfIt()
+    {
+        // The second column starts below the title and ends long before the first: it is not a card between two parts of the first.
+        var strips = new List<OrderStrip> { Line(30, 20, "Statement guide, two columns", 14) };
+        strips.AddRange(Text('A', 30, 80, 38));
+        strips.AddRange(Text('B', 400, 80, 12));
+        Assert.Equal("Statement guide, two columns " + Expected('A', 38) + " " + Expected('B', 12), Read([.. strips]));
+    }
+
+    [Fact]
+    public void ATitleAcrossThreeUnequalColumnsIsReadFirst()
+    {
+        // The title reaches over the middle column, so the cut of that column would take it; the third column is the shortest.
+        var strips = new List<OrderStrip> { Line(150, 20, "Quarterly report on charges", 14) };
+        strips.AddRange(Text('A', 30, 80, 26));
+        strips.AddRange(Text('B', 330, 80, 26));
+        strips.AddRange(Text('C', 630, 80, 9));
+        Assert.Equal("Quarterly report on charges " + Expected('A', 26) + " " + Expected('B', 26) + " " + Expected('C', 9), Read([.. strips]));
+    }
+
+    [Fact]
+    public void ColumnsOfTextWithAShortLastColumnAreReadColumnByColumn()
+    {
+        var strips = new List<OrderStrip>();
+        strips.AddRange(Text('A', 30, 80, 30));
+        strips.AddRange(Text('B', 330, 80, 30));
+        strips.AddRange(Text('C', 630, 80, 9));
+        Assert.Equal(Expected('A', 30) + " " + Expected('B', 30) + " " + Expected('C', 9), Read([.. strips]));
+    }
+
+    [Fact]
+    public void CardsSeparatedByWideGapsAreStillReadRowByRow()
+    {
+        // A card beside the first of two cards under a title: each card has several lines of full width, but the cards of the left column
+        // are far apart, so it is a stack of cards, not running text, and the card between the title and the second card is read in turn.
+        var strips = new List<OrderStrip> { Line(30, 20, "Things to know", 14) };
+        strips.AddRange(Text('A', 30, 80, 6));
+        strips.AddRange(Text('B', 400, 80, 6));
+        strips.AddRange(Text('C', 30, 300, 6));
+        Assert.Equal("Things to know " + Expected('A', 6) + " " + Expected('B', 6) + " " + Expected('C', 6), Read([.. strips]));
+    }
+
     [Theory]
     [InlineData("(a)", true)]
     [InlineData("(12)", true)]
