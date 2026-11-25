@@ -6,6 +6,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### Added
 
+- **Searchable PDFs** (`RecursiveAI.OneOcr.Pdf`): `image.ToSearchablePdf(...)`, `SearchablePdf.FromImages/FromFiles/FromData` (many images or a multi-frame TIFF into one PDF) and `SearchablePdf.MakeSearchable` (PDF in, PDF out) put the page model's words on the page as an invisible text layer, so selection, search and copy match what the page shows. A JPEG is placed as its own bytes, bilevel pages stay 1-bit, nothing is re-encoded lossily, and rendering is unchanged. `MakeSearchable` leaves pages that already have trusted text exactly as they were, and replaces an invisible layer from an earlier OCR step instead of stacking another on it. PDF/A-2b output is an option. Output is deterministic. `PdfTextLayerWriter` is the low-level writer for one `OcrPage`. Specified in `docs/spec/searchable-pdf.md`.
 - **Running headers and footers on OCR'd pages.** Blocks near the top or bottom edge that repeat across the pages of one call (page numbers count as the same text) get the header or footer role, so local Markdown drops them as it does for text layers. `OcrOptions.MarkHeadersAndFooters` (default on) turns it off.
 - **Paragraph splitting.** A block is split at an inter-paragraph gap, a first-line indent, or a short line before a full one; list items never start a split.
 - **Hanging-indent labels** (`(a)`, `1.`, clause numbers in a left column) are read together with their clause, not as a separate column.
@@ -16,6 +17,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - **Amounts have one canonical form (behaviour change).** Money values always carry at least two decimals: `126` becomes `126.00` and `36.5` becomes `36.50` in extracted fields, in `GroundedField.NormalizedValue` and in local-versus-LLM comparisons. Quantities and percentages keep the shortest exact decimal (`2` stays `2`, `7.50` is `7.5`). Code that compared these strings to whole-number text should compare decimal values.
 - **Due date versus delivery date.** On an invoice that prints only a due date, the local model could tag it as the delivery date (`BT-72`). The label printed to the left of the value now decides between `BT-9` and `BT-72`.
 - Indented `oneocr.page` JSON keeps bounds, quads and number lists on one line. The compact form is unchanged byte for byte.
+- `RecursiveAI.OneOcr.Pdf` builds on `RecursiveAI.OnePdf` 1.25.0 (was 1.10.1).
 
 ## [1.0.0] - 2026-10-31
 

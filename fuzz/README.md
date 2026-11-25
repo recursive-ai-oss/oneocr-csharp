@@ -17,6 +17,7 @@ Anything else, a timeout (20 s) or an out-of-memory (2 GB heap) is a finding.
 | `llm-answer` | a model's answer text through the whole read path (first byte picks the outputs) | alignment, grounding, re-ask; returned pages round-trip |
 | `training-files` | label, reviewed-lines, extraction-label and checkpoint files (first byte picks the file) | the one `InvalidOperationException` allowed is "checkpoint of another run" |
 | `pdf` | PDF bytes through the PDF path | page JSON round trip |
+| `invisible-text` | a page content stream, alone and inside a one-page PDF through `MakeSearchable` | a rewrite means a cut show and bounded growth |
 | `image` | image bytes through OneImage and the page path with random small models | page JSON round trip |
 | `image-real` | the same with the shipped models (needs the model files at build time) | page JSON round trip |
 | `density` | image file headers (PNG, JPEG, TIFF) | never throws; an answer is finite and in 10..10000 dpi; deterministic |

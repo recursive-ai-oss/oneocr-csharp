@@ -392,7 +392,7 @@ internal static class PdfFixtures
     }
 
     /// <summary>Draws text lines on a page of the given size with the PDF bridge at 300 DPI and returns the 8-bit gray raster.</summary>
-    private static (byte[] Gray, int Width, int Height) RenderLines(
+    internal static (byte[] Gray, int Width, int Height) RenderLines(
         string[] lines, double width, double height, double left, double size, double step, double firstBaseline)
     {
         var pdf = new PdfBuilder();

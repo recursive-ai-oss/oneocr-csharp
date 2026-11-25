@@ -315,6 +315,33 @@ if (pdfMixed.Count != 1 || !pdfMixed[0].Words.Any(w => w.Source == OneOcr.OcrSou
     return 1;
 }
 
+// Searchable PDFs: an image page and a PDF page each get an invisible text layer, written by the PDF layer's own font and writer.
+var scanPixels = new OneImage.Gray8[300 * 120];
+for (int i = 0; i < scanPixels.Length; i++)
+{
+    scanPixels[i] = new OneImage.Gray8((byte)(i / 300 is > 40 and < 60 && i % 300 is > 20 and < 200 ? 0 : 255));
+}
+
+using (var imagePdf = new System.IO.MemoryStream())
+{
+    OneOcr.Pdf.SearchablePdfExtensions.ToSearchablePdf(OneImage.Image.FromPixels<OneImage.Gray8>(scanPixels, 300, 120), engine, imagePdf, new OneOcr.Pdf.SearchablePdfOptions { Ocr = new OneOcr.OcrOptions { Dpi = 150 }, Conformance = OneOcr.Pdf.SearchablePdfConformance.PdfA2b });
+    if (imagePdf.Length < 200 || System.Text.Encoding.Latin1.GetString(imagePdf.GetBuffer(), 0, 5) != "%PDF-")
+    {
+        Console.Error.WriteLine("searchable PDF from an image was not written");
+        return 1;
+    }
+}
+
+using (var madeSearchable = new System.IO.MemoryStream())
+{
+    OneOcr.Pdf.SearchablePdf.MakeSearchable(pdfFiles["mixed-small"], madeSearchable, engine, new OneOcr.Pdf.SearchablePdfOptions { Pdf = new OneOcr.Pdf.PdfOcrOptions { RenderDpi = 150, CrossCheckLines = 0 } });
+    if (madeSearchable.Length < 200)
+    {
+        Console.Error.WriteLine("searchable PDF from a PDF was not written");
+        return 1;
+    }
+}
+
 try
 {
     OneOcr.Pdf.PdfOcr.Read(new byte[] { 1, 2, 3 }, engine);
