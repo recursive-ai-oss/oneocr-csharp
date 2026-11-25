@@ -38,7 +38,7 @@ internal static class DocAssembly
 
     private sealed class LabelSpan
     {
-        public required int Key { get; init; }
+        public required int Key { get; set; }
         public required List<int> Words { get; init; }
         public required List<double> P { get; init; }
         public double Confidence { get; set; }
@@ -111,6 +111,7 @@ internal static class DocAssembly
         var grouped = new SortedDictionary<(int Family, int Anchor), Dictionary<int, ExtractedField>>();
         foreach (LabelSpan s in spans)
         {
+            s.Key = DateLabel.Retag(schema, s.Key, s.Words, texts, boxes);
             ExtractedField f = MakeField(schema.Classes[s.Key], s, texts, boxes, pageIndex, style, order);
             if (schema.Groups[s.Key] == FieldGroup.Header)
             {
@@ -283,7 +284,7 @@ internal static class DocAssembly
                 if (ValueNormalize.TryParseAmount(numeric, style, out ParsedAmount amount))
                 {
                     number = amount.Value;
-                    value = ValueNormalize.CanonicalAmount(amount.Value);
+                    value = kind == FieldValueKind.Amount ? ValueNormalize.CanonicalAmount(amount.Value) : ValueNormalize.CanonicalNumber(amount.Value);
                     currency = amount.Currencies is { Length: 1 } one ? one[0] : null;
                 }
 

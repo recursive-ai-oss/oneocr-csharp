@@ -237,6 +237,50 @@ of PDF fragments:
 Word boxes are the ink extent inside the horizontal range the recognizer aligned the word to. Character boxes tile that
 range by the alignment of the network's output and carry `approximate: true`.
 
+### Hanging-indent clause labels
+
+A clause label set in the margin (`(a)`, `1.2`, `§ 4`, a bullet) with the clause text indented past it would be cut as two columns: every
+label read before any text. After the table test, a region is read as clauses instead when its left column holds only labels (at most
+2 words and 10 characters each, at least 2 of them), each with text on its own row, and at least 70% of the right column's lines
+start within one line height of one left edge (a hanging indent). Each label is then read with its first line and the lines wrapped
+under it, clause by clause. A table, a form or a menu with short entries fails the test (its right column is not one left edge) and
+keeps the ordinary cut.
+
+### Paragraphs
+
+The page reader cuts blocks at empty bands of half a text height. A block that is a left-aligned run of text (60% of its lines start
+within 0.4 line heights of one margin; fewer than 25% of its lines in several cells; no rotated lines) is split into paragraphs at a
+line that follows (after Bringhurst, *The Elements of Typographic Style*, 2.3 and 2.4):
+
+- a gap: the line pitch is above 1.2 times the block's median pitch and above it by at least 0.22 line heights;
+- a first-line indent: the line starts 0.9 to 4 line heights right of the margin and the previous line is not itself indented;
+- a short line: the previous line stops short enough for the next line's first word to have fitted, by 0.6 line heights more, while
+  the next line reaches within 10% of the measure of the full right edge.
+
+A list-marker line never starts a split on its own, tables and standalone blocks are left whole, and a block with no break is
+unchanged, so existing pages keep their blocks.
+
+### Running headers and footers
+
+A page read from pixels gets the header or footer role on blocks of one or two lines (at most 120 characters), as follows
+(`OcrOptions.MarkHeadersAndFooters`, default on):
+
+- **Within one page:** the block lies in the top or bottom 7.5% of the page, is set off from the other text by at least one line
+  height, its lines are at most 1.15 times as tall as the body's, and the page has at least 6 other lines. A heading is larger than
+  the body and a receipt or screen has no body to be set off from, so neither is marked.
+- **Across the pages of one call:** a block in the outer 12% whose text is equal on at least 40% of the pages (and at least two)
+  once every digit run is folded to one mark (so `Page 3 of 9` and `Page 4 of 9` are one text), standing within 2% of the page height
+  vertically and 3% of the page width at an edge or the centre.
+
+Pages read from a PDF text layer keep the roles the layer gave. Markdown drops these blocks as it drops text-layer furniture.
+
+### Offsets into text
+
+`OcrLine.GetWordSpans()`, `OcrPage.GetWordSpans(layout)` and `OcrPage.GetLineSpans(layout)` give each word's and line's start and
+length, in UTF-16 code units, in the page's text (`Paragraphs`, the text member of the JSON) or its lines text. They are
+derived from the model, not stored: the JSON gains no member, so documents stay byte-identical. A line's text is its words joined by one space,
+with a tab where a new cell starts; a word that the text of a hand-built line does not contain has span (-1, 0).
+
 ## Word segmentation
 
 The recognizer emits a space class where it believes there is a gap, and it is wrong in both directions: it cuts words
@@ -551,6 +595,12 @@ page gets one diagnostic with the number of words changed. The decomposition com
 0.97, `AccentMargin` = 12, `AccentPageShare` = 0.12. They were fixed in advance and kept after trying margin 8, a bound of
 0.99 and no page gate on three held-out degraded scan sets, where the choice moved the word error by under 0.02 points. The
 page gate never fires on the degraded sets used, so its value is a precaution for accented languages and was not tuned.
+
+## Indented JSON
+
+In the indented form, a box (`bounds`), a quad, a `toPdf` matrix and the number lists (`cells`, `words`, `key`, `value`) are written on one
+line each (`"bounds": [10, 20, 30, 40]`). Member names, order, rounding and values are those of the compact form, which is unchanged byte
+for byte.
 
 ## Compatibility
 

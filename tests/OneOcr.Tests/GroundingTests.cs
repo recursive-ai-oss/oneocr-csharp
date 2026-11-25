@@ -104,6 +104,20 @@ public class GroundingTests
         }
     }
 
+    [Theory]
+    [InlineData("2", "2")]
+    [InlineData("2.0", "2")]
+    [InlineData("7.5", "7.5")]
+    [InlineData("7,50", "7.5")]
+    [InlineData("19", "19")]
+    [InlineData("0.0", "0")]
+    [InlineData("1,000", "1000")]
+    public void Quantities_and_rates_keep_the_shortest_exact_decimal(string text, string canonical)
+    {
+        Assert.True(ValueNormalize.TryParseAmount(text, NumberStyle.Auto, out ParsedAmount a));
+        Assert.Equal(canonical, ValueNormalize.CanonicalNumber(a.Value));
+    }
+
     [Fact]
     public void A_single_separator_with_three_digits_follows_the_page_style()
     {

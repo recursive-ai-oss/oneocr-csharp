@@ -108,8 +108,14 @@ The **page number style** (`NumberStyle.Auto`) votes over listed words that look
 decimal; one mark repeated: the other mark is the decimal; one mark once followed by one, two, or four or more digits: that mark
 is the decimal. More comma votes than point votes: comma; otherwise point. A caller can pin the style.
 
-A JSON number value is read as an invariant decimal. Canonical text: `.` decimal mark, no grouping, trailing zeros removed,
-at least two decimals when it has any (`12.5` is `12.50`, `12` is `12`, `0.125` is `0.125`).
+A JSON number value is read as an invariant decimal. Two canonical texts, by what the value is:
+
+- **Money** (amounts): `.` decimal mark, no grouping, trailing zeros beyond the second decimal removed, always at least two decimals
+  (`12.5` is `12.50`, `12` is `12.00`, `126,0` is `126.00`, `0.125` is `0.125`). This changed in 1.1: a whole amount used to stay `12`.
+- **Quantities and percentages**: the shortest exact decimal, no trailing zeros, no forced decimals (`2` is `2`, `2.0` is `2`, `7.50` is `7.5`).
+
+The grounder does not know a field's kind, so a value it matches by number reports the money form; comparing a local reading with a
+grounded value (the role check) therefore compares the two as decimal values, not as text.
 
 ### Dates
 
