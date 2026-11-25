@@ -1,3 +1,4 @@
+# Fax crops are the page reader's: stretched to square pixels and smoothed (smooth in lines-fin.yaml); the shares favour phone and scan.
 # Fine-tune of the bundled recognizer (crnn-v0 0.7.3) for money, dates, account numbers and their signs and separators on fax, scan,
 # photocopy and phone captures (configs/lines-fin.yaml), with a replay of the production mix (prose, receipts, interface text, tight
 # crops, masked numbers) so nothing else is forgotten. The starting checkpoint is made from the released container
@@ -16,10 +17,10 @@ main_override:
   p: { resample: 0.5, resample2: 0.25 }
   ranges: { tilt_deg: [0.0, 0.3] }
 sources:
-  - { name: fin-fax, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_fax, per_batch: 16, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
-  - { name: fin-scan, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_scan, per_batch: 16, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
-  - { name: fin-copy, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_copy, per_batch: 12, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
-  - { name: fin-phone, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_phone, per_batch: 16, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
+  - { name: fin-fax, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_fax, per_batch: 10, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
+  - { name: fin-scan, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_scan, per_batch: 20, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
+  - { name: fin-copy, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_copy, per_batch: 8, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
+  - { name: fin-phone, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_phone, per_batch: 24, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
   - { name: replay-figures, kind: pack, dir: "${ONEOCR_FIN}/clean/rep_train", line_set: configs/lines-v6.yaml, side: adapt, per_batch: 16, provenance: "exact-truth synthetic (configs/lines-fin.yaml, text recipes of configs/lines-v6.yaml)" }
   - { name: replay-ui, kind: pack, dir: "${ONEOCR_FIN}/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 8, provenance: "exact-truth synthetic (configs/lines-fin.yaml)" }
   - { name: replay-tight, kind: pack, dir: "${ONEOCR_FIN}/clean/tight_train", line_set: configs/lines-v5.yaml, side: page, per_batch: 6, provenance: "exact-truth synthetic (configs/lines-fin.yaml)" }

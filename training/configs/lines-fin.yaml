@@ -57,7 +57,7 @@ gpu_degrade:
       bin_soft: [[0.0, 0.0], [0.0, 0.0], [0.02, 0.06]]
       vsq: [[1.0, 1.0], [1.5, 2.0], [2.0, 2.0]]
       flip: [0.0, 0.004]
-    p: { blur: 0.9, motion: 0.05, jpeg: 0.05, persp: 0.2, light: 0.2, subpixel: 0.0, dark: 0.02, tint: 0.05, sliver_v: 0.15, sliver_h: 0.1, rule: 0.15, resample: 0.5, resample2: 0.2, thermal: 0.25, bin: 1.0, vnear: 0.5 }
+    p: { smooth: 0.9, blur: 0.9, motion: 0.05, jpeg: 0.05, persp: 0.2, light: 0.2, subpixel: 0.0, dark: 0.02, tint: 0.05, sliver_v: 0.15, sliver_h: 0.1, rule: 0.15, resample: 0.5, resample2: 0.2, thermal: 0.25, bin: 1.0, vnear: 0.5 }
   fin_fax_h:
     ranges:
       em: [[11, 12.5], [34, 40]]
@@ -76,7 +76,7 @@ gpu_degrade:
       bin_soft: [[0.0, 0.0], [0.06, 0.09]]
       vsq: [[1.25, 1.25], [1.75, 1.75]]
       flip: [0.004, 0.008]
-    p: { blur: 0.9, motion: 0.05, jpeg: 0.05, persp: 0.2, light: 0.2, subpixel: 0.0, dark: 0.02, tint: 0.05, resample: 0.5, resample2: 0.2, thermal: 0.25, bin: 1.0, vnear: 0.5 }
+    p: { smooth: 0.9, blur: 0.9, motion: 0.05, jpeg: 0.05, persp: 0.2, light: 0.2, subpixel: 0.0, dark: 0.02, tint: 0.05, resample: 0.5, resample2: 0.2, thermal: 0.25, bin: 1.0, vnear: 0.5 }
   fin_scan:
     ranges:
       em: [[13, 18], [16, 22], [20, 28], [26, 40], [30, 55]]
@@ -95,7 +95,7 @@ gpu_degrade:
       bin_soft: [[0.05, 0.12]]
       vsq: [[1.0, 1.0]]
       flip: [0.0, 0.003]
-    p: { blur: 0.9, motion: 0.05, jpeg: 0.7, persp: 0.1, light: 0.25, subpixel: 0.0, dark: 0.02, tint: 0.1, sliver_v: 0.2, sliver_h: 0.15, rule: 0.2, resample: 0.5, resample2: 0.2, thermal: 0.3, bin: 0.3, vnear: 0.5 }
+    p: { smooth: 0.3, blur: 0.9, motion: 0.05, jpeg: 0.7, persp: 0.1, light: 0.25, subpixel: 0.0, dark: 0.02, tint: 0.1, sliver_v: 0.2, sliver_h: 0.15, rule: 0.2, resample: 0.5, resample2: 0.2, thermal: 0.3, bin: 0.3, vnear: 0.5 }
   fin_scan_h:
     ranges:
       em: [[11, 12.5], [56, 70]]
@@ -114,7 +114,7 @@ gpu_degrade:
       bin_soft: [[0.12, 0.2]]
       vsq: [[1.0, 1.0]]
       flip: [0.003, 0.006]
-    p: { blur: 0.9, motion: 0.05, jpeg: 0.7, persp: 0.1, light: 0.25, subpixel: 0.0, dark: 0.02, tint: 0.1, resample: 0.5, resample2: 0.2, thermal: 0.3, bin: 0.3, vnear: 0.5 }
+    p: { smooth: 0.3, blur: 0.9, motion: 0.05, jpeg: 0.7, persp: 0.1, light: 0.25, subpixel: 0.0, dark: 0.02, tint: 0.1, resample: 0.5, resample2: 0.2, thermal: 0.3, bin: 0.3, vnear: 0.5 }
   fin_copy:
     ranges:
       em: [[12, 18], [16, 24], [20, 30]]
@@ -133,7 +133,7 @@ gpu_degrade:
       bin_soft: [[0.06, 0.15]]
       vsq: [[1.0, 1.0], [1.5, 1.5]]
       flip: [0.0, 0.006]
-    p: { blur: 0.9, motion: 0.1, jpeg: 0.5, persp: 0.15, light: 0.3, subpixel: 0.0, dark: 0.03, tint: 0.2, sliver_v: 0.25, sliver_h: 0.15, rule: 0.2, resample: 0.5, resample2: 0.2, thermal: 0.5, bin: 1.0, vnear: 0.5 }
+    p: { smooth: 0.5, blur: 0.9, motion: 0.1, jpeg: 0.5, persp: 0.15, light: 0.3, subpixel: 0.0, dark: 0.03, tint: 0.2, sliver_v: 0.25, sliver_h: 0.15, rule: 0.2, resample: 0.5, resample2: 0.2, thermal: 0.5, bin: 1.0, vnear: 0.5 }
   fin_copy_h:
     ranges:
       em: [[10.5, 12], [31, 38]]
@@ -152,7 +152,7 @@ gpu_degrade:
       bin_soft: [[0.15, 0.22]]
       vsq: [[1.25, 1.25]]
       flip: [0.006, 0.01]
-    p: { blur: 0.9, motion: 0.1, jpeg: 0.5, persp: 0.15, light: 0.3, subpixel: 0.0, dark: 0.03, tint: 0.2, resample: 0.5, resample2: 0.2, thermal: 0.5, bin: 1.0, vnear: 0.5 }
+    p: { smooth: 0.5, blur: 0.9, motion: 0.1, jpeg: 0.5, persp: 0.15, light: 0.3, subpixel: 0.0, dark: 0.03, tint: 0.2, resample: 0.5, resample2: 0.2, thermal: 0.5, bin: 1.0, vnear: 0.5 }
   fin_phone:
     ranges:
       em: [[14, 18], [16, 22], [19, 26], [23, 32]]

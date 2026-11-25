@@ -109,6 +109,7 @@ def sample_params(side: dict, n: int, g: torch.Generator, dev) -> dict[str, torc
         extra["vsq"] = _uniform(R["vsq"], n, g, dev).round(decimals=1) if "vsq" in R else torch.ones(n, device=dev)
         extra["vnear"] = torch.rand(n, generator=g, device=dev) < P.get("vnear", 0.5)
         extra["flip"] = _uniform(R.get("flip", [0.0, 0.0]), n, g, dev) * flag("bin")
+        extra["smooth"] = torch.rand(n, generator=g, device=dev) < P.get("smooth", 0.0)  # the page reader smooths bilevel pages
     return extra | {
         "em": em,
         "src_h": wh.float(),
@@ -308,7 +309,7 @@ def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> t
 def _binarize(luma: torch.Tensor, p: dict) -> torch.Tensor:
     """Fax and photocopy tone on luma [n, 1, h, w] (0..255): the page was captured at a lower vertical resolution (fax standard mode is
     200 x 100 dots per inch, so a line has half the rows it has columns per unit length), thresholded to ink or paper, and then brought
-    back to the working height the way a reader that honours the non-square pixels does (nearest or linear). A soft threshold (a ramp
+    back to the working height the way a reader that honours the non-square pixels does (nearest or linear), optionally smoothed. A soft threshold (a ramp
     instead of a step) is the toner curve of a photocopy. The threshold sits at a fraction `bin_t` of the way between the crop's own
     darkest and lightest levels (1st and 99th percentile), as a machine that adapts to the page does, so uneven light moves the stroke
     weight but does not turn the whole crop black or white. `flip` is applied by the caller."""
@@ -332,6 +333,14 @@ def _binarize(luma: torch.Tensor, p: dict) -> torch.Tensor:
         if hs != h:
             near = p["vnear"][idx].view(-1, 1, 1, 1)
             x = torch.where(near, F.interpolate(x, size=(h, w), mode="nearest"), F.interpolate(x, size=(h, w), mode="bilinear", align_corners=False))
+        sm = p["smooth"][idx].view(-1, 1, 1, 1)
+        if bool(sm.any()):  # two [1 2 1]/4 passes, horizontal and vertical, after the stretch back to square pixels
+            k = torch.tensor([1.0, 2.0, 1.0], device=x.device) / 4
+            y = x
+            for _ in range(2):
+                y = F.conv2d(F.pad(y, (1, 1, 0, 0), mode="replicate"), k.view(1, 1, 1, 3))
+                y = F.conv2d(F.pad(y, (0, 0, 1, 1), mode="replicate"), k.view(1, 1, 3, 1))
+            x = torch.where(sm, y, x)
         out[idx] = lo + x * span
     return out
 
