@@ -145,7 +145,7 @@ def main() -> None:
     ap.add_argument("--det-side", type=int, default=0, help="paddle: cap the longer image side for detection at N pixels (0 = stock setting)")
     a = ap.parse_args()
 
-    files = sorted(p for p in Path(a.pages).iterdir() if p.suffix in (".png", ".jpg"))
+    files = sorted(p for p in Path(a.pages).iterdir() if p.suffix in (".png", ".jpg", ".jpeg", ".tif", ".tiff"))
     if a.limit:
         files = files[: a.limit]
     out = Path(a.out)

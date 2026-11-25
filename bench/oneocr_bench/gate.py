@@ -53,7 +53,7 @@ import time
 from pathlib import Path
 
 from . import tess as tess_mod
-from .paths import BENCH, data_dir
+from .paths import BENCH, PAGE_SUFFIXES, data_dir
 from .score import SCORERS, score_dir
 from .sets import ORDER_INFO_ONLY, category, discover, is_clean, is_real, is_receipts
 
@@ -432,7 +432,7 @@ def time_tesseract(args, names: list[str], tess_results: Path, default_degree: i
     scratch = Path(args.work).expanduser() / "tess-timing-tmp"
     scratch.mkdir(parents=True, exist_ok=True)
     for n in names:
-        pages = sorted(p for p in (Path(args.eval) / n / "pages").iterdir() if p.suffix in (".png", ".jpg"))
+        pages = sorted(p for p in (Path(args.eval) / n / "pages").iterdir() if p.suffix in PAGE_SUFFIXES)
         if args.pages:
             pages = pages[: args.pages]
         meta = tess_results / n / "tesseract.json"
@@ -638,7 +638,7 @@ def dry_run(args, names: list[str]) -> None:
     sums = root / "SHA256SUMS"
     print(f"eval root {root}{' (SEALED)' if args.sealed else ''}; SHA256SUMS {_sha(str(sums))[:12] + '…' if sums.exists() else 'absent'}")
     for n in names:
-        pages = sorted(p for p in (root / n / "pages").iterdir() if p.suffix in (".png", ".jpg"))
+        pages = sorted(p for p in (root / n / "pages").iterdir() if p.suffix in PAGE_SUFFIXES)
         truth = sorted((root / n / "truth").glob("*.txt"))
         print(f"{n}: {len(pages)} pages, {len(truth)} truth files" + ("" if len(pages) == len(truth) else "  MISMATCH"))
 

@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 
-from . import assets, competitors, gate, realpdf, realweb, score, seal, sets, tess
+from . import assets, competitors, fin, gate, realpdf, realweb, score, seal, sets, tess
 
 
 def main() -> None:
@@ -24,6 +24,18 @@ def main() -> None:
     g.add_argument("--out", default=None, help="with --seed: output directory")
     g.add_argument("--synthetic-receipts", action="store_true", help="with --seed: receipts-v1 from the receipt generator, not CORD")
     g.add_argument("--avoid-text", nargs="*", default=[], metavar="DIR", help="with --seed: eval roots (<set>/truth) whose passages are not reused")
+
+    fn = sub.add_parser("fin", help="degraded financial documents: statements, invoices and receipts with tagged amounts", description=fin.__doc__,
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    fn.add_argument("action", choices=["fetch", "gen", "check", "draw"])
+    fn.add_argument("root", nargs="?", help="check, draw: the set (or eval root) directory")
+    fn.add_argument("page", nargs="?", help="draw: page id")
+    fn.add_argument("--update", action="store_true", help="fetch: rewrite the font manifest")
+    fn.add_argument("--set", choices=list(fin.SET_KINDS), help="gen: one set (default: all four)")
+    fn.add_argument("--seeds", help="gen: JSON file {set: seed}")
+    fn.add_argument("--out", help="gen: output root, one directory per set")
+    fn.add_argument("--count", type=int, default=None, help="gen: pages per set (default 40)")
+    fn.add_argument("--check", action="store_true", help="gen: compare with the committed manifest")
 
     sl = sub.add_parser("seal", help="cut or verify a sealed page set (all six categories, seeds from a private file)")
     sl.add_argument("action", choices=["build", "verify", "add-real"])
@@ -138,6 +150,8 @@ def main() -> None:
         if a.set == "all" or not a.out or a.check:
             ap.error("--seed needs one --set, --out, and no --check")
         sets.run_gen_seeded(a.set, a.count, a.seed, Path(a.out).expanduser(), a.synthetic_receipts, [Path(p).expanduser() for p in a.avoid_text])
+    elif a.cmd == "fin":
+        fin.main(a)
     elif a.cmd == "realweb":
         realweb.capture(a)
     elif a.cmd == "realpdf":

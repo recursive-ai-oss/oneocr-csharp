@@ -23,7 +23,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .paths import data_dir
+from .paths import PAGE_SUFFIXES, data_dir
 from .score import score_dir
 from .sets import SETS, category, is_receipts, page_images, set_dir
 
@@ -74,7 +74,7 @@ def main(set_name: str, models: list[str], psms: list[int], tess: str, results: 
     several single-thread processes at once (the accuracy is the same; the times are not publishable). `timing_runs` False skips the
     default-threading re-run, which exists only for timing. A (model, PSM) pair that already has its result file is not run again."""
     base = Path(root).expanduser() / set_name if root else set_dir(set_name)
-    pages = sorted(p for p in (base / "pages").iterdir() if p.suffix in (".png", ".jpg"))
+    pages = sorted(p for p in (base / "pages").iterdir() if p.suffix in PAGE_SUFFIXES)
     truth = base / "truth"
     res_dir = Path(results) if results else data_dir() / "results" / set_name
     res_dir.mkdir(parents=True, exist_ok=True)
