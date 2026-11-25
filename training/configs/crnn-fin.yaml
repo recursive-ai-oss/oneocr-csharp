@@ -1,0 +1,53 @@
+# Fine-tune of the bundled recognizer (crnn-v0 0.7.3) for money, dates, account numbers and their signs and separators on fax, scan,
+# photocopy and phone captures (configs/lines-fin.yaml), with a replay of the production mix (prose, receipts, interface text, tight
+# crops, masked numbers) so nothing else is forgotten. The starting checkpoint is made from the released container
+# (export/container_to_checkpoint.py), so batch norm stays frozen (train.freeze_bn). Selection uses the financial validation sets
+# (training fonts and ranges, unseen books) plus the guard sets of the replay; the held-out fin_eval sets are reported only.
+# ${ONEOCR_HOME} is the state directory, ${ONEOCR_FIN} the rendered line sets of lines-fin.yaml, ${ONEOCR_START} the starting checkpoint.
+name: crnn-fin
+seed: 151
+init_from: ${ONEOCR_START}
+arch: crnn-v0
+charset: data/charset-v1.txt
+line_set: configs/lines-v4.yaml
+data_dir: ${ONEOCR_FIN}
+run_dir: ${ONEOCR_HOME}/runs/crnn-fin
+main_override:
+  p: { resample: 0.5, resample2: 0.25 }
+  ranges: { tilt_deg: [0.0, 0.3] }
+sources:
+  - { name: fin-fax, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_fax, per_batch: 16, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
+  - { name: fin-scan, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_scan, per_batch: 16, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
+  - { name: fin-copy, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_copy, per_batch: 12, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
+  - { name: fin-phone, kind: pack, dir: "${ONEOCR_FIN}/clean/fin_train", line_set: configs/lines-fin.yaml, side: fin_phone, per_batch: 16, provenance: "exact-truth synthetic (configs/lines-fin.yaml, gen/fin_text.py)" }
+  - { name: replay-figures, kind: pack, dir: "${ONEOCR_FIN}/clean/rep_train", line_set: configs/lines-v6.yaml, side: adapt, per_batch: 16, provenance: "exact-truth synthetic (configs/lines-fin.yaml, text recipes of configs/lines-v6.yaml)" }
+  - { name: replay-ui, kind: pack, dir: "${ONEOCR_FIN}/clean/ui_train", line_set: configs/lines-v5.yaml, side: ui, per_batch: 8, provenance: "exact-truth synthetic (configs/lines-fin.yaml)" }
+  - { name: replay-tight, kind: pack, dir: "${ONEOCR_FIN}/clean/tight_train", line_set: configs/lines-v5.yaml, side: page, per_batch: 6, provenance: "exact-truth synthetic (configs/lines-fin.yaml)" }
+  - { name: replay-gaps, kind: pack, dir: "${ONEOCR_FIN}/clean/gaps_train", line_set: configs/lines-v5.yaml, side: page, per_batch: 4, provenance: "exact-truth synthetic (configs/lines-fin.yaml)" }
+  - { name: replay-mask-qty, kind: pack, dir: "${ONEOCR_FIN}/clean/mq_train", line_set: configs/lines-masks.yaml, side: rcpt, per_batch: 6, provenance: "exact-truth synthetic (configs/lines-fin.yaml)" }
+extra_val:
+  fin_fax: ${ONEOCR_FIN}/fin_val_fax
+  fin_scan: ${ONEOCR_FIN}/fin_val_scan
+  fin_copy: ${ONEOCR_FIN}/fin_val_copy
+  fin_phone: ${ONEOCR_FIN}/fin_val_phone
+  figures: ${ONEOCR_FIN}/figures_val
+  ui: ${ONEOCR_FIN}/ui_val
+  tight: ${ONEOCR_FIN}/tight_val
+  gaps: ${ONEOCR_FIN}/gaps_val
+  shot: ${ONEOCR_FIN}/shot_val
+  mask: ${ONEOCR_FIN}/mask_val
+  qty: ${ONEOCR_FIN}/qty_val
+train:
+  steps: 8000
+  batch: 140
+  lr: 0.00004
+  warmup: 200
+  weight_decay: 0.01
+  freeze_bn: true
+  log_every: 200
+  eval_every: 500
+  ckpt_every: 500
+  val_penalty: 3.0
+  val_weights: { fin_fax: 3.0, fin_scan: 3.0, fin_copy: 2.0, fin_phone: 3.0 }
+  guard: { val: 0.02, ui: 0.02, tight: 0.02, shot: 0.02, figures: 0.03, gaps: 0.03, mask: 0.05, qty: 0.05 }
+  guard_wer: { shot: 0.0, ui: 0.02, tight: 0.02, gaps: 0.02 }

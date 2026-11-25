@@ -55,10 +55,20 @@ def text_root() -> Path:
     return Path(os.environ.get("ONEOCR_TEXT_ROOT", "texts-cache"))
 
 
+# The project's own mirror serves the same files when the main site rate-limits a network; fetch() still checks every SHA-256.
+MIRRORS = ["www.gutenberg.org", "gutenberg.pglaf.org"]
+
+
 def http(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "oneocr-texts"})
-    with urllib.request.urlopen(req, timeout=120) as r:
-        return r.read()
+    last: Exception | None = None
+    for host in MIRRORS:
+        req = urllib.request.Request(url.replace(MIRRORS[0], host), headers={"User-Agent": "oneocr-texts"})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return r.read()
+        except OSError as e:  # HTTPError and URLError are both OSError
+            last = e
+    raise last  # type: ignore[misc]
 
 
 def body_of(raw: bytes) -> str:
