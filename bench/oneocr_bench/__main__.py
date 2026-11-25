@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 
-from . import assets, competitors, fin, gate, realpdf, realweb, score, seal, sets, tess
+from . import assets, competitors, fin, finreal, gate, realpdf, realweb, score, seal, sets, tess
 
 
 def main() -> None:
@@ -27,7 +27,7 @@ def main() -> None:
 
     fn = sub.add_parser("fin", help="degraded financial documents: statements, invoices and receipts with tagged amounts", description=fin.__doc__,
                         formatter_class=argparse.RawDescriptionHelpFormatter)
-    fn.add_argument("action", choices=["fetch", "gen", "check", "draw"])
+    fn.add_argument("action", choices=["fetch", "gen", "check", "draw", "freeze"])
     fn.add_argument("root", nargs="?", help="check, draw: the set (or eval root) directory")
     fn.add_argument("page", nargs="?", help="draw: page id")
     fn.add_argument("--update", action="store_true", help="fetch: rewrite the font manifest")
@@ -36,6 +36,7 @@ def main() -> None:
     fn.add_argument("--out", help="gen: output root, one directory per set")
     fn.add_argument("--count", type=int, default=None, help="gen: pages per set (default 40)")
     fn.add_argument("--check", action="store_true", help="gen: compare with the committed manifest")
+    fn.add_argument("--manifest", help="freeze: also write the combined page manifest here")
 
     sl = sub.add_parser("seal", help="cut or verify a sealed page set (all six categories, seeds from a private file)")
     sl.add_argument("action", choices=["build", "verify", "add-real"])
@@ -141,6 +142,21 @@ def main() -> None:
     rp.add_argument("--layout", type=int, default=40)
     rp.add_argument("--degraded", type=int, default=40)
 
+    fr = sub.add_parser("finreal", help="fetch real financial PDFs and cut verified, tagged pages from them", description=finreal.__doc__,
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    fr.add_argument("action", choices=["fetch", "cut"])
+    fr.add_argument("--list")
+    fr.add_argument("--out")
+    fr.add_argument("--pdfs")
+    fr.add_argument("--seeds")
+    fr.add_argument("--pdftruth")
+    fr.add_argument("--exclude")
+    fr.add_argument("--max-bytes", type=int, default=realpdf.MAX_FETCH_BYTES)
+    fr.add_argument("--scan-per-doc", type=int, default=30)
+    fr.add_argument("--each", type=int, default=10, help="cut: pages in each of the scan, fax and phone sets")
+    fr.add_argument("--check", action="store_true", help="cut: compare with the committed manifest")
+    fr.add_argument("--tables", type=int, default=20, help="cut: pages in the tables set")
+
     sub.add_parser("tess-report", help="merge per-set Tesseract results into one table")
 
     a = ap.parse_args()
@@ -154,6 +170,8 @@ def main() -> None:
         fin.main(a)
     elif a.cmd == "realweb":
         realweb.capture(a)
+    elif a.cmd == "finreal":
+        (realpdf.fetch if a.action == "fetch" else finreal.cut)(a)
     elif a.cmd == "realpdf":
         {"fetch": realpdf.fetch, "cut": realpdf.cut, "hashdir": realpdf.hashdir}[a.action](a)
     elif a.cmd == "seal":

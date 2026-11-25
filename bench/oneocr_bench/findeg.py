@@ -166,6 +166,8 @@ def fax_as_png(tiff: bytes) -> bytes:
 
 def phone(img: Image.Image, words: list[dict], rng_factory, nrng_factory, canvas: tuple[int, int] = (2016, 2688)) -> tuple[bytes, list[dict], dict]:
     """The camera simulation; a placement that leaves the canvas is drawn again (as in the phone set)."""
+    # a tall page (a long receipt) gets a taller picture, as a phone held in portrait would not crop it
+    canvas = (canvas[0], max(canvas[1], int(img.size[1] * canvas[0] / img.size[0] * 0.95)))
     for attempt in range(60):
         try:
             data, w, params = phone_capture(img, words, rng_factory(attempt), nrng_factory(attempt), canvas)

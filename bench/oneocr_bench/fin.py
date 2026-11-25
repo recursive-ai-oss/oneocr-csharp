@@ -754,7 +754,7 @@ def check(root: Path) -> int:
                 problems.append("text does not match the words")
             img = next((d / "pages").glob(f"{f.stem}.*"))
             share = ink_share(img.read_bytes(), words)
-            if share < 0.99:
+            if share < 0.95:  # dense small print on a 100 dpi fax loses a few words outright; the share is in the truth file
                 problems.append(f"only {share:.4f} of the words show ink")
             tg = t.get("tags") or []
             tags_n += len(tg)
@@ -764,6 +764,9 @@ def check(root: Path) -> int:
                 text = " ".join(words[i]["text"] for i in x["words"])
                 if any(not 0 <= i < len(words) for i in x["words"]):
                     problems.append(f"tag words out of range {x}")
+                elif x.get("role") == "real":
+                    if text != x["value"]:
+                        problems.append(f"tag text {text!r} differs from {x['value']!r}")
                 elif x["cls"] == "money" and x["value"] is not None:
                     p = parse_number(text)
                     if p is None or abs(p) != abs(D(x["value"])) or (x["role"] in ("balance", "opening", "bf", "cf", "closing") and p != D(x["value"]) and t.get("neg") != "crdr"):
@@ -830,6 +833,16 @@ def main(a) -> None:
             if bad:
                 raise SystemExit(f"hash mismatch in {bad}")
             print("pages reproduce the committed hashes")
+    elif a.action == "freeze":
+        root = Path(a.root).expanduser()
+        man = {"synthetic": json.loads((root / "manifest.json").read_text())["sets"],
+               "real": json.loads((root / "manifest-real.json").read_text())["sets"]}
+        if a.manifest:
+            Path(a.manifest).expanduser().write_text(json.dumps(man, indent=1) + "\n")
+        lines = [f"{sha256(p.read_bytes())}  {p.relative_to(root).as_posix()}" for p in sorted(root.rglob("*"))
+                 if p.is_file() and p.name != "SHA256SUMS" and "samples" not in p.parts]
+        (root / "SHA256SUMS").write_text("\n".join(lines) + "\n")
+        print(f"{len(lines)} files hashed; digest {sha256(chr(10).join(lines).encode())}")
     elif a.action == "check":
         raise SystemExit(1 if check(Path(a.root).expanduser()) else 0)
     elif a.action == "draw":
