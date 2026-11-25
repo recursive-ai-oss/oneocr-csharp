@@ -88,6 +88,11 @@ public static partial class OcrPageJson
         Num(w, "width", p.Width, 3);
         Num(w, "height", p.Height, 3);
         Num(w, "unitsPerInch", p.UnitsPerInch, 3);
+        if (p.VerticalUnitsPerInch != p.UnitsPerInch)
+        {
+            Num(w, "unitsPerInchY", p.VerticalUnitsPerInch, 3);
+        }
+
         if (p.ToPdf is OcrMatrix m)
         {
             Numbers(w, "toPdf", [m.A, m.B, m.C, m.D, m.E, m.F], 6, o.Indented);

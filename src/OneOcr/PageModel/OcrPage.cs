@@ -632,12 +632,13 @@ public sealed class OcrPage
     /// <param name="toPdf">For pages from a PDF, the map back to PDF user space; otherwise null.</param>
     /// <param name="orientation">How far the content is turned clockwise from upright: 0, 90, 180 or 270.</param>
     /// <param name="skewDegrees">The tilt of the text lines in degrees, positive when they descend to the right; within 45.</param>
+    /// <param name="verticalUnitsPerInch">Page units per inch down the page; 0 for the same as <paramref name="unitsPerInch"/>.</param>
     /// <exception cref="ArgumentException"><paramref name="orientation"/> is not a quarter turn or <paramref name="skewDegrees"/> is out of range.</exception>
     [SetsRequiredMembers]
     internal OcrPage(
         int index, double width, double height, double unitsPerInch, IReadOnlyList<OcrBlock> blocks,
         IReadOnlyList<OcrRegion>? regions = null, IReadOnlyList<OcrTable>? tables = null, IReadOnlyList<OcrKeyValue>? keyValues = null,
-        IReadOnlyList<OcrDiagnostic>? diagnostics = null, OcrMatrix? toPdf = null, int orientation = 0, double skewDegrees = 0)
+        IReadOnlyList<OcrDiagnostic>? diagnostics = null, OcrMatrix? toPdf = null, int orientation = 0, double skewDegrees = 0, double verticalUnitsPerInch = 0)
     {
         Index = index;
         Width = width;
@@ -651,6 +652,7 @@ public sealed class OcrPage
         ToPdf = toPdf;
         Orientation = orientation;
         SkewDegrees = skewDegrees;
+        VerticalUnitsPerInch = verticalUnitsPerInch;
     }
 
     /// <summary>Zero-based index of the page in its document.</summary>
@@ -667,6 +669,18 @@ public sealed class OcrPage
     /// the text (a diagnostic says so); 72 for PDF pages.
     /// </summary>
     public required double UnitsPerInch { get; init; }
+
+    /// <summary>
+    /// Page units per inch down the page. The same as <see cref="UnitsPerInch"/> (the default) for square pixels; different for a capture
+    /// whose pixels are not square, such as a standard-mode fax at 200 by 100 dots per inch. Boxes stay in the image's own pixels either
+    /// way. Zero (never stored) reads as <see cref="UnitsPerInch"/>.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is negative or not finite.</exception>
+    public double VerticalUnitsPerInch
+    {
+        get => field > 0 ? field : UnitsPerInch;
+        init => field = double.IsFinite(value) && value >= 0 ? value : throw new ArgumentOutOfRangeException(nameof(value), value, "VerticalUnitsPerInch must be zero or positive and finite.");
+    }
 
     /// <summary>The map from page units back to PDF user space; null unless the page came from a PDF.</summary>
     public OcrMatrix? ToPdf { get; init; }

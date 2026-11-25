@@ -159,6 +159,16 @@ if (words.ToText() != t1 || words.Blocks.Sum(bl => bl.Lines.Count) != 3 || calib
     return 1;
 }
 
+// Non-square pixels (a standard-mode fax): stretched to square pixels, boxes mapped back, both resolutions in the page and its JSON.
+OneOcr.OcrPage fax1 = calibrated.Ocr(page, new OneOcr.OcrOptions { Dpi = 200, VerticalDpi = 100, MaxDegreeOfParallelism = 1 });
+OneOcr.OcrPage fax4 = calibrated.Ocr(page, new OneOcr.OcrOptions { Dpi = 200, VerticalDpi = 100, MaxDegreeOfParallelism = 4 });
+string faxJson = OneOcr.OcrPageJson.ToJson([fax1]);
+if (fax1.VerticalUnitsPerInch != 100 || fax1.Height != words.Height || faxJson != OneOcr.OcrPageJson.ToJson([fax4]) || OneOcr.OcrPageJson.Parse(faxJson)[0].VerticalUnitsPerInch != 100)
+{
+    Console.Error.WriteLine("non-square pixels are not handled");
+    return 1;
+}
+
 // The page model's JSON: write, read, write again (source-generated, no reflection), and a malformed document is a typed error.
 string json = OneOcr.OcrPageJson.ToJson([words]);
 System.Collections.Generic.IReadOnlyList<OneOcr.OcrPage> back = OneOcr.OcrPageJson.Parse(json);

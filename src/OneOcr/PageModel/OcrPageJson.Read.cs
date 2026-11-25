@@ -157,6 +157,7 @@ public static partial class OcrPageJson
             double width = Positive(Req(e, "width", path), path + ".width");
             double height = Positive(Req(e, "height", path), path + ".height");
             double upi = Positive(Req(e, "unitsPerInch", path), path + ".unitsPerInch");
+            double upiY = e.TryGetProperty("unitsPerInchY", out JsonElement yEl) ? Positive(yEl, path + ".unitsPerInchY") : 0;
             OcrMatrix? toPdf = null;
             if (e.TryGetProperty("toPdf", out JsonElement m))
             {
@@ -257,7 +258,7 @@ public static partial class OcrPageJson
                 keyValues.Add(ReadKeyValue(kv, $"{path}.keyValues[{ki++}]", totalWords));
             }
 
-            return new OcrPage(index, width, height, upi, blocks, regions, tables, keyValues, diagnostics, toPdf, orientation, skew);
+            return new OcrPage(index, width, height, upi, blocks, regions, tables, keyValues, diagnostics, toPdf, orientation, skew, upiY);
         }
 
         private OcrBlock ReadBlock(JsonElement e, string path)

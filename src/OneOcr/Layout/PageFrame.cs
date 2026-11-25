@@ -55,7 +55,7 @@ internal sealed class PageFrame
     public double SkewDegrees => ArcTan(Slope / (double)SkewEstimator.Scale) * (180.0 / Math.PI);
 
     // Series x - x^3/3 + x^5/5 - ... in a fixed order; |x| is at most tan 15.3 degrees, so 16 terms are far below double rounding.
-    private static double ArcTan(double x)
+    internal static double ArcTan(double x)
     {
         double x2 = x * x, term = x, sum = 0;
         for (int k = 0; k < 16; k++)
@@ -169,6 +169,6 @@ internal sealed class PageFrame
         var diagnostics = new List<OcrDiagnostic>(page.Diagnostics);
         diagnostics.AddRange(notes);
         return new OcrPage(
-            page.Index, Width, Height, page.UnitsPerInch, blocks, regions, tables, keyValues, diagnostics, page.ToPdf, Orientation, SkewDegrees);
+            page.Index, Width, Height, page.UnitsPerInch, blocks, regions, tables, keyValues, diagnostics, page.ToPdf, Orientation, SkewDegrees, page.VerticalUnitsPerInch);
     }
 }

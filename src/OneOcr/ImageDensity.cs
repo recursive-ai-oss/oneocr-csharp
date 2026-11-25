@@ -3,9 +3,9 @@ using System.Buffers.Binary;
 namespace OneOcr;
 
 /// <summary>
-/// Reads the resolution an image file declares (PNG <c>pHYs</c>, JPEG JFIF density, the first TIFF directory's <c>XResolution</c>) from
-/// the start of the file, so that a page's <see cref="OcrPage.UnitsPerInch"/> is what the file says instead of an estimate from the size
-/// of the text. Only a few header fields are read, every offset is checked against the buffer, and anything unexpected gives no answer.
+/// Reads the resolution an image file declares (PNG <c>pHYs</c>, JPEG JFIF density, the first TIFF directory's <c>XResolution</c> and
+/// <c>YResolution</c>) from the start of the file, so that a page's <see cref="OcrPage.UnitsPerInch"/> is what the file says instead of an
+/// estimate from the size of the text, and so that a capture with non-square pixels (a standard-mode fax is 200 by 100 dots per inch) is known. Only a few header fields are read, every offset is checked against the buffer, and anything unexpected gives no answer.
 /// </summary>
 internal static class ImageDensity
 {
@@ -15,15 +15,21 @@ internal static class ImageDensity
     private const double MinDpi = 10;
     private const double MaxDpi = 10_000;
 
-    /// <summary>The declared resolution in pixels per inch, or null when the file declares none or the data is not understood.</summary>
-    public static double? TryRead(ReadOnlySpan<byte> data)
+    /// <summary>The declared horizontal resolution in pixels per inch, or null when the file declares none or the data is not understood.</summary>
+    public static double? TryRead(ReadOnlySpan<byte> data) => TryReadPair(data)?.X;
+
+    /// <summary>
+    /// The declared horizontal and vertical resolution in pixels per inch, or null when the file declares none or the data is not
+    /// understood. A file that declares only one of the two (a TIFF with no <c>YResolution</c>) gives the same value for both.
+    /// </summary>
+    public static (double X, double Y)? TryReadPair(ReadOnlySpan<byte> data)
     {
         if (data.Length > WindowBytes)
         {
             data = data[..WindowBytes];
         }
 
-        double? dpi = null;
+        (double X, double Y)? dpi = null;
         if (data.Length >= 8 && data[0] == 0x89 && data[1] == (byte)'P' && data[2] == (byte)'N' && data[3] == (byte)'G')
         {
             dpi = Png(data);
@@ -37,11 +43,13 @@ internal static class ImageDensity
             dpi = Tiff(data);
         }
 
-        return dpi is double d && double.IsFinite(d) && d >= MinDpi && d <= MaxDpi ? d : null;
+        return dpi is (double x, double y) && Valid(x) ? (x, Valid(y) ? y : x) : null;
     }
 
+    private static bool Valid(double d) => double.IsFinite(d) && d >= MinDpi && d <= MaxDpi;
+
     // Chunks are length, type, data, CRC; pHYs comes before the first IDAT.
-    private static double? Png(ReadOnlySpan<byte> data)
+    private static (double, double)? Png(ReadOnlySpan<byte> data)
     {
         int pos = 8;
         while (pos + 12 <= data.Length)
@@ -56,8 +64,8 @@ internal static class ImageDensity
                     return null;
                 }
 
-                uint perMeter = BinaryPrimitives.ReadUInt32BigEndian(data[(int)body..]);
-                return data[(int)body + 8] == 1 ? perMeter * 0.0254 : null;
+                uint perMeterX = BinaryPrimitives.ReadUInt32BigEndian(data[(int)body..]), perMeterY = BinaryPrimitives.ReadUInt32BigEndian(data[((int)body + 4)..]);
+                return data[(int)body + 8] == 1 ? (perMeterX * 0.0254, perMeterY * 0.0254) : null;
             }
 
             if (type.SequenceEqual("IDAT"u8) || type.SequenceEqual("IEND"u8))
@@ -78,7 +86,7 @@ internal static class ImageDensity
     }
 
     // Segments are FF marker, length (including the two length bytes), data. JFIF is the first APP0.
-    private static double? Jpeg(ReadOnlySpan<byte> data)
+    private static (double, double)? Jpeg(ReadOnlySpan<byte> data)
     {
         int pos = 2;
         while (pos + 4 <= data.Length)
@@ -109,8 +117,8 @@ internal static class ImageDensity
             if (marker == 0xE0 && length >= 16 && pos + 2 + length <= data.Length && data.Slice(pos + 4, 5).SequenceEqual("JFIF\0"u8))
             {
                 int units = data[pos + 11];
-                int x = BinaryPrimitives.ReadUInt16BigEndian(data[(pos + 12)..]);
-                return units switch { 1 => x, 2 => x * 2.54, _ => null };
+                int x = BinaryPrimitives.ReadUInt16BigEndian(data[(pos + 12)..]), y = BinaryPrimitives.ReadUInt16BigEndian(data[(pos + 14)..]);
+                return units switch { 1 => (x, y), 2 => (x * 2.54, y * 2.54), _ => null };
             }
 
             pos += 2 + length;
@@ -119,8 +127,9 @@ internal static class ImageDensity
         return null;
     }
 
-    // The first directory's XResolution (a rational at an offset) and ResolutionUnit (default inch).
-    private static double? Tiff(ReadOnlySpan<byte> data)
+    // The first directory's XResolution and YResolution (rationals at offsets) and ResolutionUnit (default inch). A missing YResolution
+    // means square pixels, as TIFF readers take it.
+    private static (double, double)? Tiff(ReadOnlySpan<byte> data)
     {
         bool little = data[0] == (byte)'I';
         long ifd = U32(data, little, 4);
@@ -130,7 +139,7 @@ internal static class ImageDensity
         }
 
         int count = U16(data, little, (int)ifd);
-        double? resolution = null;
+        double? x = null, y = null;
         int unit = 2;
         for (int i = 0; i < count; i++)
         {
@@ -143,7 +152,7 @@ internal static class ImageDensity
             int e = (int)entry;
             int tag = U16(data, little, e);
             int type = U16(data, little, e + 2);
-            if (tag == 282 && type == 5 && U32(data, little, e + 4) == 1)
+            if ((tag == 282 || tag == 283) && type == 5 && U32(data, little, e + 4) == 1)
             {
                 long at = U32(data, little, e + 8);
                 if (at + 8 > data.Length)
@@ -152,7 +161,15 @@ internal static class ImageDensity
                 }
 
                 uint numerator = U32(data, little, (int)at), denominator = U32(data, little, (int)at + 4);
-                resolution = denominator == 0 ? null : (double)numerator / denominator;
+                double? value = denominator == 0 ? null : (double)numerator / denominator;
+                if (tag == 282)
+                {
+                    x = value;
+                }
+                else
+                {
+                    y = value;
+                }
             }
             else if (tag == 296 && type == 3)
             {
@@ -160,7 +177,13 @@ internal static class ImageDensity
             }
         }
 
-        return resolution is double r ? unit switch { 2 => r, 3 => r * 2.54, _ => null } : null;
+        if (x is not double rx)
+        {
+            return null;
+        }
+
+        double ry = y ?? rx;
+        return unit switch { 2 => (rx, ry), 3 => (rx * 2.54, ry * 2.54), _ => null };
     }
 
     private static uint U32(ReadOnlySpan<byte> data, bool little, int at) =>

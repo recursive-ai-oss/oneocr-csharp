@@ -581,7 +581,12 @@ internal static class Program
             accentTune = new OneOcr.Layout.JunkParameters(AccentConfidence: float.Parse(a[0], CultureInfo.InvariantCulture), AccentMargin: int.Parse(a[1], CultureInfo.InvariantCulture), AccentPageShare: double.Parse(a[2], CultureInfo.InvariantCulture));
         }
 
-        OcrOptions Page() => !o.TryGetValue("junk", out string? junkSpec)
+        // The resolution the file declares is applied as OcrEngine.OcrPages(path) does it, unless --density off (the page path before it existed).
+        (double, double)? density = null;
+        bool densityOff = o.TryGetValue("density", out string? densitySpec) && densitySpec == "off";
+        OcrOptions Declared(OcrOptions options) => options.WithDeclaredDpi(density);
+        OcrOptions Page() => Declared(PageUndeclared());
+        OcrOptions PageUndeclared() => !o.TryGetValue("junk", out string? junkSpec)
             ? new OcrOptions { MaxDegreeOfParallelism = degree, SearchAngle = !angleOff, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff"), JunkTuning = controlsOff ? (accentTune ?? new OneOcr.Layout.JunkParameters()) with { ControlConfidence = 0 } : accentTune }
             : junkSpec == "off"
                 ? new OcrOptions { MaxDegreeOfParallelism = degree, SearchAngle = !angleOff, DropNoise = false, FixWordSpacing = respace, FixDigitLookalikes = !digitsOff, FixSeparators = !o.ContainsKey("sepoff") }
@@ -595,6 +600,13 @@ internal static class Program
             clock.Restart();
             try
             {
+                if (!densityOff)
+                {
+                    using FileStream head = File.OpenRead(path);
+                    byte[] prefix = new byte[(int)Math.Min(head.Length, OneOcr.ImageDensity.WindowBytes)];
+                    density = OneOcr.ImageDensity.TryReadPair(prefix.AsSpan(0, head.Read(prefix, 0, prefix.Length)));
+                }
+
                 Image image = Image.Load(path);
                 // Decoding is lazy; touching the first pixel row is not enough to pay for all of it, so the page is decoded by the
                 // engine's own pixel read and this number is only the header work.
@@ -605,8 +617,8 @@ internal static class Program
                 {
                     clock.Restart();
                     text = noOrient
-                        ? engine.Ocr(image, new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, SearchAngle = false, IncludeChars = false }).ToText()
-                        : o.ContainsKey("junk") || o.ContainsKey("accent") || angleOff || !respace || controlsOff || digitsOff || o.ContainsKey("sepoff") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, new OcrOptions { MaxDegreeOfParallelism = degree });
+                        ? engine.Ocr(image, Declared(new OcrOptions { MaxDegreeOfParallelism = degree, DetectOrientation = false, Deskew = false, SearchAngle = false, IncludeChars = false })).ToText()
+                        : o.ContainsKey("junk") || o.ContainsKey("accent") || angleOff || !respace || controlsOff || digitsOff || o.ContainsKey("sepoff") ? engine.Ocr(image, Page()).ToText() : engine.ToText(image, Declared(new OcrOptions { MaxDegreeOfParallelism = degree }));
                     times.Add(clock.Elapsed.TotalMilliseconds);
                 }
 

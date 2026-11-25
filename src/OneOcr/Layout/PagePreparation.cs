@@ -64,7 +64,7 @@ internal sealed class PreparedPage
         var diagnostics = new List<OcrDiagnostic>(page.Diagnostics);
         diagnostics.AddRange(Notes);
         return new OcrPage(
-            page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, page.KeyValues, diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees);
+            page.Index, page.Width, page.Height, page.UnitsPerInch, page.Blocks, page.Regions, page.Tables, page.KeyValues, diagnostics, page.ToPdf, page.Orientation, page.SkewDegrees, page.VerticalUnitsPerInch);
     }
 
     /// <summary>Gives the arrays made here back to the pool.</summary>

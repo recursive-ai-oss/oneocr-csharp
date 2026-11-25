@@ -36,14 +36,14 @@ public sealed class PdfTextLayerWriter
         _document = document;
     }
 
-    /// <summary>The map from the page model's units (top-left origin, y down) to PDF user space for a page that did not come from a PDF: one unit is 1/<see cref="OcrPage.UnitsPerInch"/> inch.</summary>
+    /// <summary>The map from the page model's units (top-left origin, y down) to PDF user space for a page that did not come from a PDF: one unit is 1/<see cref="OcrPage.UnitsPerInch"/> inch across and 1/<see cref="OcrPage.VerticalUnitsPerInch"/> inch down.</summary>
     /// <param name="page">The page; its size and resolution are used.</param>
     /// <returns>The matrix that <see cref="Draw"/> uses when none is given and <see cref="OcrPage.ToPdf"/> is null.</returns>
     public static OcrMatrix ImageToPdf(OcrPage page)
     {
         ArgumentNullException.ThrowIfNull(page);
-        double s = 72.0 / page.UnitsPerInch;
-        return new OcrMatrix(s, 0, 0, -s, 0, page.Height * s);
+        double s = 72.0 / page.UnitsPerInch, sy = 72.0 / page.VerticalUnitsPerInch;
+        return new OcrMatrix(s, 0, 0, -sy, 0, page.Height * sy);
     }
 
     /// <summary>

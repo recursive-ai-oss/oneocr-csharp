@@ -549,8 +549,8 @@ internal sealed class ImagePdfBuilder : IDisposable
 
     private void AddPage(OcrPage page, PdfCreatedImage image)
     {
-        double s = 72.0 / page.UnitsPerInch;
-        double width = page.Width * s, height = page.Height * s;
+        double s = 72.0 / page.UnitsPerInch, sy = 72.0 / page.VerticalUnitsPerInch;
+        double width = page.Width * s, height = page.Height * sy;
         PdfPage pdfPage = _document.InsertBlankPage(_document.PageCount, width, height);
         using (PdfPageContentBuilder b = pdfPage.BeginContent())
         {
@@ -560,7 +560,8 @@ internal sealed class ImagePdfBuilder : IDisposable
         }
 
         _pages.Add(page);
-        Feed(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"|{page.Width:R}x{page.Height:R}@{page.UnitsPerInch:R}|") + page.ToText()));
+        string tail = page.VerticalUnitsPerInch == page.UnitsPerInch ? string.Empty : string.Create(CultureInfo.InvariantCulture, $":{page.VerticalUnitsPerInch:R}");
+        Feed(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"|{page.Width:R}x{page.Height:R}@{page.UnitsPerInch:R}") + tail + "|" + page.ToText()));
     }
 
     private void Feed(ReadOnlySpan<byte> data) => _hash.AppendData(data);
