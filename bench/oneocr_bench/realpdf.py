@@ -213,8 +213,11 @@ def columns(words: list[dict], width: float) -> int:
     return 1 + gutters
 
 
-def judge(path: Path, page: int, truth_page: dict) -> tuple[dict | None, str, dict]:
-    """Apply the acceptance rules to one page; returns (candidate or None, reason, measurements)."""
+def judge(path: Path, page: int, truth_page: dict, classify=None) -> tuple[dict | None, str, dict]:
+    """Apply the acceptance rules to one page; returns (candidate or None, reason, measurements).
+
+    `classify(raw_words, info)` replaces the clean/layout page-class rule (the financial cut keeps number-heavy pages); it returns the
+    class name or None, and every other rule applies unchanged."""
     info: dict = {}
     size, raw = poppler_words(path, page, True)
     _, phys = poppler_words(path, page, False)
@@ -310,14 +313,18 @@ def judge(path: Path, page: int, truth_page: dict) -> tuple[dict | None, str, di
     if info["outside_ink"] > OUTSIDE_INK:
         return None, f"ink outside the words ({info['outside_ink']})", info
 
-    if cols >= 2 or (h_rules >= 4 and v_rules >= 2):
+    if classify is not None:
+        klass = classify(raw, info)
+        if klass is None:
+            return None, "too few amounts", info
+    elif cols >= 2 or (h_rules >= 4 and v_rules >= 2):
         klass = "layout"
     elif cols == 1 and h_rules + v_rules <= 2 and 250 <= len(raw) <= 900:
         klass = "clean"
     else:
         return None, "neither clean nor layout", info
     need = ORDER_RATIO if klass == "clean" else ORDER_RATIO_LAYOUT
-    if info["order_poppler_layout"] < need or info["order_onepdf_reading"] < need:
+    if not info.get("order_exempt") and (info["order_poppler_layout"] < need or info["order_onepdf_reading"] < need):
         return None, f"order not credible ({info['order_poppler_layout']}, {info['order_onepdf_reading']})", info
     info["class"] = klass
     # lines for the text file: a new block whenever the next word starts a new line

@@ -42,7 +42,7 @@ if pages.isEmpty || out.isEmpty || !["accurate", "fast"].contains(level) { fail(
 
 let fm = FileManager.default
 try fm.createDirectory(atPath: out, withIntermediateDirectories: true)
-let files = try fm.contentsOfDirectory(atPath: pages).filter { $0.hasSuffix(".png") || $0.hasSuffix(".jpg") }.sorted()
+let files = try fm.contentsOfDirectory(atPath: pages).filter { name in [".png", ".jpg", ".jpeg", ".tif", ".tiff"].contains { name.hasSuffix($0) } }.sorted()
 
 func peakRssMb() -> Double {
     var u = rusage()

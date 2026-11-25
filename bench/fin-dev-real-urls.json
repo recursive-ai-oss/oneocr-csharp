@@ -1,0 +1,51 @@
+[
+ {
+  "url": "https://fiscaldata.treasury.gov/static-data/published-reports/mts/MonthlyTreasuryStatement_202309.pdf",
+  "source": "Bureau of the Fiscal Service",
+  "sha256": "75a75fbf068455e4d09ceaf187cf1552dbc2a182d09dd20b4fe8697a67eedd2d",
+  "bytes": 3760372,
+  "pages": 40
+ },
+ {
+  "url": "https://fiscaldata.treasury.gov/static-data/published-reports/mts/MonthlyTreasuryStatement_202403.pdf",
+  "source": "Bureau of the Fiscal Service",
+  "sha256": "f3c0a4477d41cbb3d1a24474ee8b07d0ab68337bdc016a6cfe33e38b452cb96c",
+  "bytes": 5233412,
+  "pages": 40
+ },
+ {
+  "url": "https://fiscaldata.treasury.gov/static-data/published-reports/mts/MonthlyTreasuryStatement_202506.pdf",
+  "source": "Bureau of the Fiscal Service",
+  "sha256": "ccc4a50e85b1a2ac70939db0e87c0fc73ffbe753664db803e70882573da68d68",
+  "bytes": 3503068,
+  "pages": 40
+ },
+ {
+  "url": "https://fiscaldata.treasury.gov/static-data/published-reports/mts/MonthlyTreasuryStatement_202509.pdf",
+  "source": "Bureau of the Fiscal Service",
+  "sha256": "2a975e8f8d145ef18f53de2dc60c6cb265892cd500e8d725f6297726c78605e8",
+  "bytes": 3966081,
+  "pages": 40
+ },
+ {
+  "url": "https://fiscaldata.treasury.gov/static-data/published-reports/mts/MonthlyTreasuryStatement_202511.pdf",
+  "source": "Bureau of the Fiscal Service",
+  "sha256": "a5b2c454316b06ed35a400088d06876d6d5e57fc394f281cb9303a946f22a8b0",
+  "bytes": 3622616,
+  "pages": 40
+ },
+ {
+  "url": "https://fiscaldata.treasury.gov/static-data/published-reports/mts/MonthlyTreasuryStatement_202512.pdf",
+  "source": "Bureau of the Fiscal Service",
+  "sha256": "da06dea19bb39aacbfd75fbec7eb2ef350e888a009e5ec519f49da88e99469b5",
+  "bytes": 3197840,
+  "pages": 40
+ },
+ {
+  "url": "https://home.treasury.gov/system/files/266/Treasury-FY-2024-AFR-111524.pdf",
+  "source": "Treasury",
+  "sha256": "7e2d20e64a63f7da6eda0f1e4b9b5cca673224770e0fd90684fc127bd8762fdc",
+  "bytes": 6927566,
+  "pages": 248
+ }
+]

@@ -16,7 +16,7 @@ import PIL
 from PIL import Image, ImageDraw
 
 from . import degrade, gen, layouts, receipts, receipts_synth, screens
-from .paths import MANIFESTS, data_dir
+from .paths import MANIFESTS, PAGE_SUFFIXES, data_dir
 
 
 @dataclass(frozen=True)
@@ -91,7 +91,7 @@ def set_dir(name: str) -> Path:
 
 
 def page_images(name: str) -> list[Path]:
-    return sorted(p for p in (set_dir(name) / "pages").iterdir() if p.suffix in (".png", ".jpg"))
+    return sorted(p for p in (set_dir(name) / "pages").iterdir() if p.suffix in PAGE_SUFFIXES)
 
 
 def _post_degraded(set_name, seed):

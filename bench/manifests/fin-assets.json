@@ -1,0 +1,59 @@
+{
+  "fonts_commit": "e7db6ca603fd4862010383ff17ffd6cc4ffac1c0",
+  "fonts": {
+    "IBM Plex Mono": {
+      "licence": "SIL Open Font License 1.1",
+      "files": {
+        "IBMPlexMono-Regular.ttf": {
+          "url": "https://raw.githubusercontent.com/google/fonts/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/ibmplexmono/IBMPlexMono-Regular.ttf",
+          "sha256": "6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46"
+        },
+        "IBMPlexMono-Bold.ttf": {
+          "url": "https://raw.githubusercontent.com/google/fonts/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/ibmplexmono/IBMPlexMono-Bold.ttf",
+          "sha256": "ac27abd6450a64dd94467580a02fe6235156d5b92f2926ebbc8e7489df64e0be"
+        }
+      },
+      "licence_file": {
+        "url": "https://raw.githubusercontent.com/google/fonts/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/ibmplexmono/OFL.txt",
+        "sha256": "7e6b2818edbd8f6a01ae80641cc8f16a51080d08fb4e532be3a0b6f74adb07da",
+        "copyright": "Copyright © 2017 IBM Corp. with Reserved Font Name \"Plex\""
+      }
+    },
+    "DM Mono": {
+      "licence": "SIL Open Font License 1.1",
+      "files": {
+        "DMMono-Regular.ttf": {
+          "url": "https://raw.githubusercontent.com/google/fonts/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/dmmono/DMMono-Regular.ttf",
+          "sha256": "55b4c98f123daebb3ed27947ba47b2af00554fc6284d639a540bcef5e6258ad2"
+        },
+        "DMMono-Medium.ttf": {
+          "url": "https://raw.githubusercontent.com/google/fonts/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/dmmono/DMMono-Medium.ttf",
+          "sha256": "fd327daf461db87b44a87def475d251bf03b997f7c07d9680592d75dbbfaad0b"
+        }
+      },
+      "licence_file": {
+        "url": "https://raw.githubusercontent.com/google/fonts/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/dmmono/OFL.txt",
+        "sha256": "2bada5ea45c3c63b7f1ea1f88ce9672c9e4f0c42b2c3b7378949084fe55a3066",
+        "copyright": "Copyright 2020 The DM Mono Project Authors (https://www.github.com/googlefonts/dm-mono)"
+      }
+    },
+    "Barlow": {
+      "licence": "SIL Open Font License 1.1",
+      "files": {
+        "Barlow-Regular.ttf": {
+          "url": "https://raw.githubusercontent.com/google/fonts/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/barlow/Barlow-Regular.ttf",
+          "sha256": "95aa02c7c43096e0dd44d787ba6216864a67157e402adab59b35572e0c1577ea"
+        },
+        "Barlow-Bold.ttf": {
+          "url": "https://raw.githubusercontent.com/google/fonts/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/barlow/Barlow-Bold.ttf",
+          "sha256": "84e6a4d61e7c3e21f3c50ea6a4f7e5303a3467864c038be6ea3759bab8d547f9"
+        }
+      },
+      "licence_file": {
+        "url": "https://raw.githubusercontent.com/google/fonts/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl/barlow/OFL.txt",
+        "sha256": "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f",
+        "copyright": "Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow)"
+      }
+    }
+  }
+}

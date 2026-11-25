@@ -25,12 +25,14 @@ by the C# bench), the scorer adds expected calibration error; see `word_outcomes
 Scorer versions (`--scorer`): v2 builds the truth word sequence from the truth text `<id>.txt`. v3 builds it from the truth's own word
 boxes (`<id>.json`) wherever they exist, see `v3_truth_words`; a truth directory without word boxes scores identically under both.
 Normalisation, the bag pairing and the order distance are the same in both. v3.1 is v3 plus one normalisation rule, applied to truth
-and hypothesis alike: two apostrophes in a row (after the typographic quotes are folded) become one double quote.
+and hypothesis alike: two apostrophes in a row (after the typographic quotes are folded) become one double quote. v3.2 scores CER, WER, order,
+ECE and detection exactly as v3.1 and adds, for truth with `tags`, the amount exact match and the running-balance reconciliation rate
+of `amounts.py` (key `amounts` in the result; absent when the truth has no tags).
 
 Word boxes: truth `words` carry `box` (the browser's layout rectangle) and, in bench-v2 sets, `ink` (tight to the printed ink).
 `--boxes ink` (default) scores F1 against `ink` where the truth has it, `--boxes layout` against `box`.
 
-    python -m oneocr_bench score --truth DIR --hyp DIR [--boxes ink|layout] [--scorer v2|v3|v3.1] [--json OUT]
+    python -m oneocr_bench score --truth DIR --hyp DIR [--boxes ink|layout] [--scorer v2|v3|v3.1|v3.2] [--json OUT]
 """
 
 from __future__ import annotations
@@ -61,7 +63,7 @@ def normalize(text: str, fold_quotes: bool = False) -> list[str]:
 
 # SCORERS are the versions `gate` and `competitors-freeze` always compute side by side; SELECTABLE adds the versions a run may choose.
 SCORERS = ("v2", "v3")
-SELECTABLE = SCORERS + ("v3.1",)
+SELECTABLE = SCORERS + ("v3.1", "v3.2")
 DEFAULT_SCORER = "v2"
 
 # v3 joins a word box to its list neighbour when their layout boxes are at most this far apart horizontally (pixels plus a share of the
@@ -110,7 +112,7 @@ def truth_text(truth_dir: Path, stem: str, scorer: str = DEFAULT_SCORER) -> str:
     txt = (truth_dir / f"{stem}.txt").read_text(encoding="utf-8")
     if scorer == "v2":
         return txt
-    if scorer not in ("v3", "v3.1"):
+    if scorer not in ("v3", "v3.1", "v3.2"):
         raise ValueError(f"unknown scorer {scorer!r}: expected one of {SELECTABLE}")
     side = truth_dir / f"{stem}.json"
     if side.exists():
@@ -285,12 +287,14 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
     """
     if scorer not in SELECTABLE:
         raise ValueError(f"unknown scorer {scorer!r}: expected one of {SELECTABLE}")
-    fold = scorer == "v3.1"
+    fold = scorer in ("v3.1", "v3.2")
     key = "ink" if boxes == "ink" else "box"
     pages = {}
     det = {"tp": 0, "truth": 0, "hyp": 0}
     have_boxes = True
     have_conf = True
+    amount_total: dict = {}
+    text_total: dict = {}
     conf: list[float] = []
     status: list[str] = []
     for t in sorted(truth_dir.glob("*.txt")):
@@ -299,6 +303,16 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
         truth = truth_text(truth_dir, t.stem, scorer)
         pages[t.stem] = score_page(truth, text, fold)
         side = hyp_dir / f"{t.stem}.json"
+        if scorer == "v3.2" and (truth_dir / f"{t.stem}.json").exists():
+            from . import amounts
+
+            tj = json.loads((truth_dir / f"{t.stem}.json").read_text())
+            # an engine that gives no word boxes is scored by the text-only rule, so missing boxes cost it nothing
+            ap = (amounts.score_page(tj, json.loads(side.read_text())["words"]) if side.exists()
+                  else amounts.score_page_text(tj, text))
+            if ap:
+                amounts.add_page(amount_total, ap)
+                amounts.add_page(text_total, amounts.score_page_text(tj, text))
         if not side.exists():
             have_boxes = have_conf = False
         else:
@@ -336,6 +350,11 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
     }
     r["boxes"] = boxes
     r["scorer"] = scorer
+    if amount_total:
+        from . import amounts
+
+        r["amounts"] = amounts.summarize(amount_total)
+        r["amounts"]["text_only"] = amounts.summarize(text_total)
     r["ece"] = ece_summary(conf, status) if have_conf and conf else None
     if have_boxes and det["truth"]:
         p = det["tp"] / det["hyp"] if det["hyp"] else 0.0
@@ -345,12 +364,14 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
 
 
 def summary_line(r: dict) -> str:
-    tag = f"  [scorer {r['scorer']}]" if r.get("scorer") in ("v3", "v3.1") else ""
+    tag = f"  [scorer {r['scorer']}]" if r.get("scorer") in ("v3", "v3.1", "v3.2") else ""
     f1 = f"  F1@0.5 {r['det']['f1']:.4f} [{r['boxes']} boxes] (P {r['det']['precision']:.3f} R {r['det']['recall']:.3f})" if r["det"] else ""
     e = r.get("ece")
     ece_s = f"  ECE {e['ece']:.4f} (matched words only {e['ece_matched']:.4f}; {e['words']} words)" if e else ""
+    a = r.get("amounts")
+    am = (f"  amount-exact {a['amount_exact']:.4%} ({a['amount_values']} values)" + (f"  reconciled {a['reconciliation']:.4%} ({a['rows']} rows)" if a["rows"] else "")) if a else ""
     return (f"pages {r['pages']} (missing {r['missing']})  CER {r['cer']:.4%}  WER {r['wer']:.4%}  "
-            f"order {r['order_err']:.4%}  recall-CER {r['cer_recall']:.4%}  recall-WER {r['wer_recall']:.4%}{f1}{ece_s}{tag}")
+            f"order {r['order_err']:.4%}  recall-CER {r['cer_recall']:.4%}  recall-WER {r['wer_recall']:.4%}{f1}{ece_s}{am}{tag}")
 
 
 def main(truth: str, hyp: str, out: str | None, boxes: str = "ink", scorer: str = DEFAULT_SCORER) -> None:

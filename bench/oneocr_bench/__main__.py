@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 
-from . import assets, competitors, gate, realpdf, realweb, score, seal, sets, tess
+from . import assets, competitors, fin, finreal, finreport, gate, realpdf, realweb, score, seal, sets, tess
 
 
 def main() -> None:
@@ -24,6 +24,19 @@ def main() -> None:
     g.add_argument("--out", default=None, help="with --seed: output directory")
     g.add_argument("--synthetic-receipts", action="store_true", help="with --seed: receipts-v1 from the receipt generator, not CORD")
     g.add_argument("--avoid-text", nargs="*", default=[], metavar="DIR", help="with --seed: eval roots (<set>/truth) whose passages are not reused")
+
+    fn = sub.add_parser("fin", help="degraded financial documents: statements, invoices and receipts with tagged amounts", description=fin.__doc__,
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    fn.add_argument("action", choices=["fetch", "gen", "check", "draw", "freeze"])
+    fn.add_argument("root", nargs="?", help="check, draw: the set (or eval root) directory")
+    fn.add_argument("page", nargs="?", help="draw: page id")
+    fn.add_argument("--update", action="store_true", help="fetch: rewrite the font manifest")
+    fn.add_argument("--set", choices=list(fin.SET_KINDS), help="gen: one set (default: all four)")
+    fn.add_argument("--seeds", help="gen: JSON file {set: seed}")
+    fn.add_argument("--out", help="gen: output root, one directory per set")
+    fn.add_argument("--count", type=int, default=None, help="gen: pages per set (default 40)")
+    fn.add_argument("--check", action="store_true", help="gen: compare with the committed manifest")
+    fn.add_argument("--manifest", help="freeze: also write the combined page manifest here")
 
     sl = sub.add_parser("seal", help="cut or verify a sealed page set (all six categories, seeds from a private file)")
     sl.add_argument("action", choices=["build", "verify", "add-real"])
@@ -129,6 +142,29 @@ def main() -> None:
     rp.add_argument("--layout", type=int, default=40)
     rp.add_argument("--degraded", type=int, default=40)
 
+    fr = sub.add_parser("finreal", help="fetch real financial PDFs and cut verified, tagged pages from them", description=finreal.__doc__,
+                        formatter_class=argparse.RawDescriptionHelpFormatter)
+    fr.add_argument("action", choices=["fetch", "cut"])
+    fr.add_argument("--list")
+    fr.add_argument("--out")
+    fr.add_argument("--pdfs")
+    fr.add_argument("--seeds")
+    fr.add_argument("--pdftruth")
+    fr.add_argument("--exclude")
+    fr.add_argument("--max-bytes", type=int, default=realpdf.MAX_FETCH_BYTES)
+    fr.add_argument("--scan-per-doc", type=int, default=30)
+    fr.add_argument("--each", type=int, default=10, help="cut: pages in each of the scan, fax and phone sets")
+    fr.add_argument("--check", action="store_true", help="cut: compare with the committed manifest")
+    fr.add_argument("--tables", type=int, default=20, help="cut: pages in the tables set")
+
+    fp = sub.add_parser("fin-report", help="financial sets: tables of every engine, the best of them, and our amount misses by cause",
+                        description=finreport.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    fp.add_argument("--eval", required=True)
+    fp.add_argument("--runs", required=True)
+    fp.add_argument("--ours", default="ours")
+    fp.add_argument("--out")
+    fp.add_argument("--json")
+
     sub.add_parser("tess-report", help="merge per-set Tesseract results into one table")
 
     a = ap.parse_args()
@@ -138,8 +174,14 @@ def main() -> None:
         if a.set == "all" or not a.out or a.check:
             ap.error("--seed needs one --set, --out, and no --check")
         sets.run_gen_seeded(a.set, a.count, a.seed, Path(a.out).expanduser(), a.synthetic_receipts, [Path(p).expanduser() for p in a.avoid_text])
+    elif a.cmd == "fin":
+        fin.main(a)
     elif a.cmd == "realweb":
         realweb.capture(a)
+    elif a.cmd == "fin-report":
+        finreport.main(a)
+    elif a.cmd == "finreal":
+        (realpdf.fetch if a.action == "fetch" else finreal.cut)(a)
     elif a.cmd == "realpdf":
         {"fetch": realpdf.fetch, "cut": realpdf.cut, "hashdir": realpdf.hashdir}[a.action](a)
     elif a.cmd == "seal":

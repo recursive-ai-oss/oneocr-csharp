@@ -5,6 +5,8 @@ from pathlib import Path
 
 BENCH = Path(__file__).resolve().parent.parent
 MANIFESTS = BENCH / "manifests"
+# Page image formats the runners read (the fax sets are CCITT G3 TIFF).
+PAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".tif", ".tiff")
 
 
 def data_dir() -> Path:
