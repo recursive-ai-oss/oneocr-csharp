@@ -5,8 +5,9 @@ this package only converts, decides what to trust, and calls the engine's page e
 
 ## Versions
 
-`RecursiveAI.OnePdf` 1.10.1 and `RecursiveAI.OneImage.Pdf` 1.10.4 (the versions in `src/OneOcr.Pdf/OneOcr.Pdf.csproj`). OneImage.Pdf pins
-the exact `RecursiveAI.OneImage` version, so 1.10.4 is the one that matches the core package's OneImage 1.10.4 floor.
+`RecursiveAI.OnePdf` 1.25.0 and `RecursiveAI.OneImage.Pdf` 1.10.4 (the versions in `src/OneOcr.Pdf/OneOcr.Pdf.csproj`). OneImage.Pdf pins
+the exact `RecursiveAI.OneImage` version, so 1.10.4 is the one that matches the core package's OneImage 1.10.4 floor. The searchable-PDF writer
+(`searchable-pdf.md`) needs OnePDF's content builder, PNG pass-through and PDF/A save, all in 1.25.0; it needs nothing newer from OneImage.Pdf.
 
 ## Coordinates
 
@@ -53,3 +54,5 @@ and the rest of the page is still read; `Strict` throws instead. Damaged files r
 `OcrLimitException`; nothing else comes out of a public method except argument errors, I/O errors and cancellation.
 
 Not done: outlined text (glyphs drawn as paths), annotations (they are neither read nor rendered), vector text-as-art.
+
+Writing a text layer back into a PDF (or making a PDF from images) is specified in `searchable-pdf.md`.

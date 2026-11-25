@@ -2,6 +2,16 @@
 
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Searchable PDFs** (`RecursiveAI.OneOcr.Pdf`): `image.ToSearchablePdf(...)`, `SearchablePdf.FromImages/FromFiles/FromData` (many images or a multi-frame TIFF into one PDF) and `SearchablePdf.MakeSearchable` (PDF in, PDF out) put the page model's words on the page as an invisible text layer, so selection, search and copy match what the page shows. A JPEG is placed as its own bytes, bilevel pages stay 1-bit, nothing is re-encoded lossily, and rendering is unchanged. `MakeSearchable` leaves pages that already have trusted text exactly as they were, and replaces an invisible layer from an earlier OCR step instead of stacking another on it. PDF/A-2b output is an option. Output is deterministic. `PdfTextLayerWriter` is the low-level writer for one `OcrPage`. Specified in `docs/spec/searchable-pdf.md`.
+
+### Changed
+
+- `RecursiveAI.OneOcr.Pdf` builds on `RecursiveAI.OnePdf` 1.25.0 (was 1.10.1).
+
 ## [1.0.0] - 2026-10-31
 
 First release.
