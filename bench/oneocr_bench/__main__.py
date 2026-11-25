@@ -4,7 +4,7 @@ import argparse
 import os
 from pathlib import Path
 
-from . import assets, competitors, fin, finreal, gate, realpdf, realweb, score, seal, sets, tess
+from . import assets, competitors, fin, finreal, finreport, gate, realpdf, realweb, score, seal, sets, tess
 
 
 def main() -> None:
@@ -157,6 +157,14 @@ def main() -> None:
     fr.add_argument("--check", action="store_true", help="cut: compare with the committed manifest")
     fr.add_argument("--tables", type=int, default=20, help="cut: pages in the tables set")
 
+    fp = sub.add_parser("fin-report", help="financial sets: tables of every engine, the best of them, and our amount misses by cause",
+                        description=finreport.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    fp.add_argument("--eval", required=True)
+    fp.add_argument("--runs", required=True)
+    fp.add_argument("--ours", default="ours")
+    fp.add_argument("--out")
+    fp.add_argument("--json")
+
     sub.add_parser("tess-report", help="merge per-set Tesseract results into one table")
 
     a = ap.parse_args()
@@ -170,6 +178,8 @@ def main() -> None:
         fin.main(a)
     elif a.cmd == "realweb":
         realweb.capture(a)
+    elif a.cmd == "fin-report":
+        finreport.main(a)
     elif a.cmd == "finreal":
         (realpdf.fetch if a.action == "fetch" else finreal.cut)(a)
     elif a.cmd == "realpdf":

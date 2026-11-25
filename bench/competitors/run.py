@@ -157,6 +157,8 @@ def main() -> None:
 
     times = {}
     for p in files:
+        if (out / f"{p.stem}.json").exists():  # written last: a page with its sidecar is done, so an interrupted run resumes
+            continue
         t = time.perf_counter()
         lines, words = run(p)
         times[p.stem] = time.perf_counter() - t

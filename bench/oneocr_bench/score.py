@@ -294,6 +294,7 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
     have_boxes = True
     have_conf = True
     amount_total: dict = {}
+    text_total: dict = {}
     conf: list[float] = []
     status: list[str] = []
     for t in sorted(truth_dir.glob("*.txt")):
@@ -306,9 +307,12 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
             from . import amounts
 
             tj = json.loads((truth_dir / f"{t.stem}.json").read_text())
-            ap = amounts.score_page(tj, json.loads(side.read_text())["words"] if side.exists() else None)
+            # an engine that gives no word boxes is scored by the text-only rule, so missing boxes cost it nothing
+            ap = (amounts.score_page(tj, json.loads(side.read_text())["words"]) if side.exists()
+                  else amounts.score_page_text(tj, text))
             if ap:
                 amounts.add_page(amount_total, ap)
+                amounts.add_page(text_total, amounts.score_page_text(tj, text))
         if not side.exists():
             have_boxes = have_conf = False
         else:
@@ -350,6 +354,7 @@ def score_dir(truth_dir: Path, hyp_dir: Path, boxes: str = "ink", scorer: str = 
         from . import amounts
 
         r["amounts"] = amounts.summarize(amount_total)
+        r["amounts"]["text_only"] = amounts.summarize(text_total)
     r["ece"] = ece_summary(conf, status) if have_conf and conf else None
     if have_boxes and det["truth"]:
         p = det["tp"] / det["hyp"] if det["hyp"] else 0.0
