@@ -20,6 +20,7 @@ For our rows the report also classifies each missed value (undetected, merged wi
 
 from __future__ import annotations
 
+import difflib
 import json
 from collections import Counter
 from pathlib import Path
@@ -54,21 +55,30 @@ def discover(runs: Path, ours: str) -> dict[str, dict[str, Path]]:
     return out
 
 
-def diagnose(truth: dict, hyp: list[dict], tag: dict) -> str:
+def diagnose(truth: dict, hyp: list[dict], tag: dict) -> tuple[str, str, str]:
     """Why a tagged value was not read exactly in place, from the hypothesis words that lie in its region."""
     tw = truth["words"]
     reg = amounts.value_region(tw, tag["words"])
     near = sorted((h for h in hyp if _inside(_centre(h), reg)), key=lambda h: _centre(h)[0])
     if not near:
-        return "undetected"
+        return "undetected", "", ""
     want = "".join(amounts._nospace(tw[i]["text"]) for i in tag["words"])
     got = "".join(amounts._nospace(h["text"]) for h in near)
     if want in got:
-        return "merged"
+        return "merged", want, got
     digits = lambda s: "".join(c for c in s if c.isdigit())  # noqa: E731
     if digits(got) == digits(want):
-        return "separator or sign misread"
-    return "digit misread"
+        return "separator or sign misread", want, got
+    return "digit misread", want, got
+
+
+def confusions(want: str, got: str) -> list[str]:
+    """Character edits that turn the hypothesis text into the truth, as `truth>read` (`-` for a missing or an extra character)."""
+    out = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, want, got, autojunk=False).get_opcodes():
+        if op != "equal":
+            out.append(f"{want[i1:i2] or '-'}>{got[j1:j2] or '-'}")
+    return out
 
 
 def conditions(truth: dict) -> list[str]:
@@ -97,6 +107,8 @@ def score_config(eval_root: Path, name: str, dirs: dict[str, Path], analyse: boo
                "f1": r["det"]["f1"] if r["det"] else None, "ece": r["ece"]["ece"] if r.get("ece") else None, "amounts": r.get("amounts")}
         per_doc: dict = {}
         causes: Counter = Counter()
+        edits: dict[str, Counter] = {}
+        qcauses: Counter = Counter()
         slices: dict = {}
         for t in sorted(tdir.glob("*.json")):
             truth = json.loads(t.read_text())
@@ -109,6 +121,9 @@ def score_config(eval_root: Path, name: str, dirs: dict[str, Path], analyse: boo
             amounts.add_page(per_doc.setdefault(doc, {}), page)
             conds = conditions(truth)
             for d in page["decisions"]:
+                if d["cls"] == "qty" and analyse and not d["read"]:
+                    tag = next(x for x in truth["tags"] if x["words"] == d["words"])
+                    qcauses[diagnose(truth, hw, tag)[0]] += 1
                 if d["cls"] not in CLASSES:
                     continue
                 for c in conds:
@@ -117,10 +132,15 @@ def score_config(eval_root: Path, name: str, dirs: dict[str, Path], analyse: boo
                     v[1] += int(d["read"])
                 if analyse and not d["read"]:
                     tag = next(x for x in truth["tags"] if x["words"] == d["words"])
-                    causes[diagnose(truth, hw, tag)] += 1
+                    cause, want, got = diagnose(truth, hw, tag)
+                    causes[cause] += 1
+                    if cause in ("separator or sign misread", "digit misread"):
+                        edits.setdefault(cause, Counter()).update(confusions(want, got))
         row["by_doc"] = {k: amounts.summarize(v) for k, v in per_doc.items()}
         if analyse:
             row["causes"] = dict(causes)
+            row["qty_causes"] = dict(qcauses)
+            row["edits"] = {k: dict(v) for k, v in edits.items()}
             row["slices"] = {k: {"values": v[0], "missed": v[0] - v[1]} for k, v in slices.items()}
         res["sets"][s] = row
     return res
@@ -128,7 +148,7 @@ def score_config(eval_root: Path, name: str, dirs: dict[str, Path], analyse: boo
 
 def pooled(sets: dict, names: list[str]) -> dict | None:
     rows = [sets[n] for n in names if n in sets]
-    if not rows:
+    if len(rows) != len(names):  # an engine with only some of the sets is not pooled
         return None
     tot: Counter = Counter()
     cnt: Counter = Counter()
@@ -182,14 +202,14 @@ def markdown(rep: dict) -> str:
                 continue
             note = " (order is information: table pages have no verified order)" if kind != "synthetic" else ""
             L.append(f"### {cat}, {kind} ({', '.join(names)}){note}\n")
-            L.append("| engine | CER % | WER % | order % | amount exact % (box) | amount exact % (text-only) | money | date | account | reconciliation % |")
-            L.append("|---|---|---|---|---|---|---|---|---|---|")
+            L.append("| engine | CER % | WER % | order % | amount exact % (box) | amount exact % (text-only) | money | date | account | qty (single digits mostly), in place | reconciliation % |")
+            L.append("|---|---|---|---|---|---|---|---|---|---|---|")
 
             def line(n: str, r: dict) -> str:
                 cl = r["classes"]
                 f = lambda c: pct(cl[c]["box"], 1) + " / " + pct(cl[c]["text"], 1) if c in cl else "-"  # noqa: E731
                 return (f"| {n} | {pct(r['cer'])} | {pct(r['wer'])} | {pct(r['order'])} | {pct(r['amount'], 1)} | {pct(r['text_only'], 1)} | "
-                        f"{f('money')} | {f('date')} | {f('account')} | {pct(r['reconciliation'], 1)} |")
+                        f"{f('money')} | {f('date')} | {f('account')} | {pct(cl['qty']['box'], 1) if 'qty' in cl else '-'} | {pct(r['reconciliation'], 1)} |")
 
             order = [ours] + sorted(n for n in rows if n != ours)
             for n in order:
@@ -200,9 +220,10 @@ def markdown(rep: dict) -> str:
                 best = {"cer": min(r["cer"] for r in others.values()), "wer": min(r["wer"] for r in others.values()),
                         "order": min(r["order"] for r in others.values()),
                         "amount": max((r["amount"] or 0) for r in others.values()), "text_only": max((r["text_only"] or 0) for r in others.values()),
-                        "reconciliation": max((r["reconciliation"] or 0) for r in others.values()) or None}
+                        "reconciliation": max((r["reconciliation"] or 0) for r in others.values()) or None,
+                        "qty": max((r["classes"].get("qty", {}).get("box") or 0) for r in others.values()) or None}
                 L.append(f"| **best other** | {pct(best['cer'])} | {pct(best['wer'])} | {pct(best['order'])} | {pct(best['amount'], 1)} | "
-                         f"{pct(best['text_only'], 1)} |  |  |  | {pct(best['reconciliation'], 1)} |")
+                         f"{pct(best['text_only'], 1)} |  |  |  | {pct(best['qty'], 1)} | {pct(best['reconciliation'], 1)} |")
             L.append("")
     if ours in cfg:
         L.append("### Our amount misses by cause (money, date, account values not read exactly in place)\n")
@@ -218,6 +239,23 @@ def markdown(rep: dict) -> str:
             L.append(f"| {s} | {n} | {miss} | " + " | ".join(str(cs.get(k, 0)) for k in
                      ["undetected", "merged", "separator or sign misread", "digit misread"]) + " |")
         L.append("")
+        L.append("### Our quantity-cell misses (mostly single digits) by cause\n")
+        L.append("| set | values | missed | undetected | merged | separator or sign misread | digit misread |")
+        L.append("|---|---|---|---|---|---|---|")
+        for s, r in sorted(cfg[ours]["sets"].items()):
+            q = ((r["amounts"] or {}).get("classes") or {}).get("qty")
+            if not q:
+                continue
+            cs = r.get("qty_causes", {})
+            L.append(f"| {s} | {q['values']} | {sum(cs.values())} | " + " | ".join(str(cs.get(k, 0)) for k in
+                     ["undetected", "merged", "separator or sign misread", "digit misread"]) + " |")
+        L.append("")
+        for cause in ("separator or sign misread", "digit misread"):
+            tot: Counter = Counter()
+            for r in cfg[ours]["sets"].values():
+                tot.update(r.get("edits", {}).get(cause, {}))
+            L.append(f"### Our most frequent character edits in {cause}s (truth>read, all sets)\n")
+            L.append(", ".join(f"`{k}` {v}" for k, v in tot.most_common(14)) + "\n")
         L.append("### Our miss rate by condition (values missed / values, conditions overlap)\n")
         L.append("| set | " + " | ".join(["fax 1-bit fine", "fax 1-bit std", "low resolution", "skew >= 4 degrees", "phone", "tables cut"]) + " |")
         L.append("|---|---|---|---|---|---|")
