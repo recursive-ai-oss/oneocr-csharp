@@ -1,0 +1,193 @@
+# Line set for the financial fine-tune of the recognizer: amounts, dates, account numbers, quantities and their signs and separators
+# (gen/fin_text.py) on fax (1-bit, standard and fine), flatbed-scan, photocopy and phone captures, next to a smaller replay of the
+# production mix so prose, receipts, interface text and tight crops keep their weight. All text is generated here and the rendered
+# string is the label (exact truth); fonts are the training families of data/fonts.yaml only. Render with gen/make_lines_r1.sh:
+#   CFG=configs/lines-fin.yaml gen/make_lines_r1.sh OUT_DIR            (plan + clean packs, then the validation sets on the GPU)
+name: lines-fin
+seed: 20269151
+charset: data/charset-v1.txt
+fonts: data/fonts.yaml
+sets:
+  # replay of the production mix (same text recipes and degradation sides as the earlier line sets, smaller)
+  train: { n: 60000, fonts: train, books: train, degrade: train, degrade_from: configs/lines-v4.yaml }
+  val: { n: 3000, fonts: train, books: heldout, degrade: train, degrade_from: configs/lines-v4.yaml }
+  eval: { n: 5000, fonts: heldout, books: heldout, degrade: heldout, degrade_from: configs/lines-v4.yaml }
+  rep_train: { n: 40000, fonts: train, books: train, degrade: adapt, degrade_from: configs/lines-v6.yaml, mix: { figures: 0.30, receipt: 0.12, numbers: 0.08, codes: 0.08, book: 0.25, pseudo: 0.05, rare: 0.04 } }
+  figures_val: { n: 3000, fonts: train, books: heldout, degrade: adapt, degrade_from: configs/lines-v6.yaml, mix: { figures: 1.0 } }
+  ui_train: { n: 30000, fonts: train, books: train, degrade: ui, degrade_from: configs/lines-v5.yaml, mix: { ui: 1.0 }, families: &ui [arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans, manrope, firasans, rubik, jost, istokweb, notoserif, ptserif, cousine] }
+  ui_val: { n: 3000, fonts: train, books: heldout, degrade: ui, degrade_from: configs/lines-v5.yaml, mix: { ui: 1.0 }, families: *ui }
+  tight_train: { n: 20000, fonts: train, books: train, degrade: page, degrade_from: configs/lines-v5.yaml, mix: { tight: 1.0 } }
+  tight_val: { n: 3000, fonts: train, books: heldout, degrade: page, degrade_from: configs/lines-v5.yaml, mix: { tight: 1.0 } }
+  gaps_train: { n: 20000, fonts: train, books: train, degrade: page, degrade_from: configs/lines-v5.yaml, mix: { gap: 1.0 } }
+  gaps_val: { n: 3000, fonts: train, books: heldout, degrade: page, degrade_from: configs/lines-v5.yaml, mix: { gap: 1.0 } }
+  shot_val: { n: 3000, fonts: train, books: heldout, degrade: screen, degrade_from: configs/lines-v6.yaml, mix: { ui: 0.6, tight: 0.4 }, families: *ui }
+  mq_train: { n: 20000, fonts: train, books: train, degrade: rcpt, degrade_from: configs/lines-masks.yaml, families: &rfam [courierprime, cutivemono, sharetechmono, anonymouspro, firamono, inconsolata, notosansmono, ptmono, sourcecodepro, spacemono, cousine, specialelite, robotocondensed, ubuntucondensed, oswald, arimo, roboto, notosans, opensans, inter, lato, ubuntu, ptsans, worksans], mix: { mask: 0.5, qty: 0.5 }, single_script: true }
+  mask_val: { n: 2000, fonts: heldout, books: heldout, degrade: rcpt, degrade_from: configs/lines-masks.yaml, families: &hfam [jetbrainsmono, robotomono, ubuntumono, karla, cabin, alegreyasans, ptsansnarrow], mix: { mask: 1.0 }, single_script: true }
+  qty_val: { n: 2000, fonts: heldout, books: heldout, degrade: rcpt, degrade_from: configs/lines-masks.yaml, families: *hfam, mix: { qty: 1.0 }, single_script: true }
+  # financial strings (gen/fin_text.py); the training pack is clean, the four capture sides below degrade it at training time.
+  # fin_val_*: training fonts and ranges, unseen books (used to select checkpoints). fin_eval_*: held-out font families and
+  # degradation ranges (reported, never used to select). fin_calib: every font family, training and held-out sides alternating.
+  fin_train: { n: 200000, fonts: train, books: train, families: &finfam [opensans, notosans, firasans, ptsans, ubuntu, roboto, robotocondensed, rubik, montserrat, worksans, exo2, manrope, jost, inter, istokweb, scada, play, arimo, ubuntucondensed, lato, ptserif, merriweather, lora, librebaskerville, crimsontext, bitter, alegreya, literata, notoserif, tinos, cardo, arvo, zillaslab, robotoslab, crimsonpro, ptmono, firamono, inconsolata, sourcecodepro, cousine, anonymouspro, courierprime, cutivemono, notosansmono, spacemono], degrade: fin_fax, mix: &finmix { fin: 0.80, book: 0.10, numbers: 0.04, codes: 0.02, figures: 0.04 } }
+  fin_val_fax: { n: 2000, fonts: train, books: heldout, families: *finfam, degrade: fin_fax, mix: *finmix }
+  fin_val_scan: { n: 2000, fonts: train, books: heldout, families: *finfam, degrade: fin_scan, mix: *finmix }
+  fin_val_copy: { n: 2000, fonts: train, books: heldout, families: *finfam, degrade: fin_copy, mix: *finmix }
+  fin_val_phone: { n: 2000, fonts: train, books: heldout, families: *finfam, degrade: fin_phone, mix: *finmix }
+  fin_eval_fax: { n: 2000, fonts: heldout, books: heldout, families: [spectral, domine, cabin, karla, alegreyasans, ptsansnarrow, vollkorn, jetbrainsmono, robotomono, ubuntumono], degrade: fin_fax_h, mix: *finmix }
+  fin_eval_scan: { n: 2000, fonts: heldout, books: heldout, families: [spectral, domine, cabin, karla, alegreyasans, ptsansnarrow, vollkorn, jetbrainsmono, robotomono, ubuntumono], degrade: fin_scan_h, mix: *finmix }
+  fin_eval_copy: { n: 2000, fonts: heldout, books: heldout, families: [spectral, domine, cabin, karla, alegreyasans, ptsansnarrow, vollkorn, jetbrainsmono, robotomono, ubuntumono], degrade: fin_copy_h, mix: *finmix }
+  fin_eval_phone: { n: 2000, fonts: heldout, books: heldout, families: [spectral, domine, cabin, karla, alegreyasans, ptsansnarrow, vollkorn, jetbrainsmono, robotomono, ubuntumono], degrade: fin_phone_h, mix: *finmix }
+  fin_calib: { n: 24000, fonts: any, books: heldout, families: [opensans, notosans, firasans, ptsans, ubuntu, roboto, robotocondensed, rubik, montserrat, worksans, exo2, manrope, jost, inter, istokweb, scada, play, arimo, ubuntucondensed, lato, ptserif, merriweather, lora, librebaskerville, crimsontext, bitter, alegreya, literata, notoserif, tinos, cardo, arvo, zillaslab, robotoslab, crimsonpro, ptmono, firamono, inconsolata, sourcecodepro, cousine, anonymouspro, courierprime, cutivemono, notosansmono, spacemono, spectral, domine, cabin, karla, alegreyasans, ptsansnarrow, vollkorn, jetbrainsmono, robotomono, ubuntumono], degrade: [fin_fax, fin_fax_h, fin_scan, fin_scan_h, fin_copy, fin_copy_h, fin_phone, fin_phone_h], mix: *finmix }
+mix: { book: 0.80, numbers: 0.07, codes: 0.05, rare: 0.03, pseudo: 0.05 }
+gpu_degrade:
+  fin_fax:
+    ranges:
+      em: [[12, 18], [15, 22], [18, 28], [22, 34]]
+      blur_rel: [[0.0, 0.08], [0.03, 0.10]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 4.0], [2.0, 5.0]]
+      shot: [0.0, 0.03]
+      jpeg_q: [40, 90]
+      contrast: [[120, 255], [150, 255]]
+      persp: [0.0, 0.10]
+      light: [0.0, 0.2]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.0, 0.03]
+      streak: [0.0, 0.06]
+      bin_t: [[0.4, 0.6]]
+      bin_soft: [[0.0, 0.0], [0.0, 0.0], [0.02, 0.06]]
+      vsq: [[1.0, 1.0], [1.5, 2.0], [2.0, 2.0]]
+      flip: [0.0, 0.004]
+    p: { smooth: 0.9, blur: 0.9, motion: 0.05, jpeg: 0.05, persp: 0.2, light: 0.2, subpixel: 0.0, dark: 0.02, tint: 0.05, sliver_v: 0.15, sliver_h: 0.1, rule: 0.15, resample: 0.5, resample2: 0.2, thermal: 0.25, bin: 1.0, vnear: 0.5 }
+  fin_fax_h:
+    ranges:
+      em: [[11, 12.5], [34, 40]]
+      blur_rel: [[0.08, 0.11]]
+      motion: [1.5, 3.0]
+      noise: [[5.0, 7.0]]
+      shot: [0.03, 0.045]
+      jpeg_q: [30, 45]
+      contrast: [[95, 120]]
+      persp: [0.08, 0.12]
+      light: [0.2, 0.3]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.03, 0.06]
+      streak: [0.06, 0.1]
+      bin_t: [[0.3, 0.37], [0.63, 0.7]]
+      bin_soft: [[0.0, 0.0], [0.06, 0.09]]
+      vsq: [[1.25, 1.25], [1.75, 1.75]]
+      flip: [0.004, 0.008]
+    p: { smooth: 0.9, blur: 0.9, motion: 0.05, jpeg: 0.05, persp: 0.2, light: 0.2, subpixel: 0.0, dark: 0.02, tint: 0.05, resample: 0.5, resample2: 0.2, thermal: 0.25, bin: 1.0, vnear: 0.5 }
+  fin_scan:
+    ranges:
+      em: [[13, 18], [16, 22], [20, 28], [26, 40], [30, 55]]
+      blur_rel: [[0.0, 0.07], [0.03, 0.09]]
+      motion: [1.5, 3.0]
+      noise: [[0.0, 6.0]]
+      shot: [0.0, 0.02]
+      jpeg_q: [35, 90]
+      contrast: [[90, 255], [110, 255]]
+      persp: [0.0, 0.05]
+      light: [0.0, 0.2]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.0, 0.03]
+      streak: [0.0, 0.06]
+      bin_t: [[0.4, 0.65]]
+      bin_soft: [[0.05, 0.12]]
+      vsq: [[1.0, 1.0]]
+      flip: [0.0, 0.003]
+    p: { smooth: 0.3, blur: 0.9, motion: 0.05, jpeg: 0.7, persp: 0.1, light: 0.25, subpixel: 0.0, dark: 0.02, tint: 0.1, sliver_v: 0.2, sliver_h: 0.15, rule: 0.2, resample: 0.5, resample2: 0.2, thermal: 0.3, bin: 0.3, vnear: 0.5 }
+  fin_scan_h:
+    ranges:
+      em: [[11, 12.5], [56, 70]]
+      blur_rel: [[0.08, 0.11]]
+      motion: [1.5, 3.0]
+      noise: [[6.0, 8.0]]
+      shot: [0.02, 0.04]
+      jpeg_q: [20, 35]
+      contrast: [[70, 90]]
+      persp: [0.05, 0.08]
+      light: [0.2, 0.3]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.03, 0.06]
+      streak: [0.06, 0.1]
+      bin_t: [[0.3, 0.4], [0.65, 0.72]]
+      bin_soft: [[0.12, 0.2]]
+      vsq: [[1.0, 1.0]]
+      flip: [0.003, 0.006]
+    p: { smooth: 0.3, blur: 0.9, motion: 0.05, jpeg: 0.7, persp: 0.1, light: 0.25, subpixel: 0.0, dark: 0.02, tint: 0.1, resample: 0.5, resample2: 0.2, thermal: 0.3, bin: 0.3, vnear: 0.5 }
+  fin_copy:
+    ranges:
+      em: [[12, 18], [16, 24], [20, 30]]
+      blur_rel: [[0.03, 0.10]]
+      motion: [1.5, 3.0]
+      noise: [[2.0, 8.0]]
+      shot: [0.0, 0.03]
+      jpeg_q: [30, 85]
+      contrast: [[80, 200], [100, 255]]
+      persp: [0.0, 0.08]
+      light: [0.0, 0.25]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.0, 0.04]
+      streak: [0.02, 0.08]
+      bin_t: [[0.35, 0.6]]
+      bin_soft: [[0.06, 0.15]]
+      vsq: [[1.0, 1.0], [1.5, 1.5]]
+      flip: [0.0, 0.006]
+    p: { smooth: 0.5, blur: 0.9, motion: 0.1, jpeg: 0.5, persp: 0.15, light: 0.3, subpixel: 0.0, dark: 0.03, tint: 0.2, sliver_v: 0.25, sliver_h: 0.15, rule: 0.2, resample: 0.5, resample2: 0.2, thermal: 0.5, bin: 1.0, vnear: 0.5 }
+  fin_copy_h:
+    ranges:
+      em: [[10.5, 12], [31, 38]]
+      blur_rel: [[0.09, 0.12]]
+      motion: [1.5, 3.0]
+      noise: [[7.0, 9.0]]
+      shot: [0.03, 0.045]
+      jpeg_q: [20, 30]
+      contrast: [[60, 80]]
+      persp: [0.08, 0.12]
+      light: [0.25, 0.35]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.04, 0.07]
+      streak: [0.08, 0.12]
+      bin_t: [[0.3, 0.37], [0.6, 0.67]]
+      bin_soft: [[0.15, 0.22]]
+      vsq: [[1.25, 1.25]]
+      flip: [0.006, 0.01]
+    p: { smooth: 0.5, blur: 0.9, motion: 0.1, jpeg: 0.5, persp: 0.15, light: 0.3, subpixel: 0.0, dark: 0.03, tint: 0.2, resample: 0.5, resample2: 0.2, thermal: 0.5, bin: 1.0, vnear: 0.5 }
+  fin_phone:
+    ranges:
+      em: [[14, 18], [16, 22], [19, 26], [23, 32]]
+      blur_rel: [[0.03, 0.10], [0.05, 0.12]]
+      motion: [1.5, 3.0]
+      noise: [[2.0, 8.0]]
+      shot: [0.0, 0.04]
+      jpeg_q: [50, 90]
+      contrast: [[85, 200], [95, 255]]
+      persp: [0.0, 0.15]
+      light: [0.0, 0.35]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.0, 0.03]
+      streak: [0.0, 0.06]
+      bin_t: [[0.5, 0.5]]
+      bin_soft: [[0.1, 0.1]]
+      vsq: [[1.0, 1.0]]
+      flip: [0.0, 0.0]
+    p: { blur: 0.95, motion: 0.15, jpeg: 0.8, persp: 0.5, light: 0.6, subpixel: 0.05, dark: 0.03, tint: 0.4, sliver_v: 0.2, sliver_h: 0.15, rule: 0.2, resample: 0.6, resample2: 0.3, thermal: 0.0, bin: 0.0, vnear: 0.5 }
+  fin_phone_h:
+    ranges:
+      em: [[10.5, 13.5], [33, 40]]
+      blur_rel: [[0.12, 0.15]]
+      motion: [1.5, 3.0]
+      noise: [[7.0, 9.0]]
+      shot: [0.04, 0.06]
+      jpeg_q: [25, 45]
+      contrast: [[60, 85]]
+      persp: [0.15, 0.2]
+      light: [0.35, 0.45]
+      tilt_deg: [0.0, 0.3]
+      dropout: [0.0, 0.03]
+      streak: [0.0, 0.06]
+      bin_t: [[0.5, 0.5]]
+      bin_soft: [[0.1, 0.1]]
+      vsq: [[1.0, 1.0]]
+      flip: [0.0, 0.0]
+    p: { blur: 0.95, motion: 0.15, jpeg: 0.8, persp: 0.5, light: 0.6, subpixel: 0.05, dark: 0.03, tint: 0.4, resample: 0.6, resample2: 0.3, thermal: 0.0, bin: 0.0, vnear: 0.5 }

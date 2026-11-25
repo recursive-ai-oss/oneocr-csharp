@@ -40,7 +40,11 @@ def main() -> None:
         (out / "images").mkdir(parents=True, exist_ok=True)
         g = torch.Generator(device="cuda")
         g.manual_seed(cfg["seed"] * 1000 + i)
-        sides = [cfg["gpu_degrade"][k] for k in ((["train", "heldout"]) if spec["degrade"] == "all" else [spec["degrade"]])]
+        # `degrade` is a side name, "all" (training and held-out sides alternate) or a list of side names that alternate;
+        # `degrade_from` takes the sides from another line-set config
+        src = yaml.safe_load((BASE / spec["degrade_from"]).read_text(encoding="utf-8")) if spec.get("degrade_from") else cfg
+        names = ["train", "heldout"] if spec["degrade"] == "all" else spec["degrade"] if isinstance(spec["degrade"], list) else [spec["degrade"]]
+        sides = [src["gpu_degrade"][k] for k in names]
         labels, params = [], []
         for s in range(0, len(pack), BATCH):
             idx = list(range(s, min(s + BATCH, len(pack))))

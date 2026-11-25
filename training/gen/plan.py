@@ -32,6 +32,7 @@ import yaml
 
 from data import charset as cs
 from data import texts as textlib
+from gen.fin_text import fin_line
 
 # Rough English letter frequencies (a-z) for pseudo-words.
 _EN_FREQ = np.array(
@@ -685,6 +686,11 @@ def plan_shard(job) -> list[dict]:
                 else:
                     toks.append(s.receipt_token())
             text, src = " ".join(toks), "synthetic:receipt"
+            file = _pick_font(rng, fams, set(text) - {" "})
+        elif kind == "fin":
+            # financial strings (gen/fin_text.py); the font is picked after the text so it can draw every symbol in it
+            text, fkind = fin_line(rng, books)
+            src = f"synthetic:fin-{fkind}"
             file = _pick_font(rng, fams, set(text) - {" "})
         elif kind in ("mask", "qty"):
             file = _pick_font(rng, fams, set())

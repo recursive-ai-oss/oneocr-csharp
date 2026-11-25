@@ -291,6 +291,10 @@ def main() -> None:
         for g in opt.param_groups:
             g["lr"] = lr_at(step, tc)
         model.train()
+        if tc.get("freeze_bn"):  # a model started from a container has its batch norms folded away (identity statistics): keep them fixed
+            for mod in model.modules():
+                if isinstance(mod, torch.nn.BatchNorm2d):
+                    mod.eval()
         opt.zero_grad(set_to_none=True)
         # `accum` > 1 splits the batch into that many micro-batches whose gradients add up, for models whose activations do not fit at the
         # full batch (the loss is a per-line mean, so each micro-batch is weighted by its share of the lines)

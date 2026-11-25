@@ -102,6 +102,14 @@ def sample_params(side: dict, n: int, g: torch.Generator, dev) -> dict[str, torc
         extra["streak"] = _uniform(R["streak"], n, g, dev) * on
     if "dotmatrix" in P:  # impact-printer text: ink only at the points of a dot lattice, dots per em drawn here (0 = off)
         extra["dots_per_em"] = _uniform(R.get("dots_per_em", [8.0, 13.0]), n, g, dev) * flag("dotmatrix")
+    if "bin" in P:  # 1-bit and photocopy tone (see _binarize); drawn last among the optional groups so older configs keep their draws
+        extra["bin_on"] = flag("bin")
+        extra["bin_t"] = _uniform(R["bin_t"], n, g, dev)
+        extra["bin_s"] = _uniform(R["bin_soft"], n, g, dev)
+        extra["vsq"] = _uniform(R["vsq"], n, g, dev).round(decimals=1) if "vsq" in R else torch.ones(n, device=dev)
+        extra["vnear"] = torch.rand(n, generator=g, device=dev) < P.get("vnear", 0.5)
+        extra["flip"] = _uniform(R.get("flip", [0.0, 0.0]), n, g, dev) * flag("bin")
+        extra["smooth"] = torch.rand(n, generator=g, device=dev) < P.get("smooth", 0.0)  # the page reader smooths bilevel pages
     return extra | {
         "em": em,
         "src_h": wh.float(),
@@ -279,6 +287,12 @@ def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> t
     img = img + p["noise"].view(n, 1, 1, 1) / 255.0 * torch.randn(img.shape, generator=g, device=dev)
     img = img + p["shot"].view(n, 1, 1, 1) * img.clamp(0, 1).sqrt() * torch.randn(img.shape, generator=g, device=dev)
     luma = (0.299 * img[:, 0:1] + 0.587 * img[:, 1:2] + 0.114 * img[:, 2:3]).clamp(0, 1) * 255.0
+    if "bin_on" in p and bool(p["bin_on"].any()):
+        luma = _binarize(luma, p)
+        fl = p["flip"].view(n, 1, 1, 1)
+        if bool((fl > 0).any()):  # isolated pixels inverted
+            hit = torch.rand(luma.shape, generator=g, device=dev) < fl
+            luma = torch.where(hit, 255.0 - luma, luma)
     on = p["jpeg_q"] > 0
     if bool(on.any()):
         luma = luma.clone()
@@ -290,6 +304,45 @@ def _degrade_group(cov: torch.Tensor, p: dict, g: torch.Generator, wh: int) -> t
                 luma = luma.clone()
                 luma[m] = _resample(luma[m], p["rs_angle"][m, k], p["rs_shift"][m, k])
     return luma
+
+
+def _binarize(luma: torch.Tensor, p: dict) -> torch.Tensor:
+    """Fax and photocopy tone on luma [n, 1, h, w] (0..255): the page was captured at a lower vertical resolution (fax standard mode is
+    200 x 100 dots per inch, so a line has half the rows it has columns per unit length), thresholded to ink or paper, and then brought
+    back to the working height the way a reader that honours the non-square pixels does (nearest or linear), optionally smoothed. A soft threshold (a ramp
+    instead of a step) is the toner curve of a photocopy. The threshold sits at a fraction `bin_t` of the way between the crop's own
+    darkest and lightest levels (1st and 99th percentile), as a machine that adapts to the page does, so uneven light moves the stroke
+    weight but does not turn the whole crop black or white. `flip` is applied by the caller."""
+    n, _, h, w = luma.shape
+    out = luma.clone()
+    for v in sorted(set(p["vsq"].tolist())):
+        idx = ((p["vsq"] == v) & p["bin_on"]).nonzero().flatten()
+        if idx.numel() == 0:
+            continue
+        sub = luma[idx]
+        q = torch.quantile(sub.flatten(1), torch.tensor([0.01, 0.99], device=luma.device), dim=1)  # [2, m]
+        lo, hi = q[0].view(-1, 1, 1, 1), q[1].view(-1, 1, 1, 1)
+        span = (hi - lo).clamp(min=6.0)
+        x = (sub - lo) / span  # 0 at the darkest level, 1 at the lightest
+        hs = max(4, round(h / v))
+        if hs != h:
+            x = F.interpolate(x, size=(hs, w), mode="bilinear", antialias=True, align_corners=False)
+        t = p["bin_t"][idx].view(-1, 1, 1, 1)
+        soft = p["bin_s"][idx].view(-1, 1, 1, 1)
+        x = torch.where(soft > 0.003, torch.sigmoid((x - t) / soft.clamp(min=1e-3)), (x > t).float())
+        if hs != h:
+            near = p["vnear"][idx].view(-1, 1, 1, 1)
+            x = torch.where(near, F.interpolate(x, size=(h, w), mode="nearest"), F.interpolate(x, size=(h, w), mode="bilinear", align_corners=False))
+        sm = p["smooth"][idx].view(-1, 1, 1, 1)
+        if bool(sm.any()):  # two [1 2 1]/4 passes, horizontal and vertical, after the stretch back to square pixels
+            k = torch.tensor([1.0, 2.0, 1.0], device=x.device) / 4
+            y = x
+            for _ in range(2):
+                y = F.conv2d(F.pad(y, (1, 1, 0, 0), mode="replicate"), k.view(1, 1, 1, 3))
+                y = F.conv2d(F.pad(y, (0, 0, 1, 1), mode="replicate"), k.view(1, 1, 3, 1))
+            x = torch.where(sm, y, x)
+        out[idx] = lo + x * span
+    return out
 
 
 def _resample(img: torch.Tensor, angle: torch.Tensor, shift: torch.Tensor) -> torch.Tensor:
