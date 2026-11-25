@@ -239,7 +239,7 @@ internal static class RoleCheck
             }
 
             if (lf.Path == g.Path && !overlap
-                && !string.Equals(lf.NormalizedValue ?? lf.Value, g.NormalizedValue ?? g.Value, StringComparison.OrdinalIgnoreCase))
+                && !SameValue(lf.NormalizedValue ?? lf.Value, g.NormalizedValue ?? g.Value))
             {
                 return Conflict(g, $"the local model reads '{lf.Value}' as this field");
             }
@@ -247,6 +247,12 @@ internal static class RoleCheck
 
         return g;
     }
+
+    // Money is written with two decimals and quantities with the fewest, so two numbers are compared by value, never by their text.
+    private static bool SameValue(string a, string b) =>
+        string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
+        || (decimal.TryParse(a, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out decimal x)
+            && decimal.TryParse(b, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out decimal y) && x == y);
 
     /// <summary>A schema path without its array indices: <c>/lines/3/qty</c> becomes <c>/lines/qty</c>.</summary>
     public static string StripIndices(string path)

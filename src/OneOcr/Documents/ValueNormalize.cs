@@ -301,23 +301,39 @@ internal static class ValueNormalize
         return index == 0 || !char.IsLetter(s[index - 1]) || !char.IsLetter(s[index]);
     }
 
-    /// <summary>The canonical text of an amount: no grouping, <c>.</c> as the decimal mark, no trailing zeros beyond two decimals; 12.5 is <c>12.50</c>, 12 is <c>12</c>.</summary>
+    /// <summary>
+    /// The canonical text of an amount, the form for money values (quantities and percentages use <see cref="CanonicalNumber"/>): no grouping, <c>.</c> as the decimal mark, trailing zeros beyond
+    /// the second decimal removed, and at least two decimals always. 126 is <c>126.00</c>, 126.0 is <c>126.00</c>, 36.5 is <c>36.50</c>,
+    /// 0.125 is <c>0.125</c>. The same value therefore has the same text however the page printed it (<c>126</c>, <c>126.00</c>, <c>126,0</c>),
+    /// whatever the currency (a zero-decimal currency is not special-cased).
+    /// </summary>
     public static string CanonicalAmount(decimal v)
     {
         string s = v.ToString(CultureInfo.InvariantCulture);
-        int dot = s.IndexOf('.');
+        int dot = s.IndexOf('.', StringComparison.Ordinal);
         if (dot < 0)
         {
-            return s;
+            return s + ".00";
         }
 
         s = s.TrimEnd('0');
-        if (s.EndsWith('.'))
+        int decimals = s.Length - dot - 1;
+        return decimals >= 2 ? s : s + new string('0', 2 - decimals);
+    }
+
+    /// <summary>
+    /// The canonical text of a quantity or a percentage: the shortest exact decimal, no grouping, <c>.</c> as the decimal mark, no trailing
+    /// zeros. 2 is <c>2</c>, 2.0 is <c>2</c>, 7.5 is <c>7.5</c>, 7.50 is <c>7.5</c>. Money uses <see cref="CanonicalAmount"/> instead.
+    /// </summary>
+    public static string CanonicalNumber(decimal v)
+    {
+        string s = v.ToString(CultureInfo.InvariantCulture);
+        if (s.Contains('.', StringComparison.Ordinal))
         {
-            return s[..^1];
+            s = s.TrimEnd('0').TrimEnd('.');
         }
 
-        return s.Length - s.IndexOf('.') - 1 < 2 ? s + "0" : s;
+        return s == "-0" ? "0" : s;
     }
 
     /// <summary>The style used by the page's unambiguous numbers: majority of "both marks present", "one mark followed by one, two or four or more digits".</summary>

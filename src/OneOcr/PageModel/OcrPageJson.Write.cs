@@ -90,13 +90,7 @@ public static partial class OcrPageJson
         Num(w, "unitsPerInch", p.UnitsPerInch, 3);
         if (p.ToPdf is OcrMatrix m)
         {
-            w.WriteStartArray("toPdf");
-            foreach (double v in new[] { m.A, m.B, m.C, m.D, m.E, m.F })
-            {
-                RawNum(w, v, 6);
-            }
-
-            w.WriteEndArray();
+            Numbers(w, "toPdf", [m.A, m.B, m.C, m.D, m.E, m.F], 6, o.Indented);
         }
 
         if (p.Orientation != 0)
@@ -123,7 +117,7 @@ public static partial class OcrPageJson
             w.WriteStartObject();
             w.WriteString("role", b.Role switch { OcrBlockRole.Header => "header", OcrBlockRole.Footer => "footer", _ => "body" });
             w.WriteBoolean("table", b.IsTable);
-            Box(w, "bounds", b.Box);
+            Box(w, "bounds", b.Box, o.Indented);
             w.WriteStartArray("lines");
             foreach (OcrLine l in b.Lines)
             {
@@ -131,7 +125,7 @@ public static partial class OcrPageJson
             }
 
             w.WriteEndArray();
-            Common(w, b.Source, b.Confidence, b.Quad);
+            Common(w, b.Source, b.Confidence, b.Quad, o.Indented);
             w.WriteEndObject();
         }
 
@@ -141,11 +135,11 @@ public static partial class OcrPageJson
         {
             w.WriteStartObject();
             w.WriteString("role", RegionRoleName(r.Role));
-            Box(w, "bounds", r.Box);
+            Box(w, "bounds", r.Box, o.Indented);
             Num(w, "confidence", r.Confidence, 4);
             w.WriteString("source", SourceName(r.Source));
-            Ints(w, "blocks", r.BlockIndices);
-            Quad(w, r.Quad);
+            Ints(w, "blocks", r.BlockIndices, o.Indented);
+            Quad(w, r.Quad, o.Indented);
             w.WriteEndObject();
         }
 
@@ -154,7 +148,7 @@ public static partial class OcrPageJson
         foreach (OcrTable t in p.Tables)
         {
             w.WriteStartObject();
-            Box(w, "bounds", t.Box);
+            Box(w, "bounds", t.Box, o.Indented);
             w.WriteNumber("rows", t.Rows);
             w.WriteNumber("columns", t.Columns);
             w.WriteStartArray("cells");
@@ -165,8 +159,8 @@ public static partial class OcrPageJson
                 w.WriteNumber("column", c.Column);
                 w.WriteNumber("rowSpan", c.RowSpan);
                 w.WriteNumber("columnSpan", c.ColumnSpan);
-                Box(w, "bounds", c.Box);
-                Ints(w, "words", c.WordIndices);
+                Box(w, "bounds", c.Box, o.Indented);
+                Ints(w, "words", c.WordIndices, o.Indented);
                 w.WriteEndObject();
             }
 
@@ -174,7 +168,7 @@ public static partial class OcrPageJson
             Num(w, "confidence", t.Confidence, 4);
             w.WriteString("source", SourceName(t.Source));
             w.WriteNumber("block", t.BlockIndex);
-            Quad(w, t.Quad);
+            Quad(w, t.Quad, o.Indented);
             w.WriteEndObject();
         }
 
@@ -183,9 +177,9 @@ public static partial class OcrPageJson
         foreach (OcrKeyValue kv in p.KeyValues)
         {
             w.WriteStartObject();
-            Ints(w, "key", kv.KeyWordIndices);
-            Ints(w, "value", kv.ValueWordIndices);
-            Box(w, "bounds", kv.Box);
+            Ints(w, "key", kv.KeyWordIndices, o.Indented);
+            Ints(w, "value", kv.ValueWordIndices, o.Indented);
+            Box(w, "bounds", kv.Box, o.Indented);
             Num(w, "confidence", kv.Confidence, 4);
             w.WriteString("source", SourceName(kv.Source));
             w.WriteEndObject();
@@ -200,15 +194,15 @@ public static partial class OcrPageJson
         w.WriteStartObject();
         w.WriteString("direction", l.IsRightToLeft ? "rtl" : "ltr");
         w.WriteBoolean("vertical", l.IsVertical);
-        Box(w, "bounds", l.Box);
-        Ints(w, "cells", l.Cells);
+        Box(w, "bounds", l.Box, o.Indented);
+        Ints(w, "cells", l.Cells, o.Indented);
         w.WriteString("text", Clean(l.Text));
         w.WriteStartArray("words");
         foreach (OcrWord word in l.Words)
         {
             w.WriteStartObject();
             w.WriteString("text", Clean(word.Text));
-            Box(w, "bounds", word.Box);
+            Box(w, "bounds", word.Box, o.Indented);
             w.WriteBoolean("visible", true);
             w.WriteString("source", SourceName(word.Source));
             Num(w, "confidence", word.Confidence, 4);
@@ -220,31 +214,31 @@ public static partial class OcrPageJson
                 {
                     w.WriteStartObject();
                     w.WriteString("text", Clean(c.Text));
-                    Box(w, "bounds", c.Box);
+                    Box(w, "bounds", c.Box, o.Indented);
                     Num(w, "confidence", c.Confidence, 4);
                     w.WriteString("source", SourceName(c.Source));
                     w.WriteBoolean("approximate", c.BoxIsApproximate);
-                    Quad(w, c.Quad);
+                    Quad(w, c.Quad, o.Indented);
                     w.WriteEndObject();
                 }
 
                 w.WriteEndArray();
             }
 
-            Quad(w, word.Quad);
+            Quad(w, word.Quad, o.Indented);
             w.WriteEndObject();
         }
 
         w.WriteEndArray();
-        Common(w, l.Source, l.Confidence, l.Quad);
+        Common(w, l.Source, l.Confidence, l.Quad, o.Indented);
         w.WriteEndObject();
     }
 
-    private static void Common(Utf8JsonWriter w, OcrSource source, float confidence, OcrQuad? quad)
+    private static void Common(Utf8JsonWriter w, OcrSource source, float confidence, OcrQuad? quad, bool inline)
     {
         w.WriteString("source", SourceName(source));
         Num(w, "confidence", confidence, 4);
-        Quad(w, quad);
+        Quad(w, quad, inline);
     }
 
     // Unpaired surrogates (a model file's charset can hold them) are not valid JSON text; they are written as U+FFFD.
@@ -295,35 +289,35 @@ public static partial class OcrPageJson
         _ => "text",
     };
 
-    private static void Box(Utf8JsonWriter w, string name, OcrBox b)
-    {
-        w.WriteStartArray(name);
-        RawNum(w, b.Left, 3);
-        RawNum(w, b.Top, 3);
-        RawNum(w, b.Right, 3);
-        RawNum(w, b.Bottom, 3);
-        w.WriteEndArray();
-    }
+    private static void Box(Utf8JsonWriter w, string name, OcrBox b, bool inline) =>
+        Numbers(w, name, [b.Left, b.Top, b.Right, b.Bottom], 3, inline);
 
-    private static void Quad(Utf8JsonWriter w, OcrQuad? q)
+    private static void Quad(Utf8JsonWriter w, OcrQuad? q, bool inline)
     {
         if (q is not OcrQuad quad)
         {
             return;
         }
 
-        w.WriteStartArray("quad");
-        foreach (OcrPoint p in new[] { quad.P0, quad.P1, quad.P2, quad.P3 })
-        {
-            RawNum(w, p.X, 3);
-            RawNum(w, p.Y, 3);
-        }
-
-        w.WriteEndArray();
+        Numbers(w, "quad", [quad.P0.X, quad.P0.Y, quad.P1.X, quad.P1.Y, quad.P2.X, quad.P2.Y, quad.P3.X, quad.P3.Y], 3, inline);
     }
 
-    private static void Ints(Utf8JsonWriter w, string name, IReadOnlyList<int> values)
+    private static void Ints(Utf8JsonWriter w, string name, IReadOnlyList<int> values, bool inline)
     {
+        if (inline)
+        {
+            // Indented output keeps a list of numbers on one line; the writer itself would put every value on a line of its own.
+            var sb = new StringBuilder("[");
+            for (int i = 0; i < values.Count; i++)
+            {
+                sb.Append(i == 0 ? "" : ", ").Append(values[i].ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            w.WritePropertyName(name);
+            w.WriteRawValue(sb.Append(']').ToString(), skipInputValidation: true);
+            return;
+        }
+
         w.WriteStartArray(name);
         foreach (int v in values)
         {
@@ -331,6 +325,34 @@ public static partial class OcrPageJson
         }
 
         w.WriteEndArray();
+    }
+
+    // An array of rounded numbers: one value per line in indented output would spread a box over six lines, so indented output writes the
+    // array as one line ("[l, t, r, b]"). Compact output is the same bytes as ever.
+    private static void Numbers(Utf8JsonWriter w, string name, ReadOnlySpan<double> values, int decimals, bool inline)
+    {
+        if (!inline)
+        {
+            w.WriteStartArray(name);
+            foreach (double v in values)
+            {
+                RawNum(w, v, decimals);
+            }
+
+            w.WriteEndArray();
+            return;
+        }
+
+        Span<byte> buf = stackalloc byte[64];
+        var sb = new StringBuilder("[");
+        for (int i = 0; i < values.Length; i++)
+        {
+            int n = FormatNum(values[i], decimals, buf);
+            sb.Append(i == 0 ? "" : ", ").Append(Encoding.ASCII.GetString(buf[..n]));
+        }
+
+        w.WritePropertyName(name);
+        w.WriteRawValue(sb.Append(']').ToString(), skipInputValidation: true);
     }
 
     private static void Num(Utf8JsonWriter w, string name, double v, int decimals)

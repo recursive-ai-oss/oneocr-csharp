@@ -95,6 +95,16 @@ public sealed class OcrOptions
     /// </summary>
     public bool FixStrayAccents { get; init; } = true;
 
+    /// <summary>
+    /// Whether to give running headers, footers and page numbers the <see cref="OcrBlockRole.Header"/> and <see cref="OcrBlockRole.Footer"/> role. Default true.
+    /// On every page, a block of one or two lines in the outermost 7.5% of the page that is set off from the text by a line height and
+    /// is no larger than the body text gets the role; when several pages are read together (<c>OcrPages</c> of a multi-page image, or
+    /// <c>Ocr</c> of several images), a block of the outer 12% that repeats at the same place on at least two pages and 40% of them, with
+    /// digit runs ignored when comparing, gets it too. Only roles change, never text or boxes: <see cref="OcrPage.ToText()"/> still lists
+    /// every line and Markdown leaves furniture out. Set it to false when the images are unrelated pages whose first lines may repeat.
+    /// </summary>
+    public bool MarkHeadersAndFooters { get; init; } = true;
+
     /// <summary>Replaces the noise filter's thresholds; used to tune them. Null uses the defaults.</summary>
     internal global::OneOcr.Layout.JunkParameters? JunkTuning { get; init; }
 
@@ -106,7 +116,7 @@ public sealed class OcrOptions
             {
                 Dpi = declared, MaxDegreeOfParallelism = MaxDegreeOfParallelism, IncludeChars = IncludeChars, PageIndex = PageIndex, DetectOrientation = DetectOrientation,
                 Deskew = Deskew, SearchAngle = SearchAngle, DropNoise = DropNoise, FixWordSpacing = FixWordSpacing, FixDigitLookalikes = FixDigitLookalikes,
-                FixSeparators = FixSeparators, FixStrayAccents = FixStrayAccents, JunkTuning = JunkTuning,
+                FixSeparators = FixSeparators, FixStrayAccents = FixStrayAccents, MarkHeadersAndFooters = MarkHeadersAndFooters, JunkTuning = JunkTuning,
             };
 
     internal void Validate()

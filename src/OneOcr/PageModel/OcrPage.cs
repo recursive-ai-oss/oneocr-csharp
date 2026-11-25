@@ -63,6 +63,19 @@ public readonly record struct OcrQuad(OcrPoint P0, OcrPoint P1, OcrPoint P2, Ocr
 /// <param name="F">Matrix entry f.</param>
 public readonly record struct OcrMatrix(double A, double B, double C, double D, double E, double F);
 
+/// <summary>
+/// A run of text inside a string, in UTF-16 code units (the units of <see cref="string.Length"/> and <see cref="string.Substring(int, int)"/>).
+/// Offsets of the words and lines of a page into its text come from <see cref="OcrLine.GetWordSpans"/>, <see cref="OcrPage.GetWordSpans"/> and
+/// <see cref="OcrPage.GetLineSpans"/>.
+/// </summary>
+/// <param name="Start">Offset of the first code unit; -1 (with length 0) for a word whose text the line's text does not contain.</param>
+/// <param name="Length">Number of code units.</param>
+public readonly record struct OcrTextSpan(int Start, int Length)
+{
+    /// <summary>The offset just past the last code unit: <see cref="Start"/> plus <see cref="Length"/>.</summary>
+    public int End => Start + Length;
+}
+
 /// <summary>How <see cref="OcrPage.ToText(OcrTextLayout)"/> joins the blocks of a page.</summary>
 public enum OcrTextLayout
 {
@@ -261,6 +274,60 @@ public sealed record OcrLine
 
     /// <summary>The corners, for rotated text; null for upright text.</summary>
     public OcrQuad? Quad { get; init; }
+
+    /// <summary>
+    /// Where each word of the line lies in <see cref="Text"/>, one span per entry of <see cref="Words"/>, so a character range of the text can be
+    /// mapped to words and their boxes. The line's text is its words joined by one space, with a tab where a new cell starts (<see cref="Cells"/>),
+    /// so a word starts after the previous word and one separator; when the text of a line built by hand does not follow that rule the words
+    /// are searched for in order instead, and a word that is not found has the span (-1, 0). Computed on every call.
+    /// </summary>
+    /// <returns>The spans, in the order of <see cref="Words"/>.</returns>
+    public IReadOnlyList<OcrTextSpan> GetWordSpans()
+    {
+        var spans = new OcrTextSpan[Words.Count];
+        int cell = 0, at = 0;
+        bool ruled = true;
+        for (int k = 0; k < spans.Length && ruled; k++)
+        {
+            string w = Words[k].Text;
+            if (k > 0)
+            {
+                bool newCell = cell + 1 < Cells.Count && Cells[cell + 1] == k;
+                cell += newCell ? 1 : 0;
+                at++;
+            }
+
+            if (at + w.Length > Text.Length || string.CompareOrdinal(Text, at, w, 0, w.Length) != 0 || (k > 0 && Text[at - 1] != (Cells.Count > cell && Cells[cell] == k ? '	' : ' ')))
+            {
+                ruled = false;
+                break;
+            }
+
+            spans[k] = new OcrTextSpan(at, w.Length);
+            at += w.Length;
+        }
+
+        if (ruled && (spans.Length == 0 || at == Text.Length))
+        {
+            return spans;
+        }
+
+        int from = 0;
+        for (int k = 0; k < spans.Length; k++)
+        {
+            int found = Text.IndexOf(Words[k].Text, from, StringComparison.Ordinal);
+            if (found < 0)
+            {
+                spans[k] = new OcrTextSpan(-1, 0);
+                continue;
+            }
+
+            spans[k] = new OcrTextSpan(found, Words[k].Text.Length);
+            from = found + Words[k].Text.Length;
+        }
+
+        return spans;
+    }
 
     /// <inheritdoc />
     public bool Equals(OcrLine? other) =>
@@ -705,6 +772,70 @@ public sealed class OcrPage
         }
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Where each line of the page lies in its text (<see cref="Text"/> for <see cref="OcrTextLayout.Paragraphs"/>, <see cref="ToText()"/> for
+    /// <see cref="OcrTextLayout.Lines"/>), one span per line, blocks in order and lines in order, skipping blocks without lines. The offsets are in UTF-16
+    /// code units. The span of a line is the length of its <see cref="OcrLine.Text"/>.
+    /// </summary>
+    /// <param name="layout">Which text the offsets refer to. Default <see cref="OcrTextLayout.Paragraphs"/>, the text of the page JSON.</param>
+    /// <returns>The spans; empty when the page has no lines.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="layout"/> is not a defined value.</exception>
+    public IReadOnlyList<OcrTextSpan> GetLineSpans(OcrTextLayout layout = OcrTextLayout.Paragraphs)
+    {
+        var spans = new List<OcrTextSpan>();
+        WalkText(layout, (line, start) => spans.Add(new OcrTextSpan(start, line.Text.Length)));
+        return spans;
+    }
+
+    /// <summary>
+    /// Where each word of the page lies in its text, one span per entry of <see cref="Words"/> (same order and count), so that a character range
+    /// of <see cref="Text"/> can be mapped to words and boxes and the other way round. Offsets are in UTF-16 code units; see
+    /// <see cref="OcrLine.GetWordSpans"/> for how words are placed in a line.
+    /// </summary>
+    /// <param name="layout">Which text the offsets refer to. Default <see cref="OcrTextLayout.Paragraphs"/>, the text of the page JSON.</param>
+    /// <returns>The spans; empty when the page has no words.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="layout"/> is not a defined value.</exception>
+    public IReadOnlyList<OcrTextSpan> GetWordSpans(OcrTextLayout layout = OcrTextLayout.Paragraphs)
+    {
+        var spans = new List<OcrTextSpan>();
+        WalkText(layout, (line, start) =>
+        {
+            foreach (OcrTextSpan s in line.GetWordSpans())
+            {
+                spans.Add(s.Start < 0 ? s : new OcrTextSpan(start + s.Start, s.Length));
+            }
+        });
+        return spans;
+    }
+
+    // Visits every line with the offset at which its text starts in the page's text, joined as ToText does.
+    private void WalkText(OcrTextLayout layout, Action<OcrLine, int> visit)
+    {
+        if (layout is not (OcrTextLayout.Lines or OcrTextLayout.Paragraphs))
+        {
+            throw new ArgumentOutOfRangeException(nameof(layout), layout, "Not a defined text layout.");
+        }
+
+        int at = 0;
+        bool first = true;
+        foreach (OcrBlock block in Blocks)
+        {
+            bool firstInBlock = true;
+            foreach (OcrLine line in block.Lines)
+            {
+                if (!first)
+                {
+                    at += firstInBlock && layout == OcrTextLayout.Paragraphs ? 2 : 1;
+                }
+
+                first = false;
+                firstInBlock = false;
+                visit(line, at);
+                at += line.Text.Length;
+            }
+        }
     }
 
     private OcrWord[] CollectWords()

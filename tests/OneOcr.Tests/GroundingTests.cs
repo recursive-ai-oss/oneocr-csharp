@@ -83,10 +83,17 @@ public class GroundingTests
     [InlineData("1 234,50", "1234.50", true)]
     [InlineData("(12.50)", "-12.50", true)]
     [InlineData("12.50-", "-12.50", true)]
-    [InlineData("USD 3", "3", true)]
+    [InlineData("USD 3", "3.00", true)]
+    [InlineData("126.00", "126.00", true)]
+    [InlineData("36.50", "36.50", true)]
+    [InlineData("126", "126.00", true)]
+    [InlineData("126,0", "126.00", true)]
+    [InlineData("-0.50", "-0.50", true)]
+    [InlineData("0.00", "0.00", true)]
+    [InlineData("12.3450", "12.345", true)]
     [InlineData("1,23,4", "", false)]
     [InlineData("12a", "", false)]
-    [InlineData("1.234.567", "1234567", true)]
+    [InlineData("1.234.567", "1234567.00", true)]
     [InlineData("0,125", "0.125", true)]
     public void Amounts_parse_and_canonicalize(string text, string canonical, bool ok)
     {
@@ -95,6 +102,20 @@ public class GroundingTests
         {
             Assert.Equal(canonical, ValueNormalize.CanonicalAmount(a.Value));
         }
+    }
+
+    [Theory]
+    [InlineData("2", "2")]
+    [InlineData("2.0", "2")]
+    [InlineData("7.5", "7.5")]
+    [InlineData("7,50", "7.5")]
+    [InlineData("19", "19")]
+    [InlineData("0.0", "0")]
+    [InlineData("1,000", "1000")]
+    public void Quantities_and_rates_keep_the_shortest_exact_decimal(string text, string canonical)
+    {
+        Assert.True(ValueNormalize.TryParseAmount(text, NumberStyle.Auto, out ParsedAmount a));
+        Assert.Equal(canonical, ValueNormalize.CanonicalNumber(a.Value));
     }
 
     [Fact]

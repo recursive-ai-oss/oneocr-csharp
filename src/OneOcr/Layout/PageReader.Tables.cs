@@ -83,7 +83,7 @@ internal static partial class PageReader
             box = box is { } b ? OcrBox.Union(b, c.Box) : c.Box;
         }
 
-        OcrBlock made = MakeBlock(block, lines);
+        OcrBlock made = MakeBlock(true, lines);
         tables.Add(new OcrTable(box!.Value, block.Rows, block.Columns, tableCells, block.TableConfidence ?? RuledTableConfidence, OcrSource.Ocr, blocks.Count));
         blocks.Add(made);
     }

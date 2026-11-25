@@ -470,7 +470,7 @@ public sealed class OcrEngine
             pages.Add(PageOf(ImageGuard.Run(() => image.Frames[i].ToImage()), checked(options.PageIndex + i), options, cancellationToken));
         }
 
-        return pages;
+        return options.MarkHeadersAndFooters ? Furniture.MarkAcrossPages(pages) : pages;
     }
 
     /// <summary>
@@ -588,7 +588,7 @@ public sealed class OcrEngine
             pages.Add(PageOf(image, checked(options.PageIndex + pages.Count), options, cancellationToken));
         }
 
-        return pages;
+        return options.MarkHeadersAndFooters ? Furniture.MarkAcrossPages(pages) : pages;
     }
 
     /// <summary>Like <see cref="Ocr(IEnumerable{Image}, OcrOptions?, CancellationToken)"/>, on a thread-pool thread, with the same pages.</summary>
@@ -609,10 +609,13 @@ public sealed class OcrEngine
         }
     }
 
-    private OcrPage PageOf(Image image, int pageIndex, OcrOptions o, CancellationToken cancellationToken) =>
-        BuildPage(
+    private OcrPage PageOf(Image image, int pageIndex, OcrOptions o, CancellationToken cancellationToken)
+    {
+        OcrPage page = BuildPage(
             image, pageIndex, o.Dpi, o.MaxDegreeOfParallelism, o.IncludeChars, o.DetectOrientation, o.Deskew, JunkFor(o), o.FixWordSpacing, o.FixDigitLookalikes, o.FixSeparators,
             o.SearchAngle, cancellationToken);
+        return o.MarkHeadersAndFooters ? Furniture.MarkWithinPage(page) : page;
+    }
 
     // The noise cleanup of one call: off with DropNoise = false, and without the accent rule when FixStrayAccents is false.
     private static JunkParameters? JunkFor(OcrOptions options)

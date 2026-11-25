@@ -40,7 +40,9 @@ Differences from taking the argmax of float32 probabilities: the library takes t
 
 ## Normalization
 
-Each field carries the text as read and a normalized `Value` derived from it by the same code the grounding of LLM answers uses ([grounding.md](grounding.md)): dates (`BT-2 BT-9 BT-72 receipt.date`) to `yyyy-MM-dd` (`--MM-dd` without a year; a numeric date that reads two ways under the page's date order stays as read), amounts (the money classes) to a canonical decimal with `.` as the decimal mark, quantities and rates (`BT-129 receipt.quantity`, `BT-152 BT-119`, the sign `%` dropped) likewise, `BT-5` to an ISO 4217 code when the text names exactly one. The number style of the page is the one its unambiguous numbers use (point decimal when none is).
+**Due and delivery dates.** The model can tag a due date as the delivery date on an invoice that prints only one of them. After the tags are read, a span tagged `BT-9` or `BT-72` is checked against the label printed in its row, to the left (the four nearest words): a label that starts with a due word (`due`, `fällig`, `échéance`, `vencimiento`, `scadenza`, `vervaldatum`) makes it `BT-9`, one that starts with a delivery word (`deliver`, `liefer`, `livraison`, `entrega`, `consegna`, `leverdatum`) makes it `BT-72`, and no such label keeps the model's tag. The words are those of the labels the model was trained on.
+
+Each field carries the text as read and a normalized `Value` derived from it by the same code the grounding of LLM answers uses ([grounding.md](grounding.md)): dates (`BT-2 BT-9 BT-72 receipt.date`) to `yyyy-MM-dd` (`--MM-dd` without a year; a numeric date that reads two ways under the page's date order stays as read), amounts (the money classes) to the money form: `.` as the decimal mark and always at least two decimals (`126` is `126.00`, `36.5` is `36.50`), quantities and rates (`BT-129 receipt.quantity`, `BT-152 BT-119`, the sign `%` dropped) to the shortest exact decimal (`2` stays `2`, `7.50` is `7.5`), `BT-5` to an ISO 4217 code when the text names exactly one. The number style of the page is the one its unambiguous numbers use (point decimal when none is).
 
 ## Limits
 

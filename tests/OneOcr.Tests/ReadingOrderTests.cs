@@ -487,4 +487,41 @@ public class ReadingOrderTests
         strips.Add(Line(20, 20 + (rows * 16) + 20, "Page 8 Chapter 3 Title"));
         Assert.Equal(Columns([0, 1], rows) + " Page 8 Chapter 3 Title", Read([.. strips]));
     }
+
+    [Fact]
+    public void ClauseLabelsInAHangingIndentAreReadWithTheirClause()
+    {
+        // Labels in the margin, the text of each clause indented past them; a clause wraps onto lines that have no label.
+        OrderStrip[] strips =
+        [
+            Line(30, 100, "(a)"), Line(100, 100, "the seller delivers the goods"), Line(100, 114, "to the buyer within thirty days"),
+            Line(30, 140, "(b)"), Line(100, 140, "the buyer pays the price"), Line(100, 154, "on receipt of the invoice"), Line(100, 168, "and without set off"),
+            Line(30, 194, "(c)"), Line(100, 194, "either party may end this agreement"), Line(100, 208, "by written notice"),
+        ];
+        Assert.Equal(
+            "(a) the seller delivers the goods to the buyer within thirty days " +
+            "(b) the buyer pays the price on receipt of the invoice and without set off " +
+            "(c) either party may end this agreement by written notice",
+            Read(out List<OrderBlock> blocks, strips));
+        Assert.Equal(3, blocks.Count);
+    }
+
+    [Theory]
+    [InlineData("(a)", true)]
+    [InlineData("(12)", true)]
+    [InlineData("(iv)", true)]
+    [InlineData("a)", true)]
+    [InlineData("1.", true)]
+    [InlineData("1.2", true)]
+    [InlineData("3.1.4.", true)]
+    [InlineData("A.", true)]
+    [InlineData("§ 4", true)]
+    [InlineData("§2.1", true)]
+    [InlineData("•", true)]
+    [InlineData("Total", false)]
+    [InlineData("2026", false)]
+    [InlineData("abc.", false)]
+    [InlineData("(abcde)", false)]
+    [InlineData("1.2.x", false)]
+    public void ClauseLabelShapes(string text, bool label) => Assert.Equal(label, ReadingOrder.IsClauseLabel(text));
 }

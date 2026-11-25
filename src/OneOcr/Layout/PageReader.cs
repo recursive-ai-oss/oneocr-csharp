@@ -610,7 +610,7 @@ internal static partial class PageReader
     private static OcrDiagnostic SkipNote(LineBox ink, OcrLimits limits) =>
         Diag.Warn(OcrDiagnosticCodes.LineSkipped, $"A line at x {ink.X}, y {ink.Y} ({ink.Width} by {ink.Height} pixels) was skipped: scaled to the model's input height it would be wider than OcrLimits.MaxLineWidth ({limits.MaxLineWidth}).");
 
-    private static OcrPage Assemble(
+    internal static OcrPage Assemble(
         List<OrderBlock> plan, List<OrderStrip> strips, List<DetectedRegion> detected, int pageIndex, int width, int height, double units,
         List<OcrDiagnostic> diagnostics)
     {
@@ -678,7 +678,19 @@ internal static partial class PageReader
                 lines.Add(MakeLine(words, cellStarts, text.ToString()));
             }
 
-            OcrBlock made = MakeBlock(block, lines);
+            // Paragraphs set with little space between them end up in one block; they are cut apart here (see ParagraphSplitter).
+            // Tables and the standalone blocks of screens and forms stay whole.
+            if (!block.IsTable && !block.IsStandalone)
+            {
+                foreach (List<OcrLine> paragraph in ParagraphSplitter.Split(lines))
+                {
+                    blocks.Add(MakeBlock(false, paragraph));
+                }
+
+                continue;
+            }
+
+            OcrBlock made = MakeBlock(block.IsTable, lines);
             if (block.IsTable)
             {
                 var tableCells = new List<OcrTableCell>(cells.Count);
@@ -725,7 +737,7 @@ internal static partial class PageReader
         return new OcrLine(text, words, cellStarts, box, (float)(weighted / chars), OcrSource.Ocr, quad: EnclosingQuad(words));
     }
 
-    private static OcrBlock MakeBlock(OrderBlock block, List<OcrLine> lines)
+    private static OcrBlock MakeBlock(bool isTable, List<OcrLine> lines)
     {
         OcrBox box = lines[0].Box;
         double weighted = 0;
@@ -737,7 +749,7 @@ internal static partial class PageReader
             words += l.Words.Count;
         }
 
-        return new OcrBlock(OcrBlockRole.Body, block.IsTable, box, lines, (float)(weighted / words), OcrSource.Ocr);
+        return new OcrBlock(OcrBlockRole.Body, isTable, box, lines, (float)(weighted / words), OcrSource.Ocr);
     }
 
     // The page model's regions from the detector's, with the blocks whose centres lie in each. A header_footer region is a header in the
