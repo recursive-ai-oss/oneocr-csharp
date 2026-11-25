@@ -154,9 +154,10 @@ foreach (OcrBlock block in page.Blocks)
 ```
 
 Other `OcrOptions` switches are `SearchAngle` (re-reads a badly tilted photo at other page angles when the first reading is weak), `DropNoise`, `FixWordSpacing`, `FixDigitLookalikes` (reads the
-letter `O` as `0` inside identifiers and dates) and `FixSeparators` (reads a middle dot, bullet or
+letter `O` as `0` inside identifiers and dates), `FixSeparators` (reads a middle dot, bullet or
 vertical bar between words from its pixels when the network gave it as a hyphen or another small
-mark). These two are the only steps after recognition that change a character. All are on by
+mark) and `FixStrayAccents` (takes a speck read as an accent off an unsure common word, `thé` →
+`the`). These three are the only steps after recognition that change a character. All are on by
 default and documented on the type.
 
 - **Errors.** Public methods throw only the typed exceptions (all derive from `OcrException`),
@@ -604,7 +605,8 @@ A binary built for v3 refuses to start on an older CPU. Arm needs nothing.
 
 To see what a process runs, read `OcrEngine.KernelPath`; `OcrEngine.PerformanceNotice` is non-null
 when the scalar path is running on a CPU that could run AVX2 and says how to fix it (an app
-published below v3, or `DOTNET_EnableAVX2=0` / `DOTNET_EnableHWIntrinsic=0` in the environment).
+published below v3, or `DOTNET_EnableAVX2=0` in the environment). With `DOTNET_EnableHWIntrinsic=0`
+the runtime reports no vector support at all, so the scalar path runs and the notice stays null.
 It never throws and is not part of the page, so page JSON is the same on every path.
 
 The `oneocr` tool can be published the same way for fast starts in scripts:
