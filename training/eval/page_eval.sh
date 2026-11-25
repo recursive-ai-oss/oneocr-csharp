@@ -4,6 +4,7 @@
 #   eval/page_eval.sh BIN_DIR OUT_ROOT RECOGNIZER.onm DEGREE
 # Set roots come from the environment: ONEOCR_FINDEV (fin-dev), ONEOCR_V4 (bench-v4-dev), ONEOCR_V5 (bench-v5-real-dev), ONEOCR_RG (a
 # directory holding receipts-gen-dev); ONEOCR_PARTS (detector, charlm-v1.bin, wordfreq-v2.bin directory) names the other model files.
+# ONEOCR_ONLY (space-separated set names, v5 sets as v5-<name>) limits the run, so several jobs can split the sets.
 # Outputs: OUT_ROOT/<root>/<set>/<id>.txt|json, OUT_ROOT/scores/<set>.json. Sets with a score file are skipped, so a killed job resumes.
 set -euo pipefail
 here=$(cd "$(dirname "$0")/../.." && pwd)
@@ -35,6 +36,7 @@ for j in "${jobs_list[@]}"; do
   read -r root s sc <<<"$j"
   name=$s
   [[ $root == "$ONEOCR_V5" ]] && name=v5-$s
+  [[ -n ${ONEOCR_ONLY:-} && " $ONEOCR_ONLY " != *" $name "* ]] && continue
   if [[ $root == "$ONEOCR_V5" ]]; then
     mkdir -p "$out/v5-$s"
     [[ -f "$out/v5-$s/run.log" ]] || { dotnet "$bin/OneOcr.Bench.dll" run --model "$model" --detector "$det" --wordlm "$ONEOCR_PARTS/charlm-v1.bin" \
