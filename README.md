@@ -780,7 +780,7 @@ scans only just), and about twice as fast as Tesseract with its best models.
 
 ## Not yet
 
-Searchable-PDF output and int8 inference (planned after 1.0); CJK, Arabic and Indic scripts (the
+int8 inference; CJK, Arabic and Indic scripts (the
 page model already has right-to-left and vertical flags, but the local reader does not produce
 them); handwriting; curved-page dewarping and scene text; text drawn as outlined glyphs in PDFs;
 AWS Bedrock and Google Vertex providers; a built-in PII redactor (the redaction hook is yours to
