@@ -26,6 +26,7 @@
   <ItemGroup>
     <!-- Minimized reproducers of fuzz findings. -->
     <Content Include="../../testdata/fuzz/**" Link="testdata/fuzz/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../testdata/pages/**" Link="testdata/pages/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

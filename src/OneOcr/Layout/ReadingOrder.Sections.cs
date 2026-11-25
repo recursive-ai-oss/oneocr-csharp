@@ -25,6 +25,11 @@ internal static partial class ReadingOrder
             return ([bands[0], [.. bands.Skip(1).SelectMany(b => b)]], true);
         }
 
+        if (TitleAboveColumns(f, bands, bandGaps, ms) is { } titled)
+        {
+            return (titled, true);
+        }
+
         if (PeelSidebar(f, reg, columns) is { } sidebar)
         {
             return (sidebar, true);
@@ -38,7 +43,64 @@ internal static partial class ReadingOrder
             return (rows, false);
         }
 
-        return (HasEmbedded(f, columns, LayoutParameters.EmbedMarginEm * ms) ? rows ?? bands : columns, false);
+        return (HasEmbedded(f, columns, LayoutParameters.EmbedMarginEm * ms) && !AllRunningText(f, columns, ms) ? rows ?? bands : columns, false);
+    }
+
+    // A title of one or two lines, each a single fragment, with a gap under it, over text that is columns of running text: the title is read
+    // first, whole, and the columns after it. A title that spans the columns takes part in the cut of the middle one when its extent
+    // reaches over the gutter on one side, and a title over the first column alone is a part of that column; read as columns they put
+    // the title after the first column. The lines of the first paragraph of a column pair are two fragments each, so they are no title.
+    private static List<int[]>? TitleAboveColumns(List<OrderFragment> f, List<int[]> bands, List<double> bandGaps, double ms)
+    {
+        int[] top = bands[0];
+        if (DistinctLineCount(f, top) > LayoutParameters.TitleMaxLines || top.Length != DistinctLineCount(f, top) || bandGaps[0] < LayoutParameters.TitleGapEm * ms)
+        {
+            return null;
+        }
+
+        int[] rest = [.. bands.Skip(1).SelectMany(b => b)];
+        if (Partition(f, rest, true, LayoutParameters.ColumnGutterEm * ms) is not { } columns || !AllRunningText(f, columns, ms))
+        {
+            return null;
+        }
+
+        return [top, rest];
+    }
+
+    // Columns that are all running text (many lines of full width) are columns, whatever the text above and below one of them: a
+    // title over the first column, or a first column that goes on after the second has ended, is not a card between two parts of it.
+    // The embedded-column rule is for the cards, fields and menus of a screen, which are not paragraphs.
+    private static bool AllRunningText(List<OrderFragment> f, List<int[]> columns, double ms)
+    {
+        foreach (int[] g in columns)
+        {
+            if (!IsRunningText(f, g, ms) || WidestVerticalGap(f, g) >= LayoutParameters.CellColumnGapEm * ms)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // The widest empty band between the lines of a group. Paragraphs of a column are a line or two apart; cards of a grid, sections of
+    // a screen and the cells of a form are further apart than that.
+    private static double WidestVerticalGap(List<OrderFragment> f, int[] g)
+    {
+        int[] sorted = [.. g];
+        Array.Sort(sorted, (a, b) =>
+        {
+            int k = f[a].Top.CompareTo(f[b].Top);
+            return k != 0 ? k : a.CompareTo(b);
+        });
+        double end = f[sorted[0]].Bot, widest = 0;
+        for (int i = 1; i < sorted.Length; i++)
+        {
+            widest = Math.Max(widest, f[sorted[i]].Top - end);
+            end = Math.Max(end, f[sorted[i]].Bot);
+        }
+
+        return widest;
     }
 
     // The topmost band of a region is a header row when it is a single row of several fragments (a bar of menu items, a running
