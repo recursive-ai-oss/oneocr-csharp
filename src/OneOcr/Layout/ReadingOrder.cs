@@ -487,6 +487,17 @@ internal static partial class ReadingOrder
                     leaves.Add((reg, true, groups.Count, chrome));
                     continue;
                 }
+
+                // Clause labels in a hanging indent are read with their clause, not before or after all the text.
+                if (HangingClauses(f, strips, reg, groups, ms) is { } clauses)
+                {
+                    foreach (int[] clause in clauses)
+                    {
+                        leaves.Add((clause, false, 1, chrome));
+                    }
+
+                    continue;
+                }
             }
 
             if (groups is null)
