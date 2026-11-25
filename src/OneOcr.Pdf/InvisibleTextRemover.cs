@@ -163,19 +163,19 @@ internal static class InvisibleTextRemover
         return result.ToArray();
     }
 
-    private enum TokenKind
+    internal enum TokenKind
     {
         Operand,
         Operator,
     }
 
-    private readonly record struct Token(TokenKind Kind, int Start, int End);
+    internal readonly record struct Token(TokenKind Kind, int Start, int End);
 
-    private static bool IsWhite(byte b) => b is 0 or 9 or 10 or 12 or 13 or 32;
+    internal static bool IsWhite(byte b) => b is 0 or 9 or 10 or 12 or 13 or 32;
 
-    private static bool IsDelimiter(byte b) => b is (byte)'(' or (byte)')' or (byte)'<' or (byte)'>' or (byte)'[' or (byte)']' or (byte)'{' or (byte)'}' or (byte)'/' or (byte)'%';
+    internal static bool IsDelimiter(byte b) => b is (byte)'(' or (byte)')' or (byte)'<' or (byte)'>' or (byte)'[' or (byte)']' or (byte)'{' or (byte)'}' or (byte)'/' or (byte)'%';
 
-    private static bool Next(ReadOnlySpan<byte> d, ref int pos, out Token token)
+    internal static bool Next(ReadOnlySpan<byte> d, ref int pos, out Token token)
     {
         token = default;
         while (pos < d.Length)
@@ -279,7 +279,7 @@ internal static class InvisibleTextRemover
         return true;
     }
 
-    private static bool IsNumber(ReadOnlySpan<byte> s)
+    internal static bool IsNumber(ReadOnlySpan<byte> s)
     {
         if (s.Length == 0)
         {
@@ -306,7 +306,7 @@ internal static class InvisibleTextRemover
 
     // After BI: key/value tokens up to ID, one whitespace byte, the data, then EI. Without a reliable length the end is the first
     // whitespace + "EI" + (whitespace or end) whose following bytes look like content-stream text.
-    private static bool SkipInlineImage(ReadOnlySpan<byte> d, ref int pos)
+    internal static bool SkipInlineImage(ReadOnlySpan<byte> d, ref int pos)
     {
         int p = pos;
         while (true)

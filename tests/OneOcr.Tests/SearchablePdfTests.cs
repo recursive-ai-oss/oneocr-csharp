@@ -24,13 +24,13 @@ public class SearchablePdfTests
         return e!;
     }
 
-    private static Image ScanImage(string[] lines, double width = 612, double height = 792)
+    internal static Image ScanImage(string[] lines, double width = 612, double height = 792)
     {
         (byte[] gray, int w, int h) = PdfFixtures.RenderLines(lines, width, height, 72, 12, 22, 92);
         return Image.FromPixels<Gray8>(gray.Select(static b => new Gray8(b)).ToArray(), w, h);
     }
 
-    private static byte[] Encode(Image image, IImageFormat format)
+    internal static byte[] Encode(Image image, IImageFormat format)
     {
         using var ms = new MemoryStream();
         image.Save(ms, format);
@@ -184,7 +184,7 @@ public class SearchablePdfTests
         throw new InvalidOperationException("no image on the page");
     }
 
-    private static byte[] Tiff1(IReadOnlyList<(byte[] Gray, int W, int H)> frames, int dpi)
+    internal static byte[] Tiff1(IReadOnlyList<(byte[] Gray, int W, int H)> frames, int dpi)
     {
         using var ms = new MemoryStream();
         using var w = new BinaryWriter(ms);
@@ -413,9 +413,17 @@ public class SearchablePdfTests
         }
 
         // Pages that keep their own content: it is still there, byte for byte, in the same order.
-        foreach (int i in new[] { 1, 2, 4, 5 })
+        foreach (int i in new[] { 1, 2 })
         {
             AssertContainsInOrder(after.Pages[i], before.Pages[i]);
+        }
+
+        // 4 and 5: the unreliable visible text is only wrapped in marked content; the page's own bytes are otherwise the same.
+        foreach (int i in new[] { 4, 5 })
+        {
+            string changed = Decoded(after.Pages[i], marked: true);
+            Assert.Contains(Marker, changed, StringComparison.Ordinal);
+            Assert.Equal(Decoded(before.Pages[i], marked: false).TrimEnd('\n'), changed.Replace(Marker, string.Empty, StringComparison.Ordinal).Replace(" EMC", string.Empty, StringComparison.Ordinal).TrimEnd('\n'));
         }
 
         // 3 invisible wrong layer: gone, replaced by ours; the image is still drawn.
@@ -427,6 +435,17 @@ public class SearchablePdfTests
         // 4 and 5: the unreliable visible text stays (rendering must not change) and the result says so.
         Assert.Contains(r.Diagnostics, static d => d.StartsWith("Page 5:", StringComparison.Ordinal) && d.Contains("visible", StringComparison.Ordinal));
         Assert.Contains(r.Diagnostics, static d => d.StartsWith("Page 6:", StringComparison.Ordinal) && d.Contains("visible", StringComparison.Ordinal));
+
+        // Extraction no longer shows the unreliable visible words: it returns the recognized ones (on 4 the lines with a good map stay as they were).
+        foreach (int i in new[] { 4, 5 })
+        {
+            string[] expected = [.. r.Pages[i].Words.Select(static w => w.Text).Order(StringComparer.Ordinal)];
+            string[] got = [.. SearchablePdfWriterTests.Extract(output, i).Select(static w => w.Text).Order(StringComparer.Ordinal)];
+            Assert.Equal(expected, got);
+            Assert.DoesNotContain(SearchablePdfWriterTests.Extract(output, i), static w => w.Text.Any(static c => c is >= '\uE000' and <= '\uF8FF'));
+        }
+
+        Assert.Contains(r.Diagnostics, static d => d.StartsWith("Page 5:", StringComparison.Ordinal) && d.Contains("/ActualText", StringComparison.Ordinal));
 
         // The scan page: boxes within tolerance of the page model.
         OcrPage scan = r.Pages[1];
@@ -510,6 +529,24 @@ public class SearchablePdfTests
             Assert.True(at < a.Count, "an original content stream is missing or changed");
             at++;
         }
+    }
+
+    private const string Marker = "/Span <</ActualText ()>> BDC ";
+
+    // The page's content streams, decoded and joined, as text (every byte maps to one character).
+    private static string Decoded(PdfPage page, bool marked)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (PdfStream s in page.ContentStreams)
+        {
+            string text = System.Text.Encoding.Latin1.GetString(s.GetDecodedBytes().Span);
+            if (!marked || text.Contains(Marker, StringComparison.Ordinal))
+            {
+                sb.Append(text).Append('\n');
+            }
+        }
+
+        return sb.ToString();
     }
 
     private static byte[] Content(PdfPage page)

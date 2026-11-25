@@ -64,7 +64,7 @@ the one-liner. The rest is opt-in:
 | `RecursiveAI.OneOcr.Llm` | LLM vision: providers, modes, grounding, cost controls, routing. The only package that uses the network. |
 | `RecursiveAI.OneOcr.Training` | `OcrTrainer`, `ExtractionTrainer` and the review queue. |
 | `RecursiveAI.OneOcr.Pdf` | PDF pages: text layer plus OCR of image regions. |
-| `RecursiveAI.OneOcr.Tool` | The `oneocr` command-line tool: `ocr`, `train`, `eval`, `review`. |
+| `RecursiveAI.OneOcr.Tool` | The `oneocr` command-line tool: `pdf`, `ocr`, `train`, `eval`, `review`. |
 
 ```sh
 dotnet add package RecursiveAI.OneOcr.Llm
@@ -341,6 +341,21 @@ Extension methods on OnePDF's `PdfPage` and `PdfDocument` (`Ocr`, `ToText`, `ToM
   looks like.
 - Page coordinates are PDF points, y down; `ToPdf` maps them back to PDF user space.
 - Not yet: text drawn as outlined glyphs, annotations.
+
+### Searchable PDFs
+
+Images become the pages of a PDF with an invisible text layer made from the page model, and a scanned PDF gets the same layer where it needs one (see
+[the package README](src/OneOcr.Pdf/README.md) for the API). From the command line:
+
+```
+oneocr pdf scan.jpg --out scan.pdf                       # one image, one page
+oneocr pdf pages/ fax.tif --out book.pdf --pdfa          # a folder of images and a multi-frame TIFF, PDF/A-2b
+oneocr pdf scanned.pdf --out searchable.pdf              # pages that need a layer get one, the rest is untouched
+```
+
+It prints one summary line (pages, pages given a text layer, words) and writes notes about the pages to stderr. Text in the input whose character
+map cannot be trusted (garbled, or contradicted by the rendering) keeps painting as it did, but is marked `/ActualText` so that extraction and copy
+return the recognized words instead.
 
 ## LLM vision, held to the page
 

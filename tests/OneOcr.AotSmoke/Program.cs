@@ -342,6 +342,32 @@ using (var madeSearchable = new System.IO.MemoryStream())
     }
 }
 
+// The command line's pdf command, in process: an image file in, a searchable PDF file out, one summary line.
+string cliRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "oneocr-aot-pdf-" + Guid.NewGuid().ToString("N"));
+System.IO.Directory.CreateDirectory(cliRoot);
+try
+{
+    string cliModel = System.IO.Path.Combine(cliRoot, "model.onm"), cliImage = System.IO.Path.Combine(cliRoot, "scan.png"), cliPdf = System.IO.Path.Combine(cliRoot, "scan.pdf");
+    System.IO.File.WriteAllBytes(cliModel, TestModels.RandomContainer(pageShape, 3));
+    using (var png = System.IO.File.Create(cliImage))
+    {
+        OneImage.Image.FromPixels<OneImage.Gray8>(scanPixels, 300, 120).Save(png, OneImage.PngFormat.Instance);
+    }
+
+    var cliOut = new System.IO.StringWriter();
+    var cliErr = new System.IO.StringWriter();
+    int cliCode = await OneOcr.Tool.Program.RunAsync(["pdf", cliImage, "--out", cliPdf, "--model", cliModel, "--dpi", "150"], cliOut, cliErr, default);
+    if (cliCode != 0 || !cliOut.ToString().Contains("scan.pdf: 1 page", StringComparison.Ordinal) || new System.IO.FileInfo(cliPdf).Length < 200)
+    {
+        Console.Error.WriteLine("oneocr pdf failed: " + cliCode + " " + cliErr);
+        return 1;
+    }
+}
+finally
+{
+    System.IO.Directory.Delete(cliRoot, true);
+}
+
 try
 {
     OneOcr.Pdf.PdfOcr.Read(new byte[] { 1, 2, 3 }, engine);

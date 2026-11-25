@@ -4,7 +4,7 @@ A page image keeps its look and gets an invisible text layer made from the page 
 reader match the words on the page. `SearchablePdf.FromImages`/`FromFiles`/`FromData` and `image.ToSearchablePdf(...)` build a PDF from
 images; `SearchablePdf.MakeSearchable` adds layers to the pages of an existing PDF. `PdfTextLayerWriter` is the low-level piece both use:
 it draws one `OcrPage` into a OnePDF content builder. Everything runs locally; nothing here parses untrusted bytes except the content-stream
-rewrite described under "Replacing a third-party layer".
+rewrites described under "Replacing a third-party layer" and "Visible text that cannot be trusted".
 
 ## The text layer
 
@@ -162,10 +162,43 @@ That layer is replaced, not stacked, or readers would find every word twice. Wit
 ### Visible text that cannot be trusted
 
 A line whose characters are U+FFFD or private-use code points, or a text layer whose character map disagrees with what the page shows,
-is **visible** text. Removing it would change what the page paints, so it stays, and the recognized words are added as an invisible layer next to it.
-`Diagnostics` has an entry for the page. OnePDF's extraction folds text that lies exactly over other text into one word (`CollapseDuplicates`), so a reader may see the
-unreliable words and not ours on such a page; the layer is in the file (glyph-level extraction spells exactly the recognized words) and other readers show both. A later
-step could tag the unreliable runs with `/ActualText`; it is not done.
+is **visible** text: removing it would change what the page paints, so it stays. The recognized words are added as the invisible layer, and the
+visible runs are marked so that text extraction and copy return the recognized words and not the unreliable ones.
+
+The mark is marked content with an empty replacement text (ISO 32000-1, 14.9.4, "Replacement text"):
+
+```
+/Span <</ActualText ()>> BDC  <the show operator with its operands>  EMC
+```
+
+Why empty: the recognized words are already on the page, each in its own frame. Giving the run the line's recognized text would write every word twice.
+An empty replacement says that the painted glyphs carry no text of their own.
+
+Which shows are marked:
+
+- The page reader remembers the boxes of the visible text-layer lines it set aside (a garbled line; every line, when the layer failed the cross-check) and
+  that it read from pixels.
+- A box is used only if the recognizer produced words inside it. A line with no replacement would otherwise vanish from extraction.
+- The page's content (decoded, streams joined) is scanned once by `ActualTextMarker`, which follows `q`/`Q`, `cm`, `BT`, `Tm`, `Td`, `TD`, `TL`, `T*`, `Tr`
+  and the four showing operators with the same tokenizer as the earlier-layer remover. The start of a show is the origin of the text matrix mapped through
+  the transformation matrix, tested against the boxes (each widened by a tenth of its smaller side). Advances of earlier shows are not tracked, since they
+  need font widths: a show that continues a line takes the line's start, which is inside the line's box too.
+- Each such show (render mode other than 3) is wrapped on its own: the marker goes before its first operand and `EMC` after the operator. A sequence is one
+  operator, so it nests with `BT`/`ET`, `q`/`Q` and marked content already on the page.
+- Everything else is copied byte for byte. Marked-content operators paint nothing and change no graphics state, so the page renders pixel for pixel as
+  before (checked on the generated mixed file).
+- Afterwards the page is extracted once. If a word the reader took from the text layer (a trusted line) is missing, the rewrite is undone and the
+  diagnostic says so.
+- The scan is bounded like the remover's: one pass, no recursion, graphics-state nesting up to 256, allocation proportional to the content (each wrapped show
+  adds 33 bytes), and any ambiguity (an inline image that cannot be delimited) leaves the page as it was. Form XObjects are not entered.
+
+`Diagnostics` has an entry per page with the number of runs marked; when the runs could not be marked (a show inside a form XObject, say), the entry says
+that the unreliable text stays next to the new layer.
+
+What OnePDF's extraction returns for a marked page, measured on the generated file: the unreliable words are gone and the recognized ones come back, in the same
+words and order as the page model (`Extract` words equal the page model's words as a multiset, on a page with a garbled map on some lines and a wrong map on every
+line). The first word of each marked run still comes back flagged visible and with a box as wide as the run, because OnePDF stretches the replaced span's first glyph
+over the whole span and merges it with the invisible word that lies on it; the text is right, the box of that one word is not. A reader that ignores `/ActualText` shows both texts, as before.
 
 ### PDF/A
 
@@ -185,4 +218,4 @@ decoded pixels) and `|<width>x<height>@<unitsPerInch>|` and the page text; `Sear
 
 - Image pixel counts and page counts are checked by the engine (`OcrLimits`) before decoding; a PDF is limited by `PdfOcrOptions.MaxFileBytes` and OnePDF's own limits.
 - A frame is read in bands of 256 rows into one array of at most 2³¹ − 1 samples; more raises `OcrLimitException`.
-- Not done: vertical text and right-to-left layout of the layer beyond per-word positions; outlined text; form XObjects holding invisible layers; tagged PDF structure for the layer.
+- Not done: vertical text and right-to-left layout of the layer beyond per-word positions; outlined text; form XObjects holding invisible layers or unreliable text; tagged PDF structure for the layer.

@@ -133,7 +133,8 @@ public static class PdfOcr
 
     /// <summary>Reads a range of pages of an open document; <paramref name="bytes"/> yields the file when a page needs rendering.</summary>
     internal static IReadOnlyList<OcrPage> ReadPages(
-        PdfDocument document, Func<ReadOnlyMemory<byte>> bytes, OcrEngine engine, PdfOcrOptions options, CancellationToken cancellationToken)
+        PdfDocument document, Func<ReadOnlyMemory<byte>> bytes, OcrEngine engine, PdfOcrOptions options, CancellationToken cancellationToken,
+        System.Collections.Concurrent.ConcurrentDictionary<int, List<OcrBox>>? unreliable = null)
     {
         int total;
         try
@@ -177,6 +178,7 @@ public static class PdfOcr
             Options = options,
             Renderer = new PdfRenderer(bytes, options, engine.Limits, first, count),
             RegionDegree = outer > 1 ? 1 : degree,
+            Unreliable = unreliable ?? new(),
         };
         var pages = new OcrPage[count];
         try

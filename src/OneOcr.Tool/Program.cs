@@ -9,11 +9,12 @@ namespace OneOcr.Tool;
 internal static class Program
 {
     private const string Usage = """
-        oneocr - read text from images, and fine-tune the OneOcr line recognizer on your own documents
+        oneocr - make searchable PDFs, read text from images, and fine-tune the OneOcr line recognizer on your own documents
 
         usage:
           oneocr --version
           oneocr ocr    --in <image or folder> [--out <dir>] [--model <file> --detector <file> [--wordlm <file>] [--wordfreq <file>]] [--degree N] [--json] [--stats <file>]
+          oneocr pdf    <image, folder or PDF>... --out <file.pdf> [--pdfa] [--title <text>] [--dpi N] [--keep-ocr-layer] [--model <file> --detector <file> ...] [--degree N]
           oneocr train  --model <file> --work <dir> [--docs <dir>] [labelling options] [training options]
           oneocr train  --extract <schema.json> --model <docextract file> --work <dir> [--docs <dir>] [labelling options] [extraction options]
           oneocr eval   --model <file> --work <dir> [--seed N] [--held-out F]
@@ -23,6 +24,18 @@ internal static class Program
         ocr reads PNG and JPEG pages with the bundled models (or with --model and --detector files, and --wordlm for the word character model, --wordfreq for the word frequency table) and writes <name>.txt per
         page into --out (one page with no --out prints the text); --json adds <name>.page.json, the page model; --stats writes
         the model load time, time per page and peak memory as JSON. Local only, never touches the network.
+
+        pdf makes a searchable PDF. Images (PNG, JPEG, TIFF with any number of frames) become the pages of one PDF, each
+        with an invisible text layer made from the recognized words, so selection, search and copy match the page; the
+        image is embedded as it is (a JPEG as its own bytes, a 1-bit TIFF page as 1-bit). Several images, or folders of
+        images (read by file name), give one PDF; one PDF gives a copy in which the pages that need a text layer (scans,
+        pages with a third-party OCR layer, garbled or wrongly mapped text) have one and every other page is untouched.
+        Inputs come first, then the options. --out is required and is replaced only when the whole file was written.
+        --pdfa writes PDF/A-2b; --title sets the document title of a PDF made from images; --dpi N sets the resolution of
+        images that declare none (default: estimated from the text size); --keep-ocr-layer trusts an existing invisible
+        OCR layer in a PDF instead of replacing it; --model, --detector, --wordlm and --wordfreq work as for ocr. It
+        prints one summary line (pages, pages given a text layer, words) and writes notes about the pages to stderr.
+        Local only, never touches the network; the same input gives the same file.
 
         train labels the images in --docs with a language model (when --docs is given), then fine-tunes --model on the
         lines the local reader and the model agree on. Without --docs it trains on the labels already in --work (for
@@ -64,23 +77,31 @@ internal static class Program
             e.Cancel = true;
             cts.Cancel();
         };
+        return await RunAsync(args, Console.Out, Console.Error, cts.Token).ConfigureAwait(false);
+    }
+
+    /// <summary>Runs one command line and returns its exit code. The <c>pdf</c> command and the usage and error lines write to the given writers; the other commands use the console.</summary>
+    internal static async Task<int> RunAsync(string[] args, TextWriter stdout, TextWriter stderr, CancellationToken ct)
+    {
         try
         {
             if (args.Length == 0 || args[0] is "-h" or "--help" or "help")
             {
-                Console.Out.WriteLine(Usage);
+                stdout.WriteLine(Usage);
                 return args.Length == 0 ? 2 : 0;
             }
 
             switch (args[0])
             {
                 case "--version" or "-v" or "version":
-                    Console.Out.WriteLine(VersionText());
+                    stdout.WriteLine(VersionText());
                     return 0;
                 case "ocr":
                     return OcrCommand.Run(new Flags(args.AsSpan(1)));
+                case "pdf":
+                    return PdfCommand.Run(args[1..], stdout, stderr, ct);
                 case "train":
-                    return await TrainAsync(new Flags(args.AsSpan(1)), cts.Token).ConfigureAwait(false);
+                    return await TrainAsync(new Flags(args.AsSpan(1)), ct).ConfigureAwait(false);
                 case "eval":
                     return Eval(new Flags(args.AsSpan(1)));
                 case "review" when args.Length >= 2 && args[1] == "export":
@@ -88,29 +109,29 @@ internal static class Program
                 case "review" when args.Length >= 2 && args[1] == "import":
                     return Import(new Flags(args.AsSpan(2)));
                 default:
-                    Console.Error.WriteLine("oneocr: unknown command '" + args[0] + "'. Run 'oneocr help'.");
+                    stderr.WriteLine("oneocr: unknown command '" + args[0] + "'. Run 'oneocr help'.");
                     return 2;
             }
         }
         catch (UsageException ex)
         {
-            Console.Error.WriteLine("oneocr: " + ex.Message);
+            stderr.WriteLine("oneocr: " + ex.Message);
             return 2;
         }
         catch (OperationCanceledException)
         {
-            Console.Error.WriteLine("oneocr: cancelled; a checkpoint was saved, run the same command again to continue.");
+            stderr.WriteLine("oneocr: cancelled; a checkpoint was saved, run the same command again to continue.");
             return 130;
         }
         catch (Exception ex) when (ex is OcrException or ImageException or ArgumentException or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
-            Console.Error.WriteLine("oneocr: " + ex.Message);
+            stderr.WriteLine("oneocr: " + ex.Message);
             return 1;
         }
         catch (Exception ex)
         {
             // A bug, not bad input: say so in one line and exit non-zero instead of dumping a stack trace and a core file.
-            Console.Error.WriteLine("oneocr: unexpected " + ex.GetType().Name + ": " + ex.Message);
+            stderr.WriteLine("oneocr: unexpected " + ex.GetType().Name + ": " + ex.Message);
             return 70;
         }
     }

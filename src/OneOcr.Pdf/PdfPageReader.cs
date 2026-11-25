@@ -13,6 +13,12 @@ internal sealed class ReadContext
 
     /// <summary>Threads the recognizer may use for one region.</summary>
     public int RegionDegree { get; init; }
+
+    /// <summary>
+    /// Per page index: the boxes (page units) of visible text-layer lines that were set aside as unreliable and read from pixels instead.
+    /// Searchable-PDF output marks those runs in the page content.
+    /// </summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<int, List<OcrBox>> Unreliable { get; init; } = new();
 }
 
 /// <summary>
@@ -196,6 +202,28 @@ internal static class PdfPageReader
                 }
 
                 regions.Clear();
+            }
+        }
+
+        // Visible lines set aside above (garbled, or the whole layer failing the cross-check) stay in the file: remember where they are.
+        if (canRender)
+        {
+            List<OcrBox>? dropped = null;
+            foreach (TextBlock b in blocks)
+            {
+                foreach (TextLine l in b.Lines)
+                {
+                    List<TextWord> set = l.Words.FindAll(static w => w.Visible && !w.Keep);
+                    if (set.Count > 0)
+                    {
+                        (dropped ??= []).Add(Union(set));
+                    }
+                }
+            }
+
+            if (dropped is not null)
+            {
+                ctx.Unreliable[pageIndex] = dropped;
             }
         }
 
