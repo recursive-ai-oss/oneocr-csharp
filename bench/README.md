@@ -562,6 +562,62 @@ uv run python -m oneocr_bench score EVAL_DIR/clean300-v1 OUTPUT_DIR [--boxes ink
   CER 0.2427 %, WER 0.7300 %, order 0.7394 % (best, PSM 11) and 0.2586 % / 0.8329 % / 0.8517 % (fast, PSM 6), the numbers in the
   baseline table above.
 
+## Financial documents: `fin-dev-v1`
+
+Degraded bank statements, invoices and receipts with exact truth, in four capture categories, each with a generated set and a real set.
+
+| category | generated set | real set | capture |
+|---|---|---|---|
+| scan | `fin-scan` | `fin-scan-real` | flatbed scan: skew 0.5-8 degrees, 150/200/300 dpi, photocopy wear, JPEG |
+| fax | `fin-fax` | `fin-fax-real` | CCITT Group 3 TIFF, 1728 dots across, 200x100 (standard) or 200x200 (fine) dpi, threshold drift, dropouts, line noise |
+| phone | `fin-phone` | `fin-phone-real` | camera simulation: perspective, uneven light, blur, sensor noise, JPEG |
+| tables | `fin-tables` | `fin-tables-real` | dense multi-column tables (statements, long invoices and receipts, report tables) in all four captures |
+
+The generated sets (40 pages each; statements 16, invoices 12, receipts 12 per 40, the tables cut 18/14/8) come from `fin.py`: HTML
+through Chromium in ten held-out font families, truth from the browser's own layout (DOM ranges), running balances that reconcile in exact
+decimal arithmetic (asserted when a page is built), US/EU/Swiss number formats, currency signs and codes, negatives as minus,
+parentheses, trailing minus or CR/DR. The real sets (10 pages each, 20 for tables) are pages of US federal financial reports, cut
+with the method of the real-PDF sets (`finreal.py`; two independent readers of the text layer must agree), kept when at least 30 of
+their words are amounts, dates or account-like numbers. Licences: `fin-dev-real-licences.md`. Real table pages have no verified
+reading order, so order is information only on the `-real` sets.
+
+    python -m oneocr_bench fin gen --seeds fin-dev-seeds.json --out DIR [--check]     # generated sets, reproduces manifests/fin-dev-v1.json
+    python -m oneocr_bench finreal cut --pdfs DIR --out DIR --seeds fin-dev-seeds.json --pdftruth PdfTruth.dll [--check]
+    python -m oneocr_bench fin check DIR/<set>      # pixel, tag and reconciliation checks on the truth
+    python -m oneocr_bench fin freeze DIR           # SHA256SUMS of the whole tree
+    python -m oneocr_bench fin-report --eval DIR --runs RUNS --out report.md
+
+Every truth file lists its tagged values (`tags`: money, date, account-like, and `qty` for quantity cells; statements also carry
+the `statement` structure) next to the usual words, boxes and text. Fax pages are CCITT TIFF files; every engine reads them as they are.
+
+### Scorer v3.2
+
+Scorer v3.2 is v3.1 plus an `amounts` member computed from the tags. CER, WER, order, recall variants, detection and calibration error are
+the v3.1 numbers to the last bit (`scripts/scorer_regress.py` dumps them for two scorer trees and compares: zero differences on 10 sets / 422
+pages of the development sets with our engine and on 13 configurations / 312 pages of the clean-real set with every engine).
+
+- **Amount exact match (in place).** A tagged value (money, date or account-like number) is read when some run of consecutive hypothesis
+  words, among those whose centres lie in the value's region, spells the value written without spaces. The region is the box around the
+  value's words grown 1.3 times about its centre; a hypothesis word in several regions belongs to the nearest value; the neighbours' words at
+  either end of the run are ignored. A value read right somewhere else on the page earns nothing. The rule does not depend on how an engine
+  tokenises: `250,00 EUR`'s currency sign fused to the number (`250,00EUR`) or a number split in two words is the same reading, and
+  an engine that lists its words in any order is scored alike. Reported overall and per class.
+- **Amount exact match (text-only).** Each value's words written without spaces must equal consecutive hypothesis tokens (one to four), each token
+  used by one value at most; no position. It is an upper bound (a value read right in the wrong place counts) and the fallback for an engine
+  that reports no boxes. Comparing the two shows whether box granularity costs an engine anything: on the development sets they agree
+  within about one point for every engine.
+- **Reconciliation.** For statements, each row's amount and balance are read from the hypothesis words at the truth words' places, parsed
+  as numbers, and the row passes when previous balance plus or minus amount equals the balance as read. The rate is rows passed over rows.
+  It needs word positions, so it is information.
+
+An earlier version of the in-place rule matched word by word and counted a currency sign printed as part of the number (`250,00` and the
+euro sign as two truth words, one hypothesis token) as a miss; that cost one engine 4.7 points of amount match on fax that its text carried right.
+
+### Sealed cut
+
+A sealed cut of the same recipes (new seeds, new real documents) exists next to the development cut. Its seeds and source list are not in
+this repository, and nothing is run or scored on it before the release gate.
+
 ## A sealed set
 
 The bench-v2 pages have been looked at while the engine was developed, so they are a development set. For quality claims a
