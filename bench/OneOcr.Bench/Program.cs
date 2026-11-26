@@ -201,6 +201,11 @@ internal static class Program
             }
         }
 
+        if (o.TryGetValue("photoends", out string? photoEnds))
+        {
+            DetectorLines.PhotoEnds = photoEnds != "0";
+        }
+
         if (o.TryGetValue("endext", out string? endExt))
         {
             string[] f = endExt.Split(':');
@@ -476,6 +481,33 @@ internal static class Program
             p.Length > 3 ? int.Parse(p[3], CultureInfo.InvariantCulture) : 8, p.Length > 4 ? float.Parse(p[4], CultureInfo.InvariantCulture) : 0.99f, p.Length > 5 ? float.Parse(p[5], CultureInfo.InvariantCulture) : 0.9f, p.Length > 6 ? int.Parse(p[6], CultureInfo.InvariantCulture) : 3);
     }
 
+    private static void WriteStages(string path, List<OneOcr.Layout.TraceEntry> entries, OcrPage page)
+    {
+        using var stream = File.Create(path);
+        using var w = new Utf8JsonWriter(stream);
+        w.WriteStartObject();
+        w.WriteBoolean("angle_searched", page.Diagnostics.Any(d => d.Code == OcrDiagnosticCodes.AngleSearched));
+        w.WriteStartArray("entries");
+        foreach (var e in entries)
+        {
+            w.WriteStartObject();
+            w.WriteString("stage", e.Stage);
+            w.WriteNumber("reading", e.Reading);
+            w.WriteString("text", e.Text);
+            w.WriteNumber("conf", Math.Round(e.Confidence, 4));
+            w.WriteStartArray("box");
+            w.WriteNumberValue(Math.Round(e.Mapped.Left, 1));
+            w.WriteNumberValue(Math.Round(e.Mapped.Top, 1));
+            w.WriteNumberValue(Math.Round(e.Mapped.Right, 1));
+            w.WriteNumberValue(Math.Round(e.Mapped.Bottom, 1));
+            w.WriteEndArray();
+            w.WriteEndObject();
+        }
+
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
+
     private static int Run(Dictionary<string, string> o)
     {
         string pages = Need(o, "pages"), outDir = Need(o, "out");
@@ -655,7 +687,16 @@ internal static class Program
 
                 if (writeWords || writePageJson)
                 {
+                    // --stages 1: also writes <page-id>.stages.json, what each stage of the page reader saw and dropped (see StageTrace).
+                    var stageSink = Int(o, "stages", 0) != 0 ? new List<OneOcr.Layout.TraceEntry>() : null;
+                    OneOcr.Layout.StageTrace.Sink = stageSink;
                     OcrPage page = engine.Ocr(image, Page());
+                    OneOcr.Layout.StageTrace.Sink = null;
+                    if (stageSink is not null)
+                    {
+                        WriteStages(Path.Combine(outDir, id + ".stages.json"), stageSink, page);
+                    }
+
                     WriteWordSidecar(Path.Combine(outDir, id + ".json"), page);
                     if (writePageJson)
                     {

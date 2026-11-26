@@ -705,6 +705,11 @@ public sealed class OcrEngine
         Gray8[] gray, int width, int height, int pageIndex, double? dpi, int degree, bool includeChars, bool orient, bool deskew, JunkParameters? junk, bool respace, bool digits, bool separators, bool searchAngle, CancellationToken cancellationToken)
     {
         var evidence = new OrientationEvidence();
+        if (StageTrace.On)
+        {
+            StageTrace.NextReading();
+        }
+
         PreparedPage prepared = PagePreparation.Prepare(
             gray, width, height, orient, deskew, Seam, _limits, _pixels, degree, evidence, cancellationToken);
         try
@@ -715,6 +720,7 @@ public sealed class OcrEngine
                 _recognizer, _limits, _pixels, _masks, _resizers, _detector, prepared.Pixels, prepared.Width, prepared.Height, pageIndex, dpi, degree, includeChars,
                 first, turn: false, ReferenceEquals(prepared.Pixels, gray) ? evidence.Strips : null, cancellationToken, prepared.Level, junk, respace, digits, separators);
             long t = StageClock.Start();
+            StageTrace.MapBack(prepared.Frame);
             OcrPage finished = prepared.Finish(page);
             StageClock.Stop("9 frame map", t);
             if (searchAngle && prepared.Source is { } source && PageAngleSearch.IsWeak(finished, out double share) && (finished.Words.Count > 0 || PageAngleSearch.HasInk(source)))
@@ -752,6 +758,11 @@ public sealed class OcrEngine
             Gray8[] turned = _pixels.Rent(canvas);
             try
             {
+                if (StageTrace.On)
+                {
+                    StageTrace.NextReading();
+                }
+
                 long warpClock = StageClock.Start();
                 PageRotation.Deskew(source.Pixels, source.Width, source.Height, frame.Sin, frame.Cos, background, turned, frame.DeskewedWidth, frame.DeskewedHeight, degree, cancellationToken);
                 StageClock.Stop("a search warp", warpClock);
@@ -759,6 +770,7 @@ public sealed class OcrEngine
                     _recognizer, _limits, _pixels, _masks, _resizers, _detector, turned, frame.DeskewedWidth, frame.DeskewedHeight, pageIndex, dpi, degree, includeChars,
                     null, turn: false, null, cancellationToken, null, junk, respace, digits, separators);
                 var notes = new List<OcrDiagnostic>(source.Notes);
+                StageTrace.MapBack(frame);
                 return frame.MapPage(page, notes);
             }
             finally

@@ -164,10 +164,15 @@ internal static class DetectorLines
             }
 
             // Page lines the ink of a line may not be followed into (see ExtendEnds); photos keep their own end handling.
-            (int[]? Left, int[]? Right) limits = EndGap > 0 && darkInk is null ? NeighbourLimits(detection.Lines, width) : (null, null);
+            (int[]? Left, int[]? Right) limits = EndGap > 0 && (darkInk is null || PhotoEnds) ? NeighbourLimits(detection.Lines, width) : (null, null);
             int typicalBox = darkInk is null ? TypicalBoxHeight(detection.Lines) : 0;
             for (int i = 0; i < detection.Lines.Count; i++)
             {
+                if (StageTrace.On)
+                {
+                    StageTrace.Add("detected", new OcrBox(detection.Lines[i].Left, detection.Lines[i].Top, detection.Lines[i].Right, detection.Lines[i].Bottom), string.Empty, 0);
+                }
+
                 int leaf = LeafOf(detection, i);
                 int before = strips.Count;
                 // A box tall enough to hold several lines is tried upright first: the axis of a component that joins lines leans with
@@ -236,6 +241,8 @@ internal static class DetectorLines
     /// How far a blank stretch may be, in band heights, for ink beyond a detected box's end to still belong to the line (0 turns the
     /// extension off). A letter gap is well under this; a word gap is not.
     /// </summary>
+    internal static bool PhotoEnds = true;
+
     internal static double EndGap = 0.25;
 
     /// <summary>The most ink, as a share of the area it was followed over, that still reads as letters.</summary>
@@ -250,7 +257,7 @@ internal static class DetectorLines
     // The detector's box can end inside the last letter or just before it (its edge is a few pixels uncertain), so the line's ink band
     // is followed outwards from each end through ink that continues with only letter-sized gaps, never into the box of a neighbouring
     // line (the limits) and never farther than EndReach.
-    private static void ExtendEnds(ReadOnlySpan<byte> page, int width, int rowFrom, int rowTo, int threshold, bool inkIsBright, int leftLimit, int rightLimit, ref int minX, ref int maxX)
+    private static void ExtendEnds(ReadOnlySpan<byte> page, int width, int rowFrom, int rowTo, int threshold, bool inkIsBright, int leftLimit, int rightLimit, ref int minX, ref int maxX, bool dashOnly = false)
     {
         int bandHeight = rowTo - rowFrom + 1;
         int gap = Math.Max(1, (int)Math.Round(EndGap * bandHeight));
@@ -260,7 +267,7 @@ internal static class DetectorLines
         // Ink to the right: columns up to the last one with ink, so long as the blank stretches stay within a letter gap.
         int last = maxX;
         long ink = 0, inkAtLast = 0;
-        for (int x = maxX + 1; x < rightLimit && x - last <= gap && x - maxX <= reach; x++)
+        for (int x = maxX + 1; !dashOnly && x < rightLimit && x - last <= gap && x - maxX <= reach; x++)
         {
             int n = ColumnInk(page, width, x, rowFrom, rowTo, threshold, inkIsBright);
             ink += n;
@@ -293,11 +300,42 @@ internal static class DetectorLines
             }
         }
 
-        if (minX - first >= least && IsLetterLike(inkAtFirst, minX - first, bandHeight))
+        if (minX - first >= least && (dashOnly ? IsDashLike(page, width, rowFrom, rowTo, first, minX - 1, threshold, inkIsBright, bandHeight) : IsLetterLike(inkAtFirst, minX - first, bandHeight)))
         {
             minX = first;
         }
     }
+
+    // A minus sign or dash: the ink of the stretch fills at most DashHeight of the band's rows and lies in its middle. On a photo only this is
+    // taken past the left end of a line (see PhotoEnds): the sign of a negative amount is faint and set apart from its digits, so the ink
+    // band starts at the digits, while a letter taken in the same way would only shift what the recognizer reads at the line's edge.
+    private static bool IsDashLike(ReadOnlySpan<byte> page, int width, int rowFrom, int rowTo, int fromX, int toX, int threshold, bool inkIsBright, int bandHeight)
+    {
+        int top = int.MaxValue, bottom = -1;
+        for (int y = rowFrom; y <= rowTo; y++)
+        {
+            for (int x = fromX; x <= toX; x++)
+            {
+                byte v = page[(y * width) + x];
+                if (inkIsBright ? v > threshold : v <= threshold)
+                {
+                    top = Math.Min(top, y);
+                    bottom = y;
+                    break;
+                }
+            }
+        }
+
+        if (bottom < 0 || bottom - top + 1 > DashHeight * bandHeight)
+        {
+            return false;
+        }
+
+        double middle = ((top + bottom) / 2.0) - rowFrom;
+        return middle >= DashLow * bandHeight && middle <= DashHigh * bandHeight;
+    }
+
+    internal static double DashHeight = 0.35, DashLow = 0.3, DashHigh = 0.7;
 
     private static bool IsLetterLike(long inkPixels, int columns, int bandHeight) => inkPixels <= EndFill * columns * bandHeight;
 
@@ -700,9 +738,9 @@ internal static class DetectorLines
                         }
                     }
 
-                    if (EndGap > 0 && pageIsDarkInk is null)
+                    if (EndGap > 0 && (pageIsDarkInk is null || PhotoEnds))
                     {
-                        ExtendEnds(page, width, y0 + start, y0 + end, threshold, inkIsBright, Math.Max(0, leftLimit), Math.Min(width, rightLimit), ref minX, ref maxX);
+                        ExtendEnds(page, width, y0 + start, y0 + end, threshold, inkIsBright, Math.Max(0, leftLimit), Math.Min(width, rightLimit), ref minX, ref maxX, dashOnly: pageIsDarkInk is not null);
                     }
 
                     result.Add(new LineBox(minX, y0 + start, maxX - minX + 1, end - start + 1));

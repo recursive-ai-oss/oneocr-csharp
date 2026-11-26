@@ -278,6 +278,14 @@ internal static partial class PageReader
             return new OcrPage(pageIndex, width, height, units, [], regions.Count > 0 ? MakeRegions(regions, [], height) : null, diagnostics: diagnostics);
         }
 
+        if (StageTrace.On)
+        {
+            foreach (StripLine s in strips)
+            {
+                StageTrace.Add(s.MinConfidence > 0 ? (s.LoneDigits ? "strip-lone" : "strip-faint") : s.Tilt is not null ? "strip-tilt" : "strip", new OcrBox(s.Box.X, s.Box.Y, s.Box.Right, s.Box.Bottom), string.Empty, 0);
+            }
+        }
+
         int modelHeight = recognizer.InputHeight;
         var read = new OrderStrip?[strips.Count];
         var skipped = new OcrDiagnostic?[strips.Count];
@@ -428,9 +436,28 @@ internal static partial class PageReader
                     }
 
                     // A line recovered from faint text is kept only for the words the recognizer reads with confidence.
+                    if (StageTrace.On)
+                    {
+                        foreach (OcrWord tw in words)
+                        {
+                            StageTrace.Add("read", tw.Box, tw.Text, tw.Confidence);
+                        }
+                    }
+
                     if (strips[index].MinConfidence > 0)
                     {
                         bool lone = strips[index].LoneDigits;
+                        if (StageTrace.On)
+                        {
+                            foreach (OcrWord tw in words)
+                            {
+                                if (tw.Confidence < strips[index].MinConfidence || (lone ? !IsLoneNumber(tw.Text) : tw.Text.Length < 2))
+                                {
+                                    StageTrace.Add("faint-drop", tw.Box, tw.Text, tw.Confidence);
+                                }
+                            }
+                        }
+
                         words.RemoveAll(w => w.Confidence < strips[index].MinConfidence || (lone ? !IsLoneNumber(w.Text) : w.Text.Length < 2));
                         if (words.Count == 0)
                         {
