@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Installs the packed packages into a fresh program outside the repository and runs it, on the JIT and as a NativeAOT binary.
+# The program reads an image, makes a searchable PDF from it and checks the PDF with OnePdf, and reads a standard-mode fax
+# TIFF (testdata/fax).
 #
 #   tools/ci/consumer-smoke.sh <packages directory> <version> <rid>      e.g. linux-x64, win-x64, osx-arm64, linux-arm64
 #
@@ -13,6 +15,7 @@ src=$(cd "$(dirname "${BASH_SOURCE[0]}")/consumer-smoke" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cp "$src"/Smoke.csproj "$src"/Program.cs "$src"/hello.png "$work/"
+cp "$src/../../../testdata/fax/std-g3.tif" "$work/fax.tif"
 cat > "$work/nuget.config" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
