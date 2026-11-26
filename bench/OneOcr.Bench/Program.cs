@@ -201,6 +201,17 @@ internal static class Program
             }
         }
 
+        if (o.TryGetValue("smallnum", out string? smallNum))
+        {
+            // --smallnum DIGITS[:PAGEMIN]: the noise filter's rule that keeps small numbers (0 digits turns it off; see JunkParameters.SmallNumberDigits).
+            string[] f = smallNum.Split(':');
+            JunkFilter.SmallNumberDigitsOverride = int.Parse(f[0], CultureInfo.InvariantCulture);
+            if (f.Length > 1)
+            {
+                JunkFilter.SmallNumberPageMinOverride = int.Parse(f[1], CultureInfo.InvariantCulture);
+            }
+        }
+
         if (o.TryGetValue("endext", out string? endExt))
         {
             string[] f = endExt.Split(':');

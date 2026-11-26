@@ -524,6 +524,13 @@ one detected line, its height is the height of its ink box).
    because such strips hold no real text but the recognizer reads a lone punctuation mark in them with middling confidence. A strip
    left with no words is dropped. Words in other strips are never touched by this rule, whatever their confidence.
 
+4. **Small numbers.** A word made only of digits and the marks that join them (`. , : / - + ( ) %` and currency signs) with at least
+   `SmallNumberDigits` (2) digits is kept in a small or tiny strip whatever its confidence, but only on a page where at least
+   `SmallNumberPageMin` (3) such words would otherwise be dropped. On a photographed statement the amounts and dates are printed
+   small and read with little confidence; measured on generated phone pages every such word the rule keeps lies on a printed word,
+   and grain makes one or two number-like readings at most (a single stray run of digits is still dropped). Measured on 120 generated
+   phone pages: amounts in a small strip that came back empty fell from 51 to 6, and the other development sets are unchanged.
+
 *Dots and ticks* (after the first rule, in strips of any height): a word made only of the characters . , : ; ' " ` ´ ‘ ’ “ ” (a
 speck read as a mark) is dropped when its calibrated confidence is under `SpeckConfidence`, but only on a page that has at least
 `SpeckPageMin` such words: dust comes in numbers, while a clean page has none or a stray one, and the stray one may be a real mark.
