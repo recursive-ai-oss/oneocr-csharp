@@ -860,20 +860,40 @@ scans only just), and about twice as fast as Tesseract with its best models.
 
 ### Financial documents: faxes, scans, phone photos and tables
 
-**TBD: the numbers come from the sealed financial gate and are not yet filled in.** The sets hold generated statements, invoices and
-receipts with exact truth, plus pages of public US Treasury financial reports (real slice), degraded as a fax (standard and fine mode),
-as a 150/200 dpi scan with photocopy and JPEG noise, as a phone photo, and as a table-heavy cut. The first column is the share of money
-values, dates and account-like numbers that are read exactly right (a value read with any wrong character counts as wrong).
+**Result for 1.1, stated as measured: OneOcr reads amounts exactly more often than any other engine we measured on scans, faxes and
+tables, and less often than PaddleOCR on phone photos. On character and word error it is behind the best engine in all four categories**
+(narrowly on scans, faxes and tables, clearly on phone photos). It is far ahead of Tesseract on every row.
 
-| Category | Amount exact match: OneOcr | Amount exact match: best other engine | CER | WER | Best other engine (CER / WER) |
-|---|---|---|---|---|---|
-| Scans (skew, 150/200 dpi, photocopy) | TBD | TBD | TBD | TBD | TBD |
-| Fax (G3, standard and fine mode) | TBD | TBD | TBD | TBD | TBD |
-| Phone photos | TBD | TBD | TBD | TBD | TBD |
-| Tables (statements, invoices, receipts) | TBD | TBD | TBD | TBD | TBD |
+The sets hold generated statements, invoices and receipts with exact truth (40 pages per category) plus pages of public US Treasury
+financial reports (10 pages per category, 20 for tables), degraded as a fax (standard and fine mode), as a 150/200 dpi scan with skew,
+photocopy and JPEG noise, as a phone photo, and as a table-heavy cut. Each category pools its generated and real pages. The test set is
+sealed: no tuning step saw it, and it was run once, on the release commit with the bundled models, scorer v3.2. Competitor outputs were
+measured once on the same pages; fax pages are given to every engine as the G3 TIFF files themselves.
 
-Statement running-balance reconciliation (opening balance plus every row equals the closing balance) and reading order are measured and
-reported with the table; they are measurements, not a product feature. Method and generators are in [`bench/`](bench/README.md).
+*Amount exact match: the share of money values, dates and account-like numbers read exactly right where they are printed (a value with
+any wrong character counts as wrong; higher is better). The text-only match, which ignores where the value is, is in brackets. CER and WER
+are error rates in % (lower is better). "Best other" is the best value any other engine reaches per metric, so the columns can come from
+different engines; Tesseract 5.3.4 is shown with its best page-segmentation mode per metric.*
+
+| Category | Amount exact match: OneOcr | Best other | Tesseract (best) | CER / WER: OneOcr | Best other | Tesseract (best) | OneOcr vs best (amounts / CER / WER) |
+|---|---|---|---|---|---|---|---|
+| Scans (skew, 150/200 dpi, photocopy) | **97.9** (97.7) | 95.5 (96.9) PaddleOCR PP-OCRv6 | 63.3 | 5.47 / 8.72 | 5.07 / 7.92 PaddleOCR | 21.6 / 38.9 | win / loss / loss |
+| Fax (G3, standard and fine mode) | **90.3** (89.9) | 85.7 (86.3) PaddleOCR PP-OCRv6 | 62.2 | 8.73 / 17.42 | 8.19 / 16.47 PaddleOCR | 17.2 / 35.6 | win / loss / loss |
+| Phone photos | 88.3 (88.0) | **95.5** (95.6) PaddleOCR PP-OCRv6 | 50.3 | 11.26 / 15.51 | 6.60 / 10.51 PaddleOCR | 32.1 / 46.4 | loss / loss / loss |
+| Tables (statements, invoices, receipts) | **89.4** (89.3) | 84.0 (84.8) PaddleOCR PP-OCRv6 | 52.2 | 9.50 / 15.99 | 9.27 / 15.70 PaddleOCR | 22.5 / 40.3 | win / loss / loss |
+
+Statement running-balance reconciliation (opening balance plus every row equals the closing balance, on the generated statements),
+OneOcr vs the best other engine: scans 95.9 vs 97.5, fax 92.1 vs 94.5, phone 79.6 vs 92.8, tables 89.6 vs 89.6 %. It is a measurement,
+not a product feature. On phone photos about half of our missed values are separators and signs read wrongly (`,` as `.`, a minus
+lost) and most of the rest wrong digits; few are undetected. Standard-mode faxes of the real Treasury pages are the hardest set for every engine.
+
+One run on an AMD Ryzen 9 7950X3D, 32 threads, load 2.7 before and 3.8 after (accuracy only, so load does not change the numbers). Method
+and generators are in [`bench/`](bench/README.md); `python -m oneocr_bench fin-report` prints the full table, every engine configuration
+and set, with the causes of our misses.
+
+The 1.0 test set above was run again on the 1.1 release commit: no row is worse, and generated US receipt photos improved from
+8.14 / 14.24 to 7.49 / 12.82 recall-CER / recall-WER. The 1.0 table is kept as published. Speed on the six development sets is within
+about 3% of the 1.0 row on every set, at one and four threads (clean print 528 → 522 ms at one thread).
 
 ## Not yet
 
