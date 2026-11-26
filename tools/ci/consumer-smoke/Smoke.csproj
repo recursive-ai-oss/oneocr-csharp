@@ -14,7 +14,9 @@
 
   <ItemGroup>
     <PackageReference Include="RecursiveAI.OneOcr" Version="$(OneOcrVersion)" />
+    <PackageReference Include="RecursiveAI.OneOcr.Pdf" Version="$(OneOcrVersion)" />
     <None Include="hello.png" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="fax.tif" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

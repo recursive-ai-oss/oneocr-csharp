@@ -4,11 +4,13 @@ name: release
 # Trusted Publishing: the job exchanges its GitHub identity token for a short-lived API key, so no key is stored in the
 # repository or its secrets.
 #
-# The weights are assets of a draft release with the same tag (see RELEASING.md). They are checked against the pins in the
-# models.json manifests before anything is built, and the draft is published only after every package is on nuget.org.
+# The weights are assets of the GitHub release named in tools/ci/weights-release.txt, which is the release that first published
+# them (see RELEASING.md), so a release whose weights did not change uploads none. They are checked against the pins in the
+# models.json manifests before anything is built. The packages are attached to a draft release with this tag, and the draft is
+# published only after every package is on nuget.org.
 #
 #   verify   the tag is well formed, is the package version, is on main, CI passed on that commit, the changelog has the version
-#   weights  fetch the weights from the draft release and check size and SHA-256 against the pins
+#   weights  fetch the weights from the release that holds them and check size and SHA-256 against the pins
 #   publish  build, test, pack, check, consume the packages from a fresh program, attest, push to nuget.org
 #   release  attach the packages to the release and publish it, with the changelog section as notes
 on:
@@ -80,11 +82,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Fetch the weights from the draft release and verify them
+      - name: Fetch the weights from the release that holds them and verify them
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: tools/ci/fetch-weights.sh "$TAG" "$RUNNER_TEMP/weights"
+        run: tools/ci/fetch-weights.sh "$(head -n 1 tools/ci/weights-release.txt)" "$RUNNER_TEMP/weights"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: weights
@@ -210,7 +211,7 @@ jobs:
           ' CHANGELOG.md > notes.md
           if [ ! -s notes.md ]; then echo "::error::the changelog section for $version is empty"; exit 1; fi
 
-          # The draft release holds the weights; it is found by listing, because a draft has no tag lookup.
+          # The draft release for this tag is found by listing, because a draft has no tag lookup.
           id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n 1)
           if [ -z "$id" ]; then echo "::error::no release with tag $TAG"; exit 1; fi
           have=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '.assets[].name')

@@ -63,7 +63,7 @@ the one-liner. The rest is opt-in:
 | `RecursiveAI.OneOcr.Models.Documents` | The invoice and receipt extraction model. |
 | `RecursiveAI.OneOcr.Llm` | LLM vision: providers, modes, grounding, cost controls, routing. The only package that uses the network. |
 | `RecursiveAI.OneOcr.Training` | `OcrTrainer`, `ExtractionTrainer` and the review queue. |
-| `RecursiveAI.OneOcr.Pdf` | PDF pages: text layer plus OCR of image regions. |
+| `RecursiveAI.OneOcr.Pdf` | PDF pages: text layer plus OCR of image regions; searchable PDFs from images and scans. |
 | `RecursiveAI.OneOcr.Tool` | The `oneocr` command-line tool: `pdf`, `ocr`, `train`, `eval`, `review`. |
 
 ```sh
@@ -77,7 +77,11 @@ dotnet tool install --global RecursiveAI.OneOcr.Tool
 Target framework `net10.0`. Namespaces: `OneOcr` (core), `OneOcr.Documents`, `OneOcr.Decoding`,
 `OneOcr.Models.Documents`, `OneOcr.Llm`, `OneOcr.Pdf`, `OneOcr.Training`. Pixels come from
 [`RecursiveAI.OneImage`](https://www.nuget.org/packages/RecursiveAI.OneImage), so any `OneImage.Image`
-(PNG, JPEG, WebP, TIFF and so on) is an input. Moving from Tesseract? See the
+(PNG, JPEG, WebP, TIFF and so on) is an input.
+
+Dependencies, all the .NET libraries of the same family and nothing else: `RecursiveAI.OneOcr` needs `RecursiveAI.OneImage` 1.10.4 or later
+(and `.Models`); `RecursiveAI.OneOcr.Pdf` needs `RecursiveAI.OnePdf` 1.25.0 and `RecursiveAI.OneImage.Pdf` 1.10.4; `.Llm`, `.Training` and
+`.Models.Documents` need only the packages above. The tool carries its assemblies. Moving from Tesseract? See the
 [migration guide](docs/migrating-from-tesseract.md).
 
 ## Quick start
@@ -183,9 +187,9 @@ default and documented on the type.
   is the inner one. The pixel and frame limits are applied before the pixels are decoded when you
   pass a path, a stream or bytes to `OcrPages`.
 - **Resolution.** `OcrPages(path | stream | bytes)` takes the resolution a PNG (`pHYs`), JPEG
-  (JFIF) or TIFF (`XResolution`) declares as `UnitsPerInch`. On an `Image` you loaded yourself the
+  (JFIF) or TIFF (`XResolution`, `YResolution`) declares as `UnitsPerInch` and `VerticalUnitsPerInch`. On an `Image` you loaded yourself the
   resolution is estimated from the size of the text, and a diagnostic says so; set
-  `OcrOptions.Dpi` when you know it.
+  `OcrOptions.Dpi` (and `VerticalDpi` for non-square pixels, see below) when you know it.
 
 <!-- sample: AsyncOcr -->
 ```csharp
@@ -344,8 +348,25 @@ Extension methods on OnePDF's `PdfPage` and `PdfDocument` (`Ocr`, `ToText`, `ToM
 
 ### Searchable PDFs
 
-Images become the pages of a PDF with an invisible text layer made from the page model, and a scanned PDF gets the same layer where it needs one (see
-[the package README](src/OneOcr.Pdf/README.md) for the API). From the command line:
+Images become the pages of a PDF with an invisible text layer made from the page model, and a scanned PDF gets the same layer where it
+needs one. Selection, search and copy in any PDF reader then match the words on the page.
+
+```csharp
+using OneOcr;
+using OneOcr.Pdf;
+
+OcrEngine.ConfigureDefault();
+
+image.ToSearchablePdf("scan.pdf");                                       // one image, or a multi-frame TIFF: one page per frame
+SearchablePdf.FromFiles(["p1.jpg", "p2.jpg", "p3.tif"], "book.pdf");    // many files, one PDF
+SearchablePdf.MakeSearchable("scanned.pdf", "searchable.pdf");          // a PDF in, a PDF out
+SearchablePdf.FromFiles(["p1.jpg"], "archive.pdf",
+    options: new SearchablePdfOptions { Conformance = SearchablePdfConformance.PdfA2b });
+```
+
+`FromImages` and `FromData` take decoded images or bytes, `FromImages`, `FromFiles` and `MakeSearchable` have `Async` twins, and the result reports how many pages got a
+layer, how many words were written and what could not be done. `PdfTextLayerWriter` draws one `OcrPage` into a page you already have.
+From the command line:
 
 ```
 oneocr pdf scan.jpg --out scan.pdf                       # one image, one page
@@ -353,9 +374,68 @@ oneocr pdf pages/ fax.tif --out book.pdf --pdfa          # a folder of images an
 oneocr pdf scanned.pdf --out searchable.pdf              # pages that need a layer get one, the rest is untouched
 ```
 
-It prints one summary line (pages, pages given a text layer, words) and writes notes about the pages to stderr. Text in the input whose character
-map cannot be trusted (garbled, or contradicted by the rendering) keeps painting as it did, but is marked `/ActualText` so that extraction and copy
-return the recognized words instead.
+It prints one summary line (pages, pages given a text layer, words) and writes notes about the pages to stderr; bad input is one line and a
+non-zero exit. Other options: `--title`, `--dpi`, `--keep-ocr-layer`, `--degree`.
+
+**What is preserved**
+
+- The page looks exactly as before: the layer is drawn invisibly (render mode 3) over the image, and rendering the result gives the same
+  pixels. A JPEG is placed as its own bytes; a 1-bit scan stays 1-bit (Flate); nothing is re-encoded lossily.
+- In a PDF you pass in, pages that already have trusted text are left alone. Everything outside the pages' content (fonts, forms,
+  annotations, outlines, metadata) is as it was, and the original page content stays byte for byte: our layer is an added content stream. If
+  no page needs a layer and you did not ask for PDF/A, the output is the input.
+- An invisible layer from an earlier OCR step is replaced, not stacked on, so words are not found twice. `--keep-ocr-layer` (or
+  `PdfOcrOptions.TrustExistingOcrLayer`) trusts it instead.
+- Visible text whose character map cannot be trusted keeps painting as it did, but is marked with an empty `/ActualText`, so extraction and
+  copy return the recognized words instead of garbage.
+- The output is deterministic: the same input, options and engine give the same bytes.
+- The layer follows the page model's boxes: words sit on their line's baseline, rotated and deskewed lines are mapped back to the input
+  page, and a page's size comes from its resolution on both axes (see the fax section below). Written word boxes are within 0.003 pt of the
+  page model's on upright and quarter-turned pages.
+
+**Limits**
+
+- **No CCITT output.** CCITT (G3/G4) pages are read, but written as Flate: OnePDF has no CCITT encoder. Pages stay 1-bit and small, not
+  fax-compressed.
+- **JPEG passthrough** only for a one-frame file whose EXIF orientation is 1 (a rotated JPEG is turned upright and stored losslessly); a PNG
+  of one frame and orientation 1 is likewise passed through.
+- **Skewed text.** The layer is exact (every glyph corner within 0.005 pt of the page model's quad), but whether a reader returns a tilted
+  line as one line depends on that reader: extraction that groups glyphs with axis-aligned logic, OnePDF's included, can return a line
+  tilted by a few degrees in fragments. Search and selection in a viewer use the glyph positions and are not affected.
+- **PDF/A-2b** is produced by saving through OnePDF's PDF/A conversion; OnePDF is not a validator and neither is this library. A document
+  that cannot be converted (a font that cannot be embedded, say) raises `OcrFormatException` with OnePDF's reasons and writes nothing to a path output.
+- Text in form XObjects is not entered when removing an earlier layer or marking untrusted text; the result's diagnostics say so when it
+  matters. Vertical and right-to-left layer layout is not done yet.
+
+The layer's font is a glyphless TrueType font generated by the library, so there is no third-party font in your PDFs. Details and
+tolerances are in [`docs/spec/searchable-pdf.md`](docs/spec/searchable-pdf.md).
+
+## Faxes, low-resolution scans and phone photos of financial documents
+
+Statements, invoices and receipts arrive as faxes, 150 or 200 dpi scans, photocopies and phone photos. The reader handles each on purpose:
+
+- **Non-square pixels.** A standard-mode fax is 200 dots per inch across and 100 down, so every letter is squashed to half its height. The
+  reader takes both resolutions from the file (PNG `pHYs`, JFIF density, TIFF `XResolution` and `YResolution`). When they differ by more than
+  5%, the page is stretched to square pixels before it is read (a ratio beyond 4:1 is taken as a bad header and ignored), and every box and
+  quad is mapped back, so coordinates stay in the pixels of the image you passed in. A page with square pixels takes no extra step. The
+  stretch is noted in the page diagnostics (`OCR112`); declared resolutions that could not be used are noted as `OCR113`.
+- **1-bit pages.** A stretched bilevel page is lightly smoothed (two `[1 2 1]` passes) so that the edges of the doubled rows do not read as
+  strokes. Fine-mode fax (200 by 200) needs neither. On generated standard-mode fax pages the share of amounts read wrongly fell from 40-50%
+  to 11-16%.
+- **Low-resolution scans and photocopies.** Noisy 150 to 300 dpi scans follow each line's ink past the end of the detector's box, so the
+  last digit of a number or a trailing minus sign is not cut off. Quantities and one-digit table cells are recovered, and on phone photos
+  small amounts and dates are not dropped as noise.
+- **The page keeps the paper's shape.** `OcrPage.UnitsPerInch` and `OcrPage.VerticalUnitsPerInch` carry the two resolutions, the page JSON
+  has `unitsPerInchY` when it differs, and searchable PDFs use both.
+
+Files you give by path, stream or bytes (`OcrPages`, `oneocr ocr`, `SearchablePdf.FromFiles`) bring their declared resolution along. A
+`OneImage.Image` you decoded yourself carries none, so set it:
+
+```csharp
+OcrPage page = image.Ocr(engine, new OcrOptions { Dpi = 200, VerticalDpi = 100 });   // standard-mode fax
+```
+
+`Dpi` alone means square pixels at that resolution. The beam-search `ToText` path does not stretch yet.
 
 ## LLM vision, held to the page
 
@@ -777,6 +857,23 @@ scans only just), and about twice as fast as Tesseract with its best models.
 - **Reproduce.** `python -m oneocr_bench gate` in [`bench/`](bench/README.md) prints the quality
   and calibration table for an evaluation directory; `bench/scripts/full_run.sh` runs the whole
   comparison on one machine.
+
+### Financial documents: faxes, scans, phone photos and tables
+
+**TBD: the numbers come from the sealed financial gate and are not yet filled in.** The sets hold generated statements, invoices and
+receipts with exact truth, plus pages of public US Treasury financial reports (real slice), degraded as a fax (standard and fine mode),
+as a 150/200 dpi scan with photocopy and JPEG noise, as a phone photo, and as a table-heavy cut. The first column is the share of money
+values, dates and account-like numbers that are read exactly right (a value read with any wrong character counts as wrong).
+
+| Category | Amount exact match: OneOcr | Amount exact match: best other engine | CER | WER | Best other engine (CER / WER) |
+|---|---|---|---|---|---|
+| Scans (skew, 150/200 dpi, photocopy) | TBD | TBD | TBD | TBD | TBD |
+| Fax (G3, standard and fine mode) | TBD | TBD | TBD | TBD | TBD |
+| Phone photos | TBD | TBD | TBD | TBD | TBD |
+| Tables (statements, invoices, receipts) | TBD | TBD | TBD | TBD | TBD |
+
+Statement running-balance reconciliation (opening balance plus every row equals the closing balance) and reading order are measured and
+reported with the table; they are measurements, not a product feature. Method and generators are in [`bench/`](bench/README.md).
 
 ## Not yet
 
