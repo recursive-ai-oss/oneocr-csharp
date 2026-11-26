@@ -201,11 +201,6 @@ internal static class Program
             }
         }
 
-        if (o.TryGetValue("photoends", out string? photoEnds))
-        {
-            DetectorLines.PhotoEnds = photoEnds != "0";
-        }
-
         if (o.TryGetValue("endext", out string? endExt))
         {
             string[] f = endExt.Split(':');

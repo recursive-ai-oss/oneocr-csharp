@@ -95,12 +95,12 @@ On a photo, for each detected line (axis-aligned rectangle, or the straightened 
    at least half the line's height), the word's rectangle is the aligned extent over the line's rows, as when no ink is found. A rectangle of a pixel or
    two otherwise tears the word out of its line in reading order.
 
-## Line ends on flat pages (page reader, any detector version)
+## Line ends (page reader, any detector version)
 
 The detector's box is a few pixels uncertain at the ends of a line, and a box that stops inside the last letter (or just before it) leaves
 the ink band, and with it the crop the recognizer reads, a letter short: `Nairobi` read as `Nairob`. Measured on exact-truth pages, the box
 ends about 1 px inside the ink on typical lines and a letter or more inside on a few percent of them. After the ink band of a line is
-found, each end is therefore followed outwards on **pages that are not camera photos** (photos keep the rule above). Let `B` be the band's height in pixels.
+found, each end is therefore followed outwards, on every page. (On a noisy page, one the photo rule above applies to, the rule that takes the detector's end when the ink stops more than 0.8 band heights short runs first, and the end is then followed like any other.) Let `B` be the band's height in pixels.
 
 1. **Follow.** From the band's last ink column, scan columns outwards over the band's rows. A column has ink when any of its pixels is on the
    ink side of the threshold the band was found with. Scanning stops at the first run of more than `max(1, round(0.25 * B))` columns without
@@ -115,6 +115,17 @@ found, each end is therefore followed outwards on **pages that are not camera ph
 
 Without step 2, about one strip in ten on screenshot pages grew by a whole line height onto the fill of buttons and bars. The constants
 (0.25 gap, 1.0 reach, 0.25 minimum, 0.65 fill) come from a sweep of seven variants over generated layout and screenshot pages.
+
+**Noisy scans.** A photocopied or scanned page is noisy enough to be a "photo" in the sense of the page rule (noise estimate over the threshold), so
+the text map is cut at 0.5 and a box stops a letter or two short at an end: a trailing minus sign, the last digit of an account number, the first
+letter of a description. The rule above therefore runs on these pages too, with the same bounds as on a clean page, and the neighbour limits (the box of
+the nearest other detected line on the row) are computed on every page. On generated scans (150 to 300 dpi, 0.5 to 8 degrees of skew) a lost last
+character was 37 of 78 misread amounts (`160.97-` read `160.97`, `447957` read `44795`); it is 10 of 43 now.
+
+**Lines read along their own axis.** The strip of a leaning line (see Line axis) is cut from the page `ceil(1.0 * T)` pixels past the component at each end, `T`
+being the component's thickness, so the ink can be followed out of the component with the same rule; which rows are the line is still decided inside
+the component's extent. Before, the strip ended where the component did and the rule could not move the end.
+
 
 ## Joined lines on flat pages (page reader, any detector version)
 

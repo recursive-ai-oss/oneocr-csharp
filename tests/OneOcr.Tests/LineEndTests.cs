@@ -97,12 +97,12 @@ public class LineEndTests
     }
 
     [Fact]
-    public void PhotosKeepTheirOwnEndRule()
+    public void NoisyPagesFollowTheInkToo()
     {
-        // On a camera photo the end comes from the ink (or the detector) as before: the last bar inside the box ends at x 88.
+        // A noisy page (a photocopy, a photo) is followed the same way: the last bar of the run ends at x 98, past the box at 90.
         LineBox flat = Ink(Page((20, 100)), 90);
-        LineBox photo = Ink(Page((20, 100)), 90, photo: true);
+        LineBox noisy = Ink(Page((20, 100)), 90, photo: true);
         Assert.Equal(98, flat.Right);
-        Assert.Equal(88, photo.Right);
+        Assert.Equal(98, noisy.Right);
     }
 }
