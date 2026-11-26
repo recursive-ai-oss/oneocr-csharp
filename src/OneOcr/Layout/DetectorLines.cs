@@ -163,8 +163,8 @@ internal static class DetectorLines
                 darkInk = LocalInk.PageIsDarkInk(page, width, lineBoxes);
             }
 
-            // Page lines the ink of a line may not be followed into (see ExtendEnds); photos keep their own end handling.
-            (int[]? Left, int[]? Right) limits = EndGap > 0 && darkInk is null ? NeighbourLimits(detection.Lines, width) : (null, null);
+            // Page lines the ink of a line may not be followed into (see ExtendEnds).
+            (int[]? Left, int[]? Right) limits = EndGap > 0 ? NeighbourLimits(detection.Lines, width) : (null, null);
             int typicalBox = darkInk is null ? TypicalBoxHeight(detection.Lines) : 0;
             for (int i = 0; i < detection.Lines.Count; i++)
             {
@@ -700,7 +700,7 @@ internal static class DetectorLines
                         }
                     }
 
-                    if (EndGap > 0 && pageIsDarkInk is null)
+                    if (EndGap > 0)
                     {
                         ExtendEnds(page, width, y0 + start, y0 + end, threshold, inkIsBright, Math.Max(0, leftLimit), Math.Min(width, rightLimit), ref minX, ref maxX);
                     }
