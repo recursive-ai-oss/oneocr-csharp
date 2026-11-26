@@ -359,21 +359,29 @@ internal static partial class PageReader
         // The recurrent layers read their weights once per step for a whole group of lines, so lines are read in groups of similar
         // width (a group runs as long as its longest line). A group is the unit of parallelism; with few lines the groups shrink so
         // that every thread has one. Which lines share a group never changes any line's result.
-        queue.Sort((l, r) => l.Width != r.Width ? r.Width.CompareTo(l.Width) : l.Index.CompareTo(r.Index));
-        int maxLines = degree <= 1 ? MaxGroupLines : Math.Clamp(queue.Count / (2 * degree), 1, MaxGroupLines);
         var groups = new List<(int First, int Count)>();
-        for (int first = 0; first < queue.Count;)
+        void BuildGroups()
         {
-            int taken = 0, columns = 0;
-            while (first + taken < queue.Count && taken < maxLines && (taken == 0 || columns + queue[first + taken].Width <= MaxGroupWidth))
+            queue.Sort((l, r) => l.Width != r.Width ? r.Width.CompareTo(l.Width) : l.Index.CompareTo(r.Index));
+            int maxLines = degree <= 1 ? MaxGroupLines : Math.Clamp(queue.Count / (2 * degree), 1, MaxGroupLines);
+            groups.Clear();
+            for (int first = 0; first < queue.Count;)
             {
-                columns += queue[first + taken].Width;
-                taken++;
-            }
+                int taken = 0, columns = 0;
+                while (first + taken < queue.Count && taken < maxLines && (taken == 0 || columns + queue[first + taken].Width <= MaxGroupWidth))
+                {
+                    columns += queue[first + taken].Width;
+                    taken++;
+                }
 
-            groups.Add((first, taken));
-            first += taken;
+                groups.Add((first, taken));
+                first += taken;
+            }
         }
+
+        BuildGroups();
+        var rescue = new (int Left, int Right)[items.Count];
+        bool secondPass = false;
 
         void ReadGroup(int g)
         {
@@ -440,8 +448,13 @@ internal static partial class PageReader
                     {
                         foreach (OcrWord tw in words)
                         {
-                            StageTrace.Add("read", tw.Box, tw.Text, tw.Confidence);
+                            StageTrace.Add(secondPass ? "sign-reread" : "read", tw.Box, tw.Text, tw.Confidence);
                         }
+                    }
+
+                    if (!secondPass && SignRescue.Enabled && item.BlankFrom == int.MaxValue && strips[index].MinConfidence <= 0 && !(strips[index].Local?.InkIsBright ?? inkIsBright))
+                    {
+                        rescue[itemIndex] = SignsBeyond(words, strips[index].Tilt?.Ink ?? ink, item.Crop, PixelSpans.AsBytes(pixels[k].AsSpan(0, images[k].Width * modelHeight)), images[k].Width, modelHeight, strips[index].Local?.Threshold ?? threshold);
                     }
 
                     if (strips[index].MinConfidence > 0)
@@ -483,6 +496,65 @@ internal static partial class PageReader
         }
 
         ParallelRun.For(groups.Count, degree, ReadGroup, cancellationToken);
+
+        // A number whose sign lies just outside its crop is read again with the sign inside; see SignRescue.
+        var again = new List<int>();
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (rescue[i] != (0, 0) && itemWords[i] is not null)
+            {
+                again.Add(i);
+            }
+        }
+
+        if (again.Count > 0)
+        {
+            var before = new Dictionary<int, (ReadItem Item, List<OcrWord> Words)>(again.Count);
+            queue.Clear();
+            foreach (int i in again)
+            {
+                ReadItem old = items[i];
+                (int left, int right) = rescue[i];
+                LineBox crop;
+                if (strips[old.Strip].Tilt is { } tilt)
+                {
+                    var wide = new LineBox(tilt.Ink.X - left, tilt.Ink.Y, tilt.Ink.Width + left + right, tilt.Ink.Height);
+                    crop = LinePreprocessor.CropBoxInFrame(wide, typical);
+                    items[i] = old with { Crop = crop };
+                }
+                else
+                {
+                    int x0 = Math.Max(0, old.Ink.X - left), x1 = Math.Min(width, old.Ink.Right + right);
+                    var wide = new LineBox(x0, old.Ink.Y, x1 - x0, old.Ink.Height);
+                    crop = LinePreprocessor.CropBox(wide, typical, width, height);
+                    items[i] = old with { Ink = wide, Crop = crop };
+                }
+
+                int scaled = PixelResizer.GetSize(crop.Width, crop.Height, null, modelHeight).Width;
+                if (Math.Ceiling((double)crop.Width * modelHeight / crop.Height) > limits.MaxLineWidth || scaled > limits.MaxLineWidth)
+                {
+                    items[i] = old;
+                    continue;
+                }
+
+                before[i] = (old, itemWords[i]!);
+                queue.Add((i, scaled));
+            }
+
+            BuildGroups();
+            secondPass = true;
+            ParallelRun.For(groups.Count, degree, ReadGroup, cancellationToken);
+            foreach ((int i, (ReadItem old, List<OcrWord> words)) in before)
+            {
+                (int left, int right) = rescue[i];
+                if (itemWords[i] is not { } reread || !SignRescue.DiffersByASign(words, reread, left > 0, right > 0))
+                {
+                    itemWords[i] = words;
+                }
+
+                items[i] = old;
+            }
+        }
 
         for (int index = 0; index < strips.Count; index++)
         {
@@ -571,6 +643,27 @@ internal static partial class PageReader
         OcrPage assembled = Assemble(plan, ordered, regions, pageIndex, width, height, units, diagnostics);
         StageClock.Stop("8f order+tables+assemble", t);
         return assembled;
+    }
+
+    // How far, in crop pixels, a minus lies past each end of a line that starts or ends with a number (see SignRescue); (0, 0) when none does.
+    private static (int Left, int Right) SignsBeyond(
+        List<OcrWord> words, LineBox ink, LineBox crop, ReadOnlySpan<byte> pixels, int cropWidth, int modelHeight, int threshold)
+    {
+        double sx = (double)crop.Width / cropWidth, sy = (double)crop.Height / modelHeight;
+        int rowFrom = Math.Max(0, (int)Math.Ceiling((ink.Y - crop.Y) / sy)), rowTo = Math.Min(modelHeight - 1, (int)Math.Floor((ink.Bottom - crop.Y) / sy) - 1);
+        int inkLeft = (int)Math.Round((ink.X - crop.X) / sx), inkRight = (int)Math.Round((ink.Right - crop.X) / sx) - 1;
+        int left = 0, right = 0;
+        if (SignRescue.WantsTrailingSign(words) && inkRight >= 0 && inkRight < cropWidth - 1)
+        {
+            right = (int)Math.Ceiling(SignRescue.FindBeyond(pixels, cropWidth, rowFrom, rowTo, inkRight, 1, threshold) * sx);
+        }
+
+        if (SignRescue.WantsLeadingSign(words) && inkLeft > 0 && inkLeft < cropWidth)
+        {
+            left = (int)Math.Ceiling(SignRescue.FindBeyond(pixels, cropWidth, rowFrom, rowTo, inkLeft, -1, threshold) * sx);
+        }
+
+        return (left, right);
     }
 
     private static double Nearest(double estimate)

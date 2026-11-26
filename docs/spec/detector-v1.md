@@ -127,6 +127,16 @@ being the component's thickness, so the ink can be followed out of the component
 the component's extent. Before, the strip ended where the component did and the rule could not move the end.
 
 
+## Signs beside a number (page reader, any detector version)
+
+The minus of an amount (`-1,370.35`, `4,981.95-`) is a thin stroke a few pixels from its digits. The detector's box often ends inside it or just before it, and the recognizer does not read ink that lies in the margin of its crop, so a line came back as the bare number. A line whose first or last word is a number (at least two digits, not already starting or ending with a minus or bracket) is therefore checked for a sign beyond the ink of its crop, on the scaled crop the recognizer was given (dark ink on a light ground only; lines recovered from faint text and the parts of a dot-leader line are left alone):
+
+1. The columns past the end of the ink are inspected up to 0.8 band heights out (the band is the ink's height). An ink threshold at the page's own value, moved 0.3 of the way to the crop's median gray, is used, because scaling a crop down thins and lightens a stroke of two or three pixels.
+2. The first runs of inked columns are looked at, nearest first. A blank stretch before a run may be at most 0.5 band heights. A run of at most 2 columns touching the ink is the fringe of the last letter and is skipped. A run is a minus when it is at least 3 columns and 0.08 band heights wide, at most 0.5 band heights wide, at most 0.25 band heights (and at least 2 rows) tall, centred between 25% and 75% of the band height, and at least 1.5 times longer than it is tall (a run the ink touches is not judged on length, because the box may have cut it). A run that reaches the edge of the crop is judged by the part that is visible. Anything else ends the search: a full stop sits low, the dots of a leader are square and apart, a rule is taller or longer, the edge of a letter is narrow.
+3. When a minus is found, the line is read a second time with its ink box widened to include the mark (the crop rules of the first reading apply to the wider box, in the page frame for upright lines and in the line's own frame for tilted ones). The second reading replaces the first only when its text, spaces ignored, is the first with one `-` (or `−`, `–`, `—`) added at the start, at the end, or both; otherwise the first reading stays. So a sign is added only when the recognizer reads it from the pixels, and nothing else in the line can change.
+
+The constants are in `SignRescue` and were picked on held-out generated scans, phone captures, tables and fax pages. Parentheses and `CR`/`DR` suffixes are not searched for. Measured effect and the remaining causes are in the changelog entry.
+
 ## Joined lines on flat pages (page reader, any detector version)
 
 Lines set solid (leading barely above the type size, as in statute and report text) touch row by row: a descender reaches the next line's
