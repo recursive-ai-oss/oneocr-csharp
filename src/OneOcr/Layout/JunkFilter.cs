@@ -20,6 +20,8 @@ namespace OneOcr.Layout;
 /// <param name="ContainedFraction">A word of at most <paramref name="ContainedMaxLength"/> characters whose box lies at least this much inside the box of a longer word is a fragment of that word read twice. 0 turns the rule off.</param>
 /// <param name="ContainedMaxLength">The longest word the contained-fragment rule may drop.</param>
 /// <param name="RepeatFraction">A word whose letters and digits are part of another word's, and whose box lies at least this much inside that word's box, is the same ink read twice (the detector boxed a stretch of a line a second time) and goes; of two identical readings the less confident goes. 0 turns the rule off.</param>
+/// <param name="SmallNumberDigits">A word that is only digits and number punctuation (<c>.,:/-+()%</c> and currency signs) with at least this many digits is kept in a small or tiny line whatever its confidence: on a photo of a statement the amounts and dates are printed that small, and grain is not read as a number. 0 turns the rule off.</param>
+/// <param name="SmallNumberPageMin">... but only on a page where at least this many such words are found: a table of amounts has many, grain makes one or two.</param>
 /// <param name="AccentConfidence">A word read with an accent or dot under a letter is a candidate for <see cref="StrayAccents"/> only when its confidence is below this. 0 turns the rule off.</param>
 /// <param name="AccentMargin">... and the plain spelling must be at least this many quarter-bits (four per doubling) more frequent than the accented one.</param>
 /// <param name="AccentPageShare">The rule applies only to a page on which at most this share of the words holding letters has an accented letter.</param>
@@ -41,6 +43,8 @@ internal sealed record JunkParameters(
     int ContainedMaxLength = 1,
     double RepeatFraction = 0.6,
     double CleanPageShare = 0.95,
+    int SmallNumberDigits = 2,
+    int SmallNumberPageMin = 3,
     float AccentConfidence = 0.97f,
     int AccentMargin = 12,
     double AccentPageShare = 0.12);
@@ -81,7 +85,7 @@ internal static class JunkFilter
         {
             if (p.StrokeConfidence > 0)
             {
-                dropped += DropWords(strips, w => IsStroke(w, p.StrokeConfidence, p.StrokeAspect));
+                dropped += DropWords(strips, "stroke", w => IsStroke(w, p.StrokeConfidence, p.StrokeAspect));
             }
 
             if (p.ContainedFraction > 0)
@@ -139,6 +143,7 @@ internal static class JunkFilter
                 {
                     kept ??= new List<OcrWord>(s.Words.Take(k));
                     dropped++;
+                    Trace("speck", w);
                 }
                 else
                 {
@@ -179,6 +184,7 @@ internal static class JunkFilter
                 {
                     kept ??= new List<OcrWord>(s.Words.Take(k));
                     dropped++;
+                    Trace("control", s.Words[k]);
                 }
                 else
                 {
@@ -262,7 +268,7 @@ internal static class JunkFilter
     }
 
     // Words are removed where <paramref name="drop"/> says so; strips left without words become null. Returns the number dropped.
-    private static int DropWords(OrderStrip?[] strips, Func<OcrWord, bool> drop)
+    private static int DropWords(OrderStrip?[] strips, string rule, Func<OcrWord, bool> drop)
     {
         int dropped = 0;
         for (int i = 0; i < strips.Length; i++)
@@ -279,6 +285,7 @@ internal static class JunkFilter
                 {
                     kept ??= new List<OcrWord>(s.Words.Take(k));
                     dropped++;
+                    Trace(rule, s.Words[k]);
                 }
                 else
                 {
@@ -293,6 +300,14 @@ internal static class JunkFilter
         }
 
         return dropped;
+    }
+
+    private static void Trace(string rule, OcrWord w)
+    {
+        if (StageTrace.On)
+        {
+            StageTrace.Add("junk-drop:" + rule, w.Box, w.Text, w.Confidence);
+        }
     }
 
     private const int GridCell = 128;
@@ -380,7 +395,7 @@ internal static class JunkFilter
             }
         }
 
-        return doomed.Count == 0 ? 0 : DropWords(strips, doomed.Contains);
+        return doomed.Count == 0 ? 0 : DropWords(strips, "contained", doomed.Contains);
     }
 
     // A stretch of a line that the detector boxed a second time is read again: "firea" and "arn" over "firearms.", a second "in" over
@@ -465,7 +480,7 @@ internal static class JunkFilter
             }
         }
 
-        return doomed.Count == 0 ? 0 : DropWords(strips, doomed.Contains);
+        return doomed.Count == 0 ? 0 : DropWords(strips, "repeat", doomed.Contains);
     }
 
     // The word's letters and digits, case-folded: what two readings of the same ink share even when the marks around them differ.
@@ -519,8 +534,12 @@ internal static class JunkFilter
 
     // Drops the unsure words of small lines (entries become null when no word is left). The reference height is the median ink
     // height of the lines that were read with high confidence.
+    // For tuning from the benchmark: replace the small-number rule's digit count and page minimum (null keeps the parameters').
+    internal static int? SmallNumberDigitsOverride, SmallNumberPageMinOverride;
+
     private static int DropSmall(OrderStrip?[] strips, JunkParameters p)
     {
+        p = p with { SmallNumberDigits = SmallNumberDigitsOverride ?? p.SmallNumberDigits, SmallNumberPageMin = SmallNumberPageMinOverride ?? p.SmallNumberPageMin };
         var anchors = new List<int>();
         foreach (OrderStrip? s in strips)
         {
@@ -540,6 +559,25 @@ internal static class JunkFilter
         double relative = p.RelativeHeight * reference;
         double limit = Math.Min(relative, p.MaxHeight);
         double tiny = Math.Min(relative, p.TinyHeight);
+        // Small numbers are kept only where there are several: a statement's columns of amounts and dates, not the one stray run of digits
+        // that grain or a rule makes on a page of ordinary text.
+        int numbers = 0;
+        if (p.SmallNumberDigits > 0)
+        {
+            foreach (OrderStrip? s in strips)
+            {
+                if (s is not null && s.Box.Bottom - s.Box.Top < limit)
+                {
+                    float bar = s.Box.Bottom - s.Box.Top < tiny ? Math.Max(p.MaxConfidence, p.TinyConfidence) : p.MaxConfidence;
+                    foreach (OcrWord w in s.Words)
+                    {
+                        numbers += w.Confidence < bar && IsNumber(w.Text, p.SmallNumberDigits) ? 1 : 0;
+                    }
+                }
+            }
+        }
+
+        bool keepNumbers = numbers >= p.SmallNumberPageMin;
         int dropped = 0;
         for (int i = 0; i < strips.Length; i++)
         {
@@ -553,9 +591,13 @@ internal static class JunkFilter
             float bar = s.Box.Bottom - s.Box.Top < tiny ? Math.Max(p.MaxConfidence, p.TinyConfidence) : p.MaxConfidence;
             foreach (OcrWord w in s.Words)
             {
-                if (w.Confidence >= bar)
+                if (w.Confidence >= bar || (keepNumbers && IsNumber(w.Text, p.SmallNumberDigits)))
                 {
                     kept.Add(w);
+                }
+                else
+                {
+                    Trace(bar > p.MaxConfidence ? "small-tiny" : "small", w);
                 }
             }
 
@@ -570,6 +612,33 @@ internal static class JunkFilter
 
         return dropped;
     }
+
+    // Amounts, dates and account numbers: digits with the punctuation that joins them. Specks and grain read as text come out as dots,
+    // single marks or letters; a run of several digits is nearly always printed (measured on small-text captures: see the page spec).
+    private static bool IsNumber(string text, int minDigits)
+    {
+        if (minDigits <= 0)
+        {
+            return false;
+        }
+
+        int digits = 0;
+        foreach (char c in text)
+        {
+            if (c is >= '0' and <= '9')
+            {
+                digits++;
+            }
+            else if (!NumberMarks.Contains(c))
+            {
+                return false;
+            }
+        }
+
+        return digits >= minDigits;
+    }
+
+    private const string NumberMarks = ".,:/-+()%$€£¥";
 
     private static double MeanConfidence(OrderStrip s)
     {

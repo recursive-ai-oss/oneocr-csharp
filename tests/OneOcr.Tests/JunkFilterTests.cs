@@ -36,6 +36,34 @@ public class JunkFilterTests
     }
 
     [Fact]
+    public void SmallNumbersStayWhereThereAreSeveral()
+    {
+        // A photo of a statement: the amounts and dates are printed small and read without much confidence, in a table of them.
+        List<OrderStrip?> list = Body();
+        list.Add(Strip(200, 6, ("14.01.", 0.2f), ("-48.80", 0.1f)));
+        list.Add(Strip(220, 6, ("15.01.", 0.3f), ("1,250.00", 0.4f), ("ab.", 0.2f)));
+        OrderStrip?[] strips = [.. list];
+
+        int dropped = JunkFilter.Apply(strips, new JunkParameters());
+
+        Assert.Equal(1, dropped);
+        Assert.Equal(["14.01.", "-48.80"], strips[4]!.Words.Select(w => w.Text));
+        Assert.Equal(["15.01.", "1,250.00"], strips[5]!.Words.Select(w => w.Text));
+    }
+
+    [Fact]
+    public void AStrayNumberInASmallLineIsStillNoise()
+    {
+        List<OrderStrip?> list = Body();
+        list.Add(Strip(200, 6, ("1011541,", 0.16f)));
+        OrderStrip?[] strips = [.. list];
+
+        Assert.Equal(1, JunkFilter.Apply(strips, new JunkParameters()));
+        Assert.Null(strips[4]);
+        Assert.Equal(1, JunkFilter.Apply([.. Body(), Strip(200, 6, ("12", 0.1f))], new JunkParameters(SmallNumberDigits: 0)));
+    }
+
+    [Fact]
     public void ConfidentSmallPrintStays()
     {
         List<OrderStrip?> list = Body();

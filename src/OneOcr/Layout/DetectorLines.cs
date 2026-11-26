@@ -168,6 +168,11 @@ internal static class DetectorLines
             int typicalBox = darkInk is null ? TypicalBoxHeight(detection.Lines) : 0;
             for (int i = 0; i < detection.Lines.Count; i++)
             {
+                if (StageTrace.On)
+                {
+                    StageTrace.Add("detected", new OcrBox(detection.Lines[i].Left, detection.Lines[i].Top, detection.Lines[i].Right, detection.Lines[i].Bottom), string.Empty, 0);
+                }
+
                 int leaf = LeafOf(detection, i);
                 int before = strips.Count;
                 // A box tall enough to hold several lines is tried upright first: the axis of a component that joins lines leans with
