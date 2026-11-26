@@ -67,30 +67,33 @@ internal static class TiltedLines
 
         int u0 = (int)Math.Floor(a.U0), u1 = (int)Math.Ceiling(a.U1), v0 = (int)Math.Floor(a.V0), v1 = (int)Math.Ceiling(a.V1);
         long w = (long)u1 - u0, h = (long)v1 - v0;
-        if (w < 1 || h < 1 || w * h > MaxStripPixels)
+        // The strip reaches past the detected component on both ends so the ink can be followed out of a box that stops inside the last
+        // letter, as it is on an upright line (DetectorLines.ExtendEnds); the detected extent still decides which rows are the line.
+        int margin = DetectorLines.EndGap > 0 ? (int)Math.Ceiling(DetectorLines.EndReach * h) : 0;
+        if (w < 1 || h < 1 || (w + (2L * margin)) * h > MaxStripPixels)
         {
             return false;
         }
 
         var frame = new TiltedLine(a.CenterX, a.CenterY, a.Cos, a.Sin, new LineBox(0, 0, 0, 0));
-        byte[] strip = System.Buffers.ArrayPool<byte>.Shared.Rent((int)(w * h));
+        byte[] strip = System.Buffers.ArrayPool<byte>.Shared.Rent((int)((w + (2L * margin)) * h));
         try
         {
-            int sw = (int)w, sh = (int)h;
+            int sw = (int)w + (2 * margin), sh = (int)h;
             for (int j = 0; j < sh; j++)
             {
                 for (int i = 0; i < sw; i++)
                 {
-                    (double px, double py) = frame.ToPage(u0 + i + 0.5, v0 + j + 0.5);
+                    (double px, double py) = frame.ToPage(u0 - margin + i + 0.5, v0 + j + 0.5);
                     strip[(j * sw) + i] = Sample(page, width, height, px, py);
                 }
             }
 
             var boxes = new List<LineBox>(1);
-            LocalInk? local = DetectorLines.InkBoxes(new Detection.DetectedLine(0, 0, sw, sh, line.Score), strip.AsSpan(0, sw * sh), sw, sh, threshold, inkIsBright, boxes, pageIsDarkInk, 0, int.MaxValue, typicalBox);
+            LocalInk? local = DetectorLines.InkBoxes(new Detection.DetectedLine(margin, 0, margin + w, sh, line.Score), strip.AsSpan(0, sw * sh), sw, sh, threshold, inkIsBright, boxes, pageIsDarkInk, 0, int.MaxValue, typicalBox);
             foreach (LineBox b in boxes)
             {
-                var ink = new LineBox(u0 + b.X, v0 + b.Y, b.Width, b.Height);
+                var ink = new LineBox(u0 - margin + b.X, v0 + b.Y, b.Width, b.Height);
                 (double cx, double cy) = frame.ToPage(ink.X + (ink.Width / 2.0), ink.Y + (ink.Height / 2.0));
                 // The strip's box for reading order: the straightened ink rectangle, unrotated, at the tilted rectangle's centre.
                 var box = new LineBox(
