@@ -2,8 +2,8 @@ name: ci
 
 # Build, test and NativeAOT smoke on four platforms, plus a pack-and-consume check of the packages on Linux.
 #
-# The tests that read the bundled models need the weights. They are release assets of the draft or published release of the
-# version in Directory.Build.props (see RELEASING.md), fetched once by the "weights" job and checked against the SHA-256 pins
+# The tests that read the bundled models need the weights. They are release assets of the GitHub release named in
+# tools/ci/weights-release.txt (see RELEASING.md), fetched once by the "weights" job and checked against the SHA-256 pins
 # in the models.json manifests. On a ci-check/** branch a missing release fails the run; on main the run goes on without
 # weights (tests that need them then skip) and says so.
 on:
@@ -41,15 +41,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           STRICT: ${{ startsWith(github.ref, 'refs/heads/ci-check/') }}
         run: |
-          version=$(sed -n 's|.*<Version>\(.*\)</Version>.*|\1|p' Directory.Build.props | head -n 1)
+          tag=$(head -n 1 tools/ci/weights-release.txt)
           set +e
-          tools/ci/fetch-weights.sh "v$version" "$RUNNER_TEMP/weights"
+          tools/ci/fetch-weights.sh "$tag" "$RUNNER_TEMP/weights"
           status=$?
           set -e
           if [ "$status" -eq 0 ]; then
             echo "have=true" >> "$GITHUB_OUTPUT"
           elif [ "$status" -eq 3 ] && [ "$STRICT" != "true" ]; then
-            echo "::warning::no release v$version holds the weights; building without them"
+            echo "::warning::no release $tag holds the weights; building without them"
             echo "have=false" >> "$GITHUB_OUTPUT"
           else
             exit "$status"

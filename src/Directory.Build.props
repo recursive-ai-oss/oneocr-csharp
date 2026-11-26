@@ -19,6 +19,12 @@
     <RootNamespace>$(MSBuildProjectName)</RootNamespace>
   </PropertyGroup>
 
+  <PropertyGroup Label="Package validation">
+    <!-- Every pack compares the public API of the package with the last release and fails on a break: a minor version is additive. -->
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion>
+  </PropertyGroup>
+
   <PropertyGroup Label="Reproducible packages">
     <!-- Paths in the binaries and symbols are normalized when a CI runner builds; local builds are left alone. -->
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
